@@ -71,6 +71,8 @@ class TurnRunner:
                 "state_version": result.snapshot.version,
                 "tick": result.snapshot.tick,
             })
+            turn_span.metric("story.work_processed", float(len(result.processed_work_ids)))
+            turn_span.metric("story.work_remaining", float(len(result.remaining_work_ids)))
             return result
 
     async def _process_ready(self, game_id: str, snapshot: Snapshot) -> RunResult:
@@ -131,7 +133,10 @@ class TurnRunner:
                     result.on_commit()
                 work_span.update(metadata={
                     "event_id": result.event.event_id if result.event else None,
+                    "event_kind": result.event.kind if result.event else None,
+                    "effect_paths": [".".join(effect.path) for effect in result.event.effects] if result.event else [],
                     "observation_ids": [item.observation_id for item in result.observations + projected],
+                    "observation_recipient_ids": sorted({item.recipient_id for item in result.observations + projected}),
                     "new_work_ids": [item.work_id for item in result.new_work],
                     "committed_version": snapshot.version,
                 })

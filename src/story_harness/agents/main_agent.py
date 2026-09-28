@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from story_harness.core.actions import ActionRule
 from story_harness.agents.quiet_agent import QuietReActAgent
 from story_harness.adapters.store import GameStore
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from story_harness.world.worldbook import Worldbook
 
 
@@ -46,11 +47,13 @@ class MainReActAgent:
         max_iters: int = 4,
         action_rules: dict[str, ActionRule] | None = None,
         narration_model: ChatModelBase | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self.game_id = game_id
         self.store = store
         self.worldbook = worldbook
         self.action_rules = action_rules or {}
+        self.telemetry = telemetry or LangfuseTelemetry()
         toolkit = Toolkit()
 
         def get_worldbook_entry(entry_id: str) -> ToolResponse:
@@ -120,7 +123,7 @@ class MainReActAgent:
             ])
 
         for tool in (get_worldbook_entry, search_worldbook, get_scene, get_player_observations, get_available_actions):
-            toolkit.register_tool_function(tool)
+            toolkit.register_tool_function(observed_tool(tool, self.telemetry))
 
         self.agent = QuietReActAgent(
             name="main-react",
@@ -170,10 +173,18 @@ class MainReActAgent:
                 for item in observations
             ],
         }
-        response = await self.agent(
-            Msg("player", json.dumps(request, ensure_ascii=False), "user"),
-            structured_model=MainDecision,
-        )
+        with self.telemetry.span(
+            "main-context",
+            {"sources": ["current_state", "recent_player_inputs", "recent_player_observations"],
+             "state_version": snapshot.version, "tick": snapshot.tick,
+             "player_input_count": len(history),
+             "player_observation_ids": [item.observation_id for item in observations]},
+            input=request if self.telemetry.capture_content else None,
+        ):
+            response = await self.agent(
+                Msg("player", json.dumps(request, ensure_ascii=False), "user"),
+                structured_model=MainDecision,
+            )
         if not isinstance(response.metadata, dict):
             raise ValueError("main agent returned no structured decision")
         return MainDecision.model_validate(response.metadata)

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from story_harness.core.contracts import PendingWork, Snapshot
 from story_harness.agents.quiet_agent import QuietReActAgent
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
 
 
 class WorkChoice(BaseModel):
@@ -22,9 +23,11 @@ class WorkChoice(BaseModel):
 class AgentScopeWorkSelector:
     """Select a queued candidate without seeing hidden state or raw payloads."""
 
-    def __init__(self, model: ChatModelBase, max_iters: int = 3) -> None:
+    def __init__(self, model: ChatModelBase, max_iters: int = 3,
+                 telemetry: Telemetry | None = None) -> None:
         self.model = model
         self.max_iters = max_iters
+        self.telemetry = telemetry or LangfuseTelemetry()
 
     async def __call__(
         self, snapshot: Snapshot, options: list[PendingWork]
@@ -63,12 +66,17 @@ class AgentScopeWorkSelector:
             },
             ensure_ascii=False,
         )
-        response = await agent(
-            Msg("scheduler", request, "user"), structured_model=WorkChoice
-        )
+        with self.telemetry.span(
+            "work-selection", {"candidate_count": len(options), "state_version": snapshot.version},
+            kind="agent", input=visible_options if self.telemetry.capture_content else None,
+        ) as selection_span:
+            response = await agent(
+                Msg("scheduler", request, "user"), structured_model=WorkChoice
+            )
         if not isinstance(response.metadata, dict):
             raise ValueError("selector returned no structured choice")
         chosen_id = WorkChoice.model_validate(response.metadata).work_id
+        selection_span.update(metadata={"chosen_work_id": chosen_id})
         for item in options:
             if item.work_id == chosen_id:
                 return item

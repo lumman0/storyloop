@@ -12,6 +12,7 @@ from agentscope.model import OpenAIChatModel
 
 from story_harness.adapters.model_config import NpcModelConfig
 from story_harness.adapters.store import GameStore, SQLiteGameStore
+from story_harness.adapters.telemetry import Telemetry
 
 
 def _string(value: object, name: str) -> str:
@@ -106,7 +107,8 @@ class HarnessConfig:
             raise ValueError(f"unconfigured model task: {task}") from error
 
     def create_model(
-        self, task: str, env: Mapping[str, str] | None = None
+        self, task: str, env: Mapping[str, str] | None = None,
+        telemetry: Telemetry | None = None,
     ) -> OpenAIChatModel:
         values = os.environ if env is None else env
         api_key = values.get(self.api_key_env, "")
@@ -115,6 +117,8 @@ class HarnessConfig:
         return NpcModelConfig(
             self.model_name(task), api_key, self.base_url,
             self.tool_choice_policy,
+            telemetry,
+            task,
         ).create_model()
 
     def create_store(self, path_override: str | None = None) -> GameStore:

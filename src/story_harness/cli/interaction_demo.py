@@ -18,6 +18,7 @@ from story_harness.runtime.runner import TurnRunner
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.schedule import scenario_cue
 from story_harness.adapters.store import SQLiteGameStore
+from story_harness.adapters.telemetry import Telemetry, configured_telemetry
 
 
 class OfflineReplyModel(ChatModelBase):
@@ -32,7 +33,8 @@ class OfflineReplyModel(ChatModelBase):
 
 
 async def run_interaction_demo(
-    path: str | Path, message: str = "你好，今天怎么样？", turns: int = 4
+    path: str | Path, message: str = "你好，今天怎么样？", turns: int = 4,
+    telemetry: Telemetry | None = None,
 ) -> dict[str, object]:
     if turns < 1:
         raise ValueError("turns must be positive")
@@ -41,7 +43,7 @@ async def run_interaction_demo(
     with TemporaryDirectory() as directory:
         store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
         package.seed_game(store, "demo-game")
-        pool = NpcAgentPool(store, lambda game_id, actor: OfflineReplyModel(actor))
+        pool = NpcAgentPool(store, lambda game_id, actor: OfflineReplyModel(actor), telemetry=telemetry)
         runner = TurnRunner(
             store,
             {
@@ -49,6 +51,7 @@ async def run_interaction_demo(
                 "scenario_cue": scenario_cue,
             },
             max_steps=8,
+            telemetry=telemetry,
         )
         actors = store.load("demo-game").data["actors"]
         channel = (
@@ -85,10 +88,14 @@ def main() -> None:
     parser.add_argument("--turns", type=int, default=4)
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps(
-        asyncio.run(run_interaction_demo(args.package, args.message, args.turns)),
-        ensure_ascii=False, indent=2,
-    ))
+    telemetry = configured_telemetry()
+    try:
+        print(json.dumps(
+            asyncio.run(run_interaction_demo(args.package, args.message, args.turns, telemetry)),
+            ensure_ascii=False, indent=2,
+        ))
+    finally:
+        telemetry.flush()
 
 
 if __name__ == "__main__":

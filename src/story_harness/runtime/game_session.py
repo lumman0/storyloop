@@ -17,7 +17,7 @@ from story_harness.runtime.runner import TurnRunner, WorkSelector
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.schedule import scenario_cue
 from story_harness.adapters.store import GameStore
-from story_harness.adapters.telemetry import Telemetry
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan
 
 
 class MainAgent(Protocol):
@@ -53,7 +53,7 @@ class GameSession:
         self.npc_pool = npc_pool
         self.max_steps = max_steps
         self.selector = selector
-        self.telemetry = telemetry
+        self.telemetry = telemetry or LangfuseTelemetry()
         self._main: dict[str, MainAgent] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -62,55 +62,103 @@ class GameSession:
             raise ValueError("turn requires text and an ID")
         lock = self._locks.setdefault(game_id, asyncio.Lock())
         async with lock:
-            before = self.store.load(game_id)
-            scenario = before.data.get("scenario", {})
-            if (
-                scenario.get("id") != self.package.package_id
-                or scenario.get("version") != self.package.version
-            ):
-                raise ValueError("game belongs to another scenario")
-            visible_before = {
-                item.observation_id for item in self.store.observations_for(game_id, "player")
-            }
-            if game_id not in self._main:
-                self._main[game_id] = self.main_factory(game_id)
-            main = self._main[game_id]
-            decision = await main.decide(player_text)
-            if decision.intent == "speech":
-                self.store_input(game_id, turn_id, player_text, decision)
-            elif decision.intent == "inspect":
-                self._inspect(before, turn_id, player_text, decision)
-            elif decision.intent == "action":
-                self._act(before, turn_id, player_text, decision)
-            else:
-                raise ValueError(f"unsupported main intent: {decision.intent}")
+            with self.telemetry.span(
+                "story-turn", {"game_id": game_id, "turn_id": turn_id,
+                               "scenario_id": self.package.package_id},
+                input=player_text if self.telemetry.capture_content else None,
+            ) as turn_span:
+                try:
+                    outcome = await self._run_locked_turn(game_id, player_text, turn_id, turn_span)
+                except BaseException:
+                    turn_span.metric("story.turn_success", 0.0)
+                    raise
+                turn_span.metric("story.turn_success", 1.0)
+                return outcome
 
-            runner = TurnRunner(
-                self.store,
-                {
-                    "npc_reply": make_npc_reply_handler(self.npc_pool, self.package.role_cards),
-                    "scenario_cue": scenario_cue,
-                },
-                max_steps=self.max_steps,
-                selector=self.selector,
-                telemetry=self.telemetry,
-            )
+    async def _run_locked_turn(self, game_id: str, player_text: str,
+                               turn_id: str, turn_span: TraceSpan) -> TurnOutcome:
+        before = self.store.load(game_id)
+        scenario = before.data.get("scenario", {})
+        if (
+            scenario.get("id") != self.package.package_id
+            or scenario.get("version") != self.package.version
+        ):
+            raise ValueError("game belongs to another scenario")
+        visible_before = {
+            item.observation_id for item in self.store.observations_for(game_id, "player")
+        }
+        if game_id not in self._main:
+            self._main[game_id] = self.main_factory(game_id)
+        main = self._main[game_id]
+        with self.telemetry.span(
+            "main-decision", {"state_version": before.version, "tick": before.tick},
+            kind="agent",
+        ) as decision_span:
+            decision = await main.decide(player_text)
+            decision_span.update(metadata={
+                "intent": decision.intent, "target_ids": decision.target_ids,
+                "entry_id": decision.entry_id, "action_id": decision.action_id,
+            })
+        if decision.intent == "speech":
+            self.store_input(game_id, turn_id, player_text, decision)
+        elif decision.intent == "inspect":
+            self._inspect(before, turn_id, player_text, decision)
+        elif decision.intent == "action":
+            self._act(before, turn_id, player_text, decision)
+        else:
+            raise ValueError(f"unsupported main intent: {decision.intent}")
+
+        runner = TurnRunner(
+            self.store,
+            {
+                "npc_reply": make_npc_reply_handler(self.npc_pool, self.package.role_cards),
+                "scenario_cue": scenario_cue,
+            },
+            max_steps=self.max_steps,
+            selector=self.selector,
+            telemetry=self.telemetry,
+        )
+        with self.telemetry.span("work-queue", {"max_steps": self.max_steps}) as queue_span:
             result = await runner.run_async(game_id)
-            new_observations = tuple(
-                item for item in self.store.observations_for(game_id, "player")
-                if item.observation_id not in visible_before
-            )
-            visible_results = [item.content for item in new_observations]
+            queue_span.update(metadata={
+                "processed_work_count": len(result.processed_work_ids),
+                "remaining_work_count": len(result.remaining_work_ids),
+            })
+        new_observations = tuple(
+            item for item in self.store.observations_for(game_id, "player")
+            if item.observation_id not in visible_before
+        )
+        visible_results = [item.content for item in new_observations]
+        with self.telemetry.span(
+            "main-narration", {"visible_observation_count": len(new_observations)},
+            kind="agent",
+            input=visible_results if self.telemetry.capture_content else None,
+        ) as narration_span:
             try:
                 narration = await main.summarize(player_text, visible_results)
                 narration_fallback = False
-            except Exception:
+            except Exception as error:
                 narration = "\n".join(visible_results) if visible_results else "暂时没有可见变化。"
                 narration_fallback = True
-            return TurnOutcome(
-                decision, narration, new_observations,
-                result.processed_work_ids, result.snapshot, narration_fallback,
-            )
+                narration_span.update(level="WARNING", status_message=type(error).__name__)
+            narration_span.update(metadata={"narration_fallback": narration_fallback})
+            if self.telemetry.capture_content:
+                narration_span.update(output=narration)
+        turn_span.update(metadata={
+            "state_version": result.snapshot.version,
+            "tick": result.snapshot.tick,
+            "processed_work_count": len(result.processed_work_ids),
+            "player_observation_count": len(new_observations),
+            "narration_fallback": narration_fallback,
+        })
+        turn_span.metric("story.player_observations", float(len(new_observations)))
+        turn_span.metric("story.narration_fallback", float(narration_fallback))
+        if self.telemetry.capture_content:
+            turn_span.update(output=narration)
+        return TurnOutcome(
+            decision, narration, new_observations,
+            result.processed_work_ids, result.snapshot, narration_fallback,
+        )
 
     def store_input(
         self, game_id: str, turn_id: str, text: str, decision: MainDecision

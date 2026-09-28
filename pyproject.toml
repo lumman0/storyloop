@@ -15,7 +15,7 @@ agents = [
   "tqdm==4.70.1",
 ]
 observability = [
-  "langfuse>=4,<5",
+  "langfuse>=4.8.1,<5",
 ]
 
 [tool.setuptools.packages.find]

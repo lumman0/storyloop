@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.core.contracts import PendingWork, Snapshot, WorldEvent
+from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
 from story_harness.runtime.runner import TurnRunner, WorkResult
 from story_harness.adapters.store import SQLiteGameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry
@@ -40,11 +40,11 @@ class TelemetryTests(unittest.TestCase):
     def test_runner_emits_turn_work_and_event_ids(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
-            store.create_game(Snapshot("game", 0, 0, {}), (PendingWork("w1", "step", 0, 1, None, {}),))
+            store.create_game(Snapshot("game", 0, 0, {"world": {"window": {"broken": False}}}), (PendingWork("w1", "step", 0, 1, None, {}),))
             client = FakeLangfuse()
             runner = TurnRunner(
                 store,
-                {"step": lambda snapshot, work: WorkResult(WorldEvent("e1", "happened", None, work.work_id, 0, ()), (), ())},
+                {"step": lambda snapshot, work: WorkResult(WorldEvent("e1", "happened", None, work.work_id, 0, (Effect(("world", "window", "broken"), True),)), (), ())},
                 1,
                 telemetry=LangfuseTelemetry(client),
             )
@@ -56,6 +56,10 @@ class TelemetryTests(unittest.TestCase):
             self.assertEqual(starts[0]["metadata"]["game_id"], "game")
             self.assertEqual(starts[1]["metadata"]["work_id"], "w1")
             self.assertTrue(any(value.get("metadata", {}).get("event_id") == "e1" for kind, value in client.calls if kind == "update"))
+            self.assertTrue(any(
+                value.get("metadata", {}).get("effect_paths") == ["world.window.broken"]
+                for kind, value in client.calls if kind == "update"
+            ))
 
     def test_observability_failure_does_not_block_world_commit(self) -> None:
         class BrokenLangfuse:

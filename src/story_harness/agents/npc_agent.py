@@ -15,6 +15,7 @@ from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse, Toolkit
 
 from story_harness.adapters.store import GameStore
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from story_harness.agents.quiet_agent import QuietReActAgent
 from story_harness.world.worldbook import Worldbook
 
@@ -36,12 +37,14 @@ class NpcAgentPool:
         max_iters: int = 3,
         formatter_factory: Callable[[], OpenAIChatFormatter] = OpenAIChatFormatter,
         worldbook: Worldbook | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self.store = store
         self.model_factory = model_factory
         self.formatter_factory = formatter_factory
         self.max_iters = max_iters
         self.worldbook = worldbook
+        self.telemetry = telemetry or LangfuseTelemetry()
         self._agents: dict[tuple[str, str], QuietReActAgent] = {}
         self._delivered: dict[tuple[str, str], set[str]] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
@@ -125,7 +128,16 @@ class NpcAgentPool:
             )
             agent = self._agents[key]
             prior_state = deepcopy(agent.state_dict())
-            reply = await agent(Msg("player", content, "user"))
+            with self.telemetry.span(
+                "npc-response", {"game_id": game_id, "actor_id": actor_id,
+                                 "context_sources": ["role_card", "npc_memory", "own_observations", "player_message"],
+                                 "new_observation_count": len(visible_unseen),
+                                 "observation_ids": [item.observation_id for item in visible_unseen]},
+                kind="agent", input=json.loads(content) if self.telemetry.capture_content else None,
+            ) as npc_span:
+                reply = await agent(Msg("player", content, "user"))
+                if self.telemetry.capture_content:
+                    npc_span.update(output=reply.get_text_content())
             speech = reply.get_text_content()
             if not speech:
                 raise ValueError("NPC agent returned no dialogue")
@@ -181,8 +193,8 @@ class NpcAgentPool:
                 ]
             return ToolResponse(content=[TextBlock(type="text", text=json.dumps(result, ensure_ascii=False))])
 
-        toolkit.register_tool_function(get_own_state)
-        toolkit.register_tool_function(get_my_observations)
+        toolkit.register_tool_function(observed_tool(get_own_state, self.telemetry))
+        toolkit.register_tool_function(observed_tool(get_my_observations, self.telemetry))
         if self.worldbook is not None:
             def get_known_worldbook_entry(entry_id: str) -> ToolResponse:
                 """Read one worldbook entry that this character is allowed to know.
@@ -198,5 +210,5 @@ class NpcAgentPool:
                     type="text", text=json.dumps(result, ensure_ascii=False)
                 )])
 
-            toolkit.register_tool_function(get_known_worldbook_entry)
+            toolkit.register_tool_function(observed_tool(get_known_worldbook_entry, self.telemetry))
         return toolkit

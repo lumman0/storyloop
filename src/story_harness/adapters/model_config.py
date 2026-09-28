@@ -9,6 +9,8 @@ from typing import Literal
 
 from agentscope.model import OpenAIChatModel
 
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
+
 
 ToolChoicePolicy = Literal["native", "auto_only"]
 
@@ -16,8 +18,11 @@ ToolChoicePolicy = Literal["native", "auto_only"]
 class CompatibleOpenAIChatModel(OpenAIChatModel):
     """Adapt forced tool choices for endpoints that only accept auto/none."""
 
-    def __init__(self, *args: object, tool_choice_policy: ToolChoicePolicy = "native", **kwargs: object) -> None:
+    def __init__(self, *args: object, tool_choice_policy: ToolChoicePolicy = "native",
+                 telemetry: Telemetry | None = None, task: str = "model", **kwargs: object) -> None:
         self.tool_choice_policy = tool_choice_policy
+        self.telemetry = telemetry or LangfuseTelemetry()
+        self.task = task
         super().__init__(*args, **kwargs)
 
     async def __call__(
@@ -31,10 +36,30 @@ class CompatibleOpenAIChatModel(OpenAIChatModel):
         if self.tool_choice_policy == "auto_only" and structured_model is None:
             if tool_choice not in (None, "auto", "none"):
                 tool_choice = "auto"
-        return await super().__call__(
-            messages, tools=tools, tool_choice=tool_choice,
-            structured_model=structured_model, **kwargs,
-        )
+        with self.telemetry.span(
+            f"model:{self.task}",
+            {"task": self.task, "tool_choice": tool_choice,
+             "available_tools": [item.get("function", {}).get("name", "") for item in tools or []],
+             "structured_model": getattr(structured_model, "__name__", None)},
+            kind="generation", model=self.model_name,
+            input=messages if self.telemetry.capture_content else None,
+        ) as generation:
+            try:
+                response = await super().__call__(
+                    messages, tools=tools, tool_choice=tool_choice,
+                    structured_model=structured_model, **kwargs,
+                )
+            except Exception as error:
+                generation.update(level="ERROR", status_message=type(error).__name__)
+                raise
+            if response.usage is not None:
+                generation.update(usage_details={
+                    "input": response.usage.input_tokens,
+                    "output": response.usage.output_tokens,
+                })
+            if self.telemetry.capture_content:
+                generation.update(output=response.content)
+            return response
 
 
 @dataclass(frozen=True)
@@ -43,6 +68,8 @@ class NpcModelConfig:
     api_key: str = field(repr=False)
     base_url: str | None = None
     tool_choice_policy: ToolChoicePolicy = "native"
+    telemetry: Telemetry | None = field(default=None, repr=False)
+    task: str = "model"
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str] | None = None) -> NpcModelConfig:
@@ -66,6 +93,8 @@ class NpcModelConfig:
             stream=False,
             client_kwargs=client_kwargs,
             tool_choice_policy=self.tool_choice_policy,
+            telemetry=self.telemetry,
+            task=self.task,
         )
 
 
