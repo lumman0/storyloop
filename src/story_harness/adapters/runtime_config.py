@@ -47,6 +47,7 @@ class HarnessConfig:
     runtime: RuntimeSettings = field(repr=True)
     storage: StorageSettings = field(repr=True)
     memory_driver: str = "in_memory"
+    tool_choice_policy: str = "native"
 
     @classmethod
     def load(cls, path: str | Path) -> HarnessConfig:
@@ -62,6 +63,9 @@ class HarnessConfig:
             raise ValueError("models, runtime, storage and memory must be objects")
         if models.get("provider") != "openai_compatible":
             raise ValueError("unsupported model provider")
+        tool_choice_policy = models.get("tool_choice_policy", "native")
+        if tool_choice_policy not in ("native", "auto_only"):
+            raise ValueError("models.tool_choice_policy must be native or auto_only")
         routes = models.get("tasks")
         if not isinstance(routes, dict) or not routes:
             raise ValueError("models.tasks must be a nonempty object")
@@ -92,6 +96,7 @@ class HarnessConfig:
             runtime=runtime_settings,
             storage=StorageSettings(driver, resolved_path),
             memory_driver=memory_driver,
+            tool_choice_policy=tool_choice_policy,
         )
 
     def model_name(self, task: str) -> str:
@@ -107,7 +112,10 @@ class HarnessConfig:
         api_key = values.get(self.api_key_env, "")
         if not api_key:
             raise ValueError(f"set {self.api_key_env} before model use")
-        return NpcModelConfig(self.model_name(task), api_key, self.base_url).create_model()
+        return NpcModelConfig(
+            self.model_name(task), api_key, self.base_url,
+            self.tool_choice_policy,
+        ).create_model()
 
     def create_store(self, path_override: str | None = None) -> GameStore:
         if self.storage.driver == "sqlite":

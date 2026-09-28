@@ -17,6 +17,7 @@ class HarnessConfigTests(unittest.TestCase):
         self.assertEqual(config.model_name("main_react"), "qwen3.8-max")
         self.assertEqual(config.runtime.max_steps, 8)
         self.assertEqual(config.storage.driver, "sqlite")
+        self.assertEqual(config.tool_choice_policy, "auto_only")
         self.assertNotIn("sk-sp-", DEFAULT.read_text(encoding="utf-8"))
 
         model = config.create_model("npc_reply", {"STORY_BAILIAN_API_KEY": "test-key"})

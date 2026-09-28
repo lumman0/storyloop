@@ -29,7 +29,7 @@ py -3.12 -m venv .venv
 
 ## 接入模型
 
-[`config/bailian-token-plan.json`](config/bailian-token-plan.json) 将主控、NPC 回复、待办选择和叙述映射到可配置的模型 ID，同时配置接口地址、步数预算和 SQLite 路径。密钥通过配置的 `api_key_env` 指向环境变量，不能写进配置文件或存档。
+[`config/bailian-token-plan.json`](config/bailian-token-plan.json) 将主控、NPC 回复、待办选择和叙述映射到可配置的模型 ID，同时配置接口地址、步数预算和 SQLite 路径。百炼示例将 `tool_choice_policy` 设为 `auto_only`，以兼容 Qwen 不支持强制工具调用的接口；换用支持强制工具调用的模型可设为 `native`。密钥通过配置的 `api_key_env` 指向环境变量，不能写进配置文件或存档。
 
 ```powershell
 & '.venv\Scripts\python.exe' -m story_harness.cli.react_play examples\freeform --config config\bailian-token-plan.json --db game.sqlite3 --game-id demo

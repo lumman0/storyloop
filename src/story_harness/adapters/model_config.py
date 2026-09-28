@@ -5,8 +5,36 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 
 from agentscope.model import OpenAIChatModel
+
+
+ToolChoicePolicy = Literal["native", "auto_only"]
+
+
+class CompatibleOpenAIChatModel(OpenAIChatModel):
+    """Adapt forced tool choices for endpoints that only accept auto/none."""
+
+    def __init__(self, *args: object, tool_choice_policy: ToolChoicePolicy = "native", **kwargs: object) -> None:
+        self.tool_choice_policy = tool_choice_policy
+        super().__init__(*args, **kwargs)
+
+    async def __call__(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        structured_model: type | None = None,
+        **kwargs: object,
+    ):
+        if self.tool_choice_policy == "auto_only" and structured_model is None:
+            if tool_choice not in (None, "auto", "none"):
+                tool_choice = "auto"
+        return await super().__call__(
+            messages, tools=tools, tool_choice=tool_choice,
+            structured_model=structured_model, **kwargs,
+        )
 
 
 @dataclass(frozen=True)
@@ -14,6 +42,7 @@ class NpcModelConfig:
     model_name: str
     api_key: str = field(repr=False)
     base_url: str | None = None
+    tool_choice_policy: ToolChoicePolicy = "native"
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str] | None = None) -> NpcModelConfig:
@@ -28,12 +57,15 @@ class NpcModelConfig:
         return cls(model_name, api_key, base_url)
 
     def create_model(self) -> OpenAIChatModel:
+        if self.tool_choice_policy not in ("native", "auto_only"):
+            raise ValueError(f"unsupported tool_choice_policy: {self.tool_choice_policy}")
         client_kwargs = {"base_url": self.base_url} if self.base_url else None
-        return OpenAIChatModel(
+        return CompatibleOpenAIChatModel(
             model_name=self.model_name,
             api_key=self.api_key,
             stream=False,
             client_kwargs=client_kwargs,
+            tool_choice_policy=self.tool_choice_policy,
         )
 
 
@@ -72,4 +104,4 @@ class BailianModelRouter:
             name = self.deep_model
         else:
             raise ValueError(f"unknown model task: {task}")
-        return NpcModelConfig(name, self.api_key, self.base_url).create_model()
+        return NpcModelConfig(name, self.api_key, self.base_url, "auto_only").create_model()

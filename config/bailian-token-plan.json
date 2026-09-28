@@ -2,6 +2,7 @@
   "schema_version": 1,
   "models": {
     "provider": "openai_compatible",
+    "tool_choice_policy": "auto_only",
     "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "STORY_BAILIAN_API_KEY",
     "tasks": {
