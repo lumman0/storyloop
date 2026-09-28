@@ -1,0 +1,58 @@
+"""Bridge queued NPC decisions to AgentScope agents and event storage."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from story_harness.agents.npc_agent import NpcAgentPool
+from story_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
+from story_harness.runtime.runner import WorkHandler, WorkResult
+
+
+def make_npc_reply_handler(
+    pool: NpcAgentPool, role_cards: Mapping[str, str]
+) -> WorkHandler:
+    async def handle(snapshot: Snapshot, work: PendingWork) -> WorkResult:
+        actor_id = work.payload.get("actor_id")
+        player_message = work.payload.get("player_message")
+        duration_ticks = work.payload.get("duration_ticks", 1)
+        if not isinstance(actor_id, str) or not isinstance(player_message, str):
+            raise ValueError("NPC reply work requires actor_id and player_message")
+        if type(duration_ticks) is not int or duration_ticks < 0:
+            raise ValueError("duration_ticks must be a nonnegative integer")
+        if actor_id not in role_cards:
+            raise ValueError(f"unknown NPC: {actor_id}")
+
+        prepared = await pool.prepare_response(
+            snapshot.game_id,
+            actor_id,
+            role_cards[actor_id],
+            player_message,
+            current_input_event_id=work.cause_id,
+        )
+        event = WorldEvent(
+            event_id=f"{work.work_id}:spoken",
+            kind="npc_spoke",
+            actor_id=actor_id,
+            cause_id=work.cause_id,
+            tick=snapshot.tick + duration_ticks,
+            effects=(),
+            details={"player_message": player_message, "speech": prepared.speech},
+        )
+        player_heard = Observation(
+            observation_id=f"{work.work_id}:player-heard",
+            event_id=event.event_id,
+            recipient_id="player",
+            channel="dialogue",
+            content=prepared.speech,
+            tick=event.tick,
+        )
+        return WorkResult(
+            event,
+            (player_heard,),
+            (),
+            on_commit=prepared.confirm,
+            on_abort=prepared.abort,
+        )
+
+    return handle

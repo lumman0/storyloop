@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "story-harness"
+version = "0.1.0"
+description = "Causal runtime for interactive story agents"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+agents = [
+  "agentscope==1.0.21",
+  "mcp==1.30.0",
+  "tqdm==4.70.1",
+]
+observability = [
+  "langfuse>=4,<5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

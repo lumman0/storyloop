@@ -1,0 +1,9 @@
+{
+  "package_id": "relay-schedule",
+  "version": "1.0.0",
+  "entries": [
+    {"id": "shift_rule", "kind": "rule", "visibility": "public", "text": "工程站每个工作日都要进行交接班。"},
+    {"id": "message_rule", "kind": "rule", "visibility": "public", "text": "私人消息只投递给指定收件人。"},
+    {"id": "engineer_card", "kind": "card", "visibility": "actor", "allowed_actors": ["engineer"], "text": "你是值班工程师，只了解自己经历和收到的消息。"}
+  ]
+}

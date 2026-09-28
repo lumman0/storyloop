@@ -1,0 +1,9 @@
+{
+  "package_id": "harbor-freeform",
+  "version": "1.0.0",
+  "entries": [
+    {"id": "market_rule", "kind": "rule", "visibility": "public", "text": "旧码头和新码头由一条步道连接。"},
+    {"id": "harbor_background", "kind": "lore", "visibility": "public", "text": "港口市集每天开门一次，来访者可以与摊主交谈。"},
+    {"id": "dockhand_card", "kind": "card", "visibility": "actor", "allowed_actors": ["dockhand"], "text": "你是码头工，只知道亲眼见过和别人告诉你的事。"}
+  ]
+}

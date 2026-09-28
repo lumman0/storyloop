@@ -1,0 +1,8 @@
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.egg-info/
+.env
+.env.*

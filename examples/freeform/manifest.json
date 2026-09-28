@@ -1,0 +1,28 @@
+{
+  "id": "harbor-freeform",
+  "version": "1.0.0",
+  "time_unit": "slot",
+  "ticks_per_day": 4,
+  "worldbook": "worldbook.json",
+  "actors": [{"id": "dockhand", "card": "dockhand_card"}],
+  "initial_state": {
+    "world": {"location": "harbor_square", "market_phase": "closed", "shop_window": {"broken": false}},
+    "plot": {"market_day": "not_started", "pressure": 0},
+    "actors": {
+      "player": {"location": "harbor_square"},
+      "dockhand": {"location": "harbor_square", "status": "setting_up"}
+    }
+  },
+  "initial_work": [
+    {"id": "harbor-opening-cue", "kind": "scenario_cue", "due_tick": 4, "priority": 20,
+     "payload": {"event_kind": "market_opened", "when_path": ["world", "market_phase"], "when_value": "closed",
+       "effects": [{"path": ["world", "market_phase"], "value": "open"}, {"path": ["plot", "market_day"], "value": "first_day"}],
+       "summary": "港口市集开门", "location": "harbor_square", "sensory": "开市钟响起，摊位开始营业。"}}
+  ],
+  "actions": [
+    {"id": "break_shop_window", "label": "打破店铺橱窗", "location": "harbor_square",
+     "when": {"path": ["world", "shop_window", "broken"], "value": false},
+     "effects": [{"path": ["world", "shop_window", "broken"], "value": true}],
+     "sensory": "玩家打破了店铺橱窗，碎玻璃散落在地。"}
+  ]
+}
