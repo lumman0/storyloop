@@ -5,7 +5,8 @@ from pathlib import Path
 from agentscope.model import ChatModelBase, ChatResponse
 
 from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.runtime.game_session import GameSession
+from story_harness.runtime.game_session import GameSession, compose_visible_narration
+from story_harness.core.contracts import Observation
 from story_harness.agents.main_agent import MainDecision
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.adapters.store import SQLiteGameStore
@@ -47,6 +48,22 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
     def session(self, main: ScriptedMain) -> GameSession:
         return GameSession(self.store, self.package, lambda game_id: main, self.pool, max_steps=8)
 
+    async def test_narration_keeps_dialogue_verbatim_in_event_order(self) -> None:
+        seen: list[list[str]] = []
+
+        async def summarize(_text: str, results: list[str]) -> str:
+            seen.append(results)
+            return "环境：" + "、".join(results)
+
+        observations = (
+            Observation("o1", "e1", "player", "action_result", "玻璃碎了", 1),
+            Observation("o2", "e2", "player", "dialogue", "A：我看见了。", 1),
+            Observation("o3", "e3", "player", "sensory", "钟声响了", 2),
+        )
+        result = await compose_visible_narration("我做了什么", observations, summarize)
+        self.assertEqual(result, "环境：玻璃碎了\n\nA：我看见了。\n\n环境：钟声响了")
+        self.assertEqual(seen, [["玻璃碎了"], ["钟声响了"]])
+
     async def test_speech_commits_player_input_npc_reply_and_visible_summary(self) -> None:
         main = ScriptedMain(MainDecision(intent="speech", target_ids=["dockhand"], channel="speech"))
 
@@ -54,8 +71,8 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.snapshot.tick, 1)
         self.assertEqual(self.store.player_inputs_for("game")[0].text, "你好")
-        self.assertIn("我听见了", outcome.narration)
-        self.assertEqual(main.visible_results, ["A：我听见了。"])
+        self.assertEqual(outcome.narration, "A：我听见了。")
+        self.assertEqual(main.visible_results, [])
 
     async def test_action_changes_tracked_window_then_repeat_is_rejected(self) -> None:
         main = ScriptedMain(MainDecision(intent="action", action_id="break_shop_window"))
@@ -87,12 +104,12 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
             async def summarize(self, player_text: str, visible_results: list[str]) -> str:
                 raise RuntimeError("narrator unavailable")
 
-        main = FailingNarrator(MainDecision(intent="speech", target_ids=["dockhand"]))
+        main = FailingNarrator(MainDecision(intent="action", action_id="break_shop_window"))
 
-        outcome = await self.session(main).run_turn("game", "你好", "turn-1")
+        outcome = await self.session(main).run_turn("game", "我打破橱窗", "turn-1")
 
         self.assertTrue(outcome.narration_fallback)
-        self.assertIn("我听见了", outcome.narration)
+        self.assertIn("碎玻璃", outcome.narration)
         self.assertEqual(outcome.snapshot.tick, 1)
 
 

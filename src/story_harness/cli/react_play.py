@@ -32,10 +32,12 @@ async def play(
         values[config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
     telemetry = configured_telemetry()
     store = config.create_store(db_path)
+    new_game = False
     try:
         store.load(game_id)
     except KeyError:
         package.seed_game(store, game_id)
+        new_game = True
 
     pool = NpcAgentPool(
         store,
@@ -56,6 +58,7 @@ async def play(
             action_rules=package.action_rules,
             narration_model=config.create_model("narration", values, telemetry),
             telemetry=telemetry,
+            opening=package.opening,
         ),
         pool,
         max_steps=config.runtime.max_steps,
@@ -63,6 +66,8 @@ async def play(
         telemetry=telemetry,
     )
     print(f"{package.package_id} | game={game_id} | /quit 退出")
+    if new_game and package.opening:
+        print(package.opening)
     try:
         while True:
             try:

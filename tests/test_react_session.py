@@ -94,13 +94,17 @@ class ReactSessionTests(unittest.IsolatedAsyncioTestCase):
             action_model = ActionModel()
             narration_model = NarrationModel()
             main_created = []
+            main_agents = []
 
             def main_factory(game_id: str) -> MainReActAgent:
                 main_created.append(game_id)
-                return MainReActAgent(
+                main = MainReActAgent(
                     game_id, store, package.worldbook, action_model,
                     action_rules=package.action_rules, narration_model=narration_model,
+                    opening=package.opening,
                 )
+                main_agents.append(main)
+                return main
 
             session = GameSession(
                 store, package, main_factory,
@@ -113,7 +117,10 @@ class ReactSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.snapshot.data["world"]["shop_window"]["broken"])
             self.assertEqual([item.text for item in store.player_inputs_for("game")], ["我打破橱窗"])
             self.assertIn("break_shop_window", json.dumps(action_model.prompts, ensure_ascii=False))
+            self.assertIn("你来到港口广场", json.dumps(action_model.prompts, ensure_ascii=False))
             self.assertEqual(main_created, ["game"])
+            self.assertEqual(await main_agents[0].agent.memory.get_memory(), [])
+            self.assertEqual(await main_agents[0].narrator.memory.get_memory(), [])
             self.assertIn("碎玻璃", json.dumps(narration_model.prompts, ensure_ascii=False))
 
     async def test_main_react_selects_npc_and_commits_independent_reply(self) -> None:
@@ -140,7 +147,8 @@ class ReactSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.snapshot.tick, 1)
             self.assertIn("A：你好。", [item.content for item in result.player_observations])
             self.assertIn("dockhand", json.dumps(speech_model.prompts, ensure_ascii=False))
-            self.assertIn("A：你好。", json.dumps(narration_model.prompts, ensure_ascii=False))
+            self.assertEqual(result.narration, "A：你好。")
+            self.assertEqual(narration_model.prompts, [])
 
 
 if __name__ == "__main__":

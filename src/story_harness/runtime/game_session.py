@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -34,6 +34,26 @@ class TurnOutcome:
     processed_work_ids: tuple[str, ...]
     snapshot: Snapshot
     narration_fallback: bool = False
+
+
+async def compose_visible_narration(
+    player_text: str,
+    observations: tuple[Observation, ...],
+    summarize: Callable[[str, list[str]], Awaitable[str]],
+) -> str:
+    parts: list[str] = []
+    scene_results: list[str] = []
+    for observation in observations:
+        if observation.channel == "dialogue":
+            if scene_results:
+                parts.append(await summarize(player_text, scene_results))
+                scene_results = []
+            parts.append(observation.content)
+        else:
+            scene_results.append(observation.content)
+    if scene_results:
+        parts.append(await summarize(player_text, scene_results))
+    return "\n\n".join(part for part in parts if part) or "暂时没有可见变化。"
 
 
 class GameSession:
@@ -128,17 +148,25 @@ class GameSession:
             item for item in self.store.observations_for(game_id, "player")
             if item.observation_id not in visible_before
         )
-        visible_results = [item.content for item in new_observations]
+        scene_results = [item.content for item in new_observations if item.channel != "dialogue"]
+        dialogue_results = [item.content for item in new_observations if item.channel == "dialogue"]
         with self.telemetry.span(
-            "main-narration", {"visible_observation_count": len(new_observations)},
+            "main-narration", {"visible_observation_count": len(new_observations),
+                               "dialogue_count": len(dialogue_results),
+                               "scene_result_count": len(scene_results),
+                               "observation_ids": [item.observation_id for item in new_observations],
+                               "observation_channels": [item.channel for item in new_observations],
+                               "strategy": "preserve_dialogue_summarize_scene"},
             kind="agent",
-            input=visible_results if self.telemetry.capture_content else None,
+            input=scene_results if self.telemetry.capture_content else None,
         ) as narration_span:
             try:
-                narration = await main.summarize(player_text, visible_results)
+                narration = await compose_visible_narration(
+                    player_text, new_observations, main.summarize
+                )
                 narration_fallback = False
             except Exception as error:
-                narration = "\n".join(visible_results) if visible_results else "暂时没有可见变化。"
+                narration = "\n\n".join(item.content for item in new_observations) or "暂时没有可见变化。"
                 narration_fallback = True
                 narration_span.update(level="WARNING", status_message=type(error).__name__)
             narration_span.update(metadata={"narration_fallback": narration_fallback})

@@ -16,6 +16,8 @@ class ScenarioPackageTests(unittest.TestCase):
             store = SQLiteGameStore(str(Path(directory) / "games.sqlite3"))
             for name, expected_unit in (("freeform", "slot"), ("scheduled", "slot")):
                 package = ScenarioPackage.load(EXAMPLES / name)
+                if name == "freeform":
+                    self.assertIn("港口", package.opening)
                 self.assertEqual(package.time_unit, expected_unit)
                 self.assertEqual(package.ticks_per_day, 4)
                 self.assertEqual(package.worldbook.package_id, package.package_id)
@@ -50,6 +52,22 @@ class ScenarioPackageTests(unittest.TestCase):
             manifest["actors"] = [{"id": "A", "card": "missing"}]
             (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "card"):
+                ScenarioPackage.load(root)
+
+    def test_opening_must_be_nonempty_text_when_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "worldbook.json").write_text(
+                json.dumps({"package_id": "sample", "version": "1", "entries": []}),
+                encoding="utf-8",
+            )
+            manifest = {
+                "id": "sample", "version": "1", "time_unit": "day",
+                "worldbook": "worldbook.json", "actors": [],
+                "initial_state": {}, "initial_work": [], "opening": "  ",
+            }
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "opening"):
                 ScenarioPackage.load(root)
 
     def test_conflicting_or_duplicate_package_declarations_are_rejected(self) -> None:

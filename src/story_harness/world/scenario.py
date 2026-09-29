@@ -32,6 +32,7 @@ class ScenarioPackage:
     initial_work: tuple[PendingWork, ...]
     worldbook: Worldbook
     action_rules: dict[str, ActionRule]
+    opening: str
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -49,6 +50,9 @@ class ScenarioPackage:
         package_id = _required_string(raw, "id")
         version = _required_string(raw, "version")
         time_unit = _required_string(raw, "time_unit")
+        opening = raw.get("opening", "")
+        if not isinstance(opening, str) or ("opening" in raw and not opening.strip()):
+            raise ValueError("opening must be nonempty text when provided")
         if time_unit not in {"tick", "slot", "hour", "day", "week", "month"}:
             raise ValueError(f"unsupported time unit: {time_unit}")
         ticks_per_day = raw.get("ticks_per_day")
@@ -109,7 +113,7 @@ class ScenarioPackage:
             raise ValueError("duplicate work ID")
 
         action_rules = parse_action_rules(raw.get("actions", []), state)
-        return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), state, tuple(work), worldbook, action_rules)
+        return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), state, tuple(work), worldbook, action_rules, opening)
 
     def seed_game(self, store: GameStore, game_id: str) -> None:
         state = deepcopy(self.initial_state)
