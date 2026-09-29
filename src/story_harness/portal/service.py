@@ -10,7 +10,8 @@ from uuid import uuid4
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.portal.catalog import GameCatalog, GameListing
-from story_harness.portal.repository import PlayerRepository, SaveRecord, SQLitePlayerRepository
+from story_harness.portal.repository import PlayerRepository, SaveRecord
+from story_harness.portal.sql_repository import SQLPlayerRepository
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
 from story_harness.runtime.guidance import GuidanceAdvisor
@@ -26,19 +27,20 @@ class PlayerPortal:
                  accounts: PlayerRepository | None = None) -> None:
         self.catalog = GameCatalog.load(catalog_path)
         self.config = HarnessConfig.load(config_path)
-        if self.config.storage.driver != "sqlite":
-            raise ValueError("player portal currently requires SQLite storage")
+        self.config.allowed_hosts()
+        if self.config.profile == "online":
+            self._require_model_key()
         self.db_path = db_path or self.config.storage.path
-        if not self.db_path:
-            raise ValueError("player portal requires a database path")
-        self.store = self.config.create_store(self.db_path)
-        self.accounts = accounts or SQLitePlayerRepository(self.db_path)
+        self.engine = self.config.create_database(db_path)
+        self.store = self.config.create_store(engine=self.engine)
+        self.accounts = accounts or SQLPlayerRepository(self.engine)
         self.telemetry = configured_telemetry()
         self._react_sessions: dict[Path, GameSession] = {}
         self._campaign_sessions: dict[Path, tuple[CampaignProgram, CampaignSession]] = {}
 
     def close(self) -> None:
         self.telemetry.flush()
+        self.engine.dispose()
 
     def register(self, username: str, password: str) -> dict:
         player_id = self.accounts.register(username, password)

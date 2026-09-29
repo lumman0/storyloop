@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "environment": "local",
+  "models": {
+    "provider": "openai_compatible",
+    "tool_choice_policy": "auto_only",
+    "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "api_key_env": "STORY_BAILIAN_API_KEY",
+    "tasks": {
+      "npc_selection": "qwen3.8-flash",
+      "entity_extraction": "qwen3.8-flash",
+      "intent_classification": "qwen3.8-flash",
+      "work_selection": "qwen3.8-flash",
+      "main_react": "qwen3.8-max",
+      "npc_reply": "qwen3.8-max",
+      "adjudication": "qwen3.8-max",
+      "narration": "qwen3.8-max"
+    }
+  },
+  "runtime": {"max_steps": 8, "max_npc_replies": 3, "main_max_iters": 4, "npc_max_iters": 3},
+  "storage": {"driver": "sqlite", "path": "story-game.sqlite3", "path_base": "cwd"},
+  "memory": {"driver": "in_memory"}
+}

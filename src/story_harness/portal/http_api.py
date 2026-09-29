@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
 from story_harness.portal.service import PlayerPortal
 
@@ -46,14 +47,22 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
     bearer = HTTPBearer(auto_error=False)
+    if portal.config.profile == "online":
+        app.add_middleware(CORSMiddleware, allow_origins=list(portal.config.allowed_origins()),
+                           allow_methods=["GET", "POST", "DELETE"],
+                           allow_headers=["Authorization", "Content-Type"])
 
     @app.middleware("http")
-    async def local_request_only(request: Request, call_next):
-        host = request.headers.get("host", "").split(":", 1)[0]
-        if host not in {"127.0.0.1", "localhost"}:
-            return JSONResponse({"error": "invalid local host"}, status_code=401)
+    async def validate_request(request: Request, call_next):
+        host = request.headers.get("host", "").split(":", 1)[0].lower()
+        if host not in portal.config.allowed_hosts():
+            return JSONResponse({"error": "invalid host"}, status_code=401)
         origin = request.headers.get("origin")
-        if origin and origin not in {f"http://{host}:{request.url.port}", f"http://{host}"}:
+        if portal.config.profile == "local":
+            origins = {f"http://{host}:{request.url.port}", f"http://{host}"}
+        else:
+            origins = set(portal.config.allowed_origins())
+        if origin and origin not in origins:
             return JSONResponse({"error": "cross-origin requests are not allowed"}, status_code=401)
         needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves"}
                       or request.url.path.endswith("/turns"))
@@ -128,8 +137,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
 
 def serve(portal: PlayerPortal, host: str = "127.0.0.1", port: int = 8765) -> None:
-    if host not in {"127.0.0.1", "localhost"}:
-        raise ValueError("player portal HTTP login is available on localhost only")
+    if portal.config.profile == "local" and host not in {"127.0.0.1", "localhost"}:
+        raise ValueError("local portal HTTP login must bind to localhost")
     import uvicorn
 
     uvicorn.run(create_app(portal), host=host, port=port)

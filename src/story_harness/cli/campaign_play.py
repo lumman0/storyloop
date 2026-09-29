@@ -85,6 +85,7 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
             initial = outcome
     finally:
         telemetry.flush()
+        store.close()
 
 
 def main() -> None:

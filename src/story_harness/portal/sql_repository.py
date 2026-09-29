@@ -1,0 +1,156 @@
+"""Dialect-neutral player accounts, sessions, saves, and turn receipts."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import re
+import secrets
+import time
+from uuid import uuid4
+
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import IntegrityError
+
+from story_harness.portal.models import SaveRecord
+
+
+class SQLPlayerRepository:
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
+
+    @staticmethod
+    def _username(value: str) -> str:
+        name = value.strip().casefold() if isinstance(value, str) else ""
+        if not re.fullmatch(r"[\w.-]{2,32}", name, flags=re.UNICODE):
+            raise ValueError("username must contain 2–32 letters, digits, dots, dashes, or underscores")
+        return name
+
+    @staticmethod
+    def _password(value: str) -> str:
+        if not isinstance(value, str) or len(value) < 8 or len(value) > 256:
+            raise ValueError("password must contain 8–256 characters")
+        return value
+
+    @staticmethod
+    def _save(row) -> SaveRecord:
+        return SaveRecord(row["game_id"], row["player_id"], row["catalog_id"],
+                          row["package_id"], row["package_version"], row["package_hash"],
+                          row["created_at"])
+
+    def register(self, username: str, password: str) -> str:
+        name = self._username(username)
+        secret = self._password(password)
+        salt = secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", secret.encode(), salt, 310_000)
+        player_id = uuid4().hex
+        try:
+            with self.engine.begin() as db:
+                db.execute(text("""INSERT INTO player_accounts
+                    (player_id,username,password_salt,password_hash,created_at)
+                    VALUES (:player_id,:username,:salt,:digest,:created_at)"""),
+                    {"player_id": player_id, "username": name, "salt": salt,
+                     "digest": digest, "created_at": int(time.time())})
+        except IntegrityError as error:
+            raise ValueError("username already exists") from error
+        return player_id
+
+    def authenticate(self, username: str, password: str) -> str:
+        name = self._username(username)
+        secret = self._password(password)
+        with self.engine.connect() as db:
+            row = db.execute(text("SELECT * FROM player_accounts WHERE username=:username"),
+                             {"username": name}).mappings().first()
+        if row is None:
+            raise PermissionError("invalid username or password")
+        digest = hashlib.pbkdf2_hmac("sha256", secret.encode(), row["password_salt"], 310_000)
+        if not hmac.compare_digest(digest, row["password_hash"]):
+            raise PermissionError("invalid username or password")
+        return row["player_id"]
+
+    def issue_token(self, player_id: str) -> str:
+        token = secrets.token_urlsafe(32)
+        with self.engine.begin() as db:
+            db.execute(text("""INSERT INTO player_sessions (token_hash,player_id,expires_at)
+                VALUES (:token_hash,:player_id,:expires_at)"""),
+                {"token_hash": hashlib.sha256(token.encode()).digest(),
+                 "player_id": player_id, "expires_at": int(time.time()) + 7 * 24 * 3600})
+        return token
+
+    def resolve_token(self, token: str) -> str:
+        if not isinstance(token, str) or not token:
+            raise PermissionError("login required")
+        with self.engine.connect() as db:
+            row = db.execute(text("""SELECT player_id,expires_at FROM player_sessions
+                WHERE token_hash=:token_hash"""),
+                {"token_hash": hashlib.sha256(token.encode()).digest()}).mappings().first()
+        if row is None or row["expires_at"] <= int(time.time()):
+            raise PermissionError("login required")
+        return row["player_id"]
+
+    def revoke_token(self, token: str) -> None:
+        with self.engine.begin() as db:
+            db.execute(text("DELETE FROM player_sessions WHERE token_hash=:token_hash"),
+                       {"token_hash": hashlib.sha256(token.encode()).digest()})
+
+    def create_save(self, player_id: str, catalog_id: str, game_id: str,
+                    package_id: str, package_version: str, package_hash: str) -> SaveRecord:
+        record = SaveRecord(game_id, player_id, catalog_id, package_id, package_version,
+                            package_hash, int(time.time()))
+        with self.engine.begin() as db:
+            db.execute(text("""INSERT INTO player_saves
+                (game_id,player_id,catalog_id,package_id,package_version,package_hash,created_at)
+                VALUES (:game_id,:player_id,:catalog_id,:package_id,:package_version,:package_hash,:created_at)"""),
+                record.__dict__)
+        return record
+
+    def get_save(self, player_id: str, game_id: str) -> SaveRecord:
+        with self.engine.connect() as db:
+            row = db.execute(text("""SELECT * FROM player_saves
+                WHERE player_id=:player_id AND game_id=:game_id"""),
+                {"player_id": player_id, "game_id": game_id}).mappings().first()
+        if row is None:
+            raise KeyError("save not found")
+        return self._save(row)
+
+    def list_saves(self, player_id: str) -> tuple[SaveRecord, ...]:
+        with self.engine.connect() as db:
+            rows = db.execute(text("""SELECT * FROM player_saves WHERE player_id=:player_id
+                ORDER BY created_at DESC,game_id"""),
+                {"player_id": player_id}).mappings().all()
+        return tuple(self._save(row) for row in rows)
+
+    def get_turn_response(self, game_id: str, request_id: str, text_input: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(text("""SELECT input_hash,response_json FROM portal_turns
+                WHERE game_id=:game_id AND request_id=:request_id"""),
+                {"game_id": game_id, "request_id": request_id}).mappings().first()
+        if row is None:
+            return None
+        if not hmac.compare_digest(row["input_hash"], hashlib.sha256(text_input.encode()).digest()):
+            raise ValueError("request ID already belongs to different input")
+        return json.loads(row["response_json"])
+
+    def latest_turn_response(self, game_id: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(text("""SELECT response_json FROM portal_turns
+                WHERE game_id=:game_id ORDER BY created_order DESC,request_id DESC LIMIT 1"""),
+                {"game_id": game_id}).mappings().first()
+        return json.loads(row["response_json"]) if row else None
+
+    def store_turn_response(self, game_id: str, request_id: str, text_input: str,
+                            response: dict) -> None:
+        try:
+            with self.engine.begin() as db:
+                db.execute(text("""INSERT INTO portal_turns
+                    (game_id,request_id,input_hash,response_json,created_order)
+                    VALUES (:game_id,:request_id,:input_hash,:response_json,:created_order)"""),
+                    {"game_id": game_id, "request_id": request_id,
+                     "input_hash": hashlib.sha256(text_input.encode()).digest(),
+                     "response_json": json.dumps(response, ensure_ascii=False),
+                     "created_order": time.time_ns()})
+        except IntegrityError as error:
+            cached = self.get_turn_response(game_id, request_id, text_input)
+            if cached != response:
+                raise ValueError("request ID already has a different response") from error

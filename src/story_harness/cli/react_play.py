@@ -18,7 +18,7 @@ from story_harness.runtime.guidance import GuidanceAdvisor
 from story_harness.runtime.react_factory import make_react_session
 
 
-DEFAULT_CONFIG = Path(__file__).resolve().parents[3] / "config" / "bailian-token-plan.json"
+DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "defaults" / "local.json"
 
 
 async def play(
@@ -63,6 +63,7 @@ async def play(
             print(format_turn_output(body, f"[tick {outcome.snapshot.tick} | turn {turn_id}]", guidance))
     finally:
         telemetry.flush()
+        store.close()
 
 
 def main() -> None:
