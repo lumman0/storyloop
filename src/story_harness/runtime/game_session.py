@@ -13,7 +13,7 @@ from story_harness.core.contracts import Observation, Snapshot, WorldEvent
 from story_harness.agents.main_agent import MainDecision
 from story_harness.runtime.npc_work import make_npc_reply_handler
 from story_harness.core.perception import physical_observations
-from story_harness.runtime.runner import TurnRunner, WorkSelector
+from story_harness.runtime.runner import RunResult, TurnRunner, WorkSelector
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.schedule import scenario_cue
 from story_harness.adapters.store import GameStore
@@ -77,6 +77,28 @@ class GameSession:
         self._main: dict[str, MainAgent] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
+    def _runner(self) -> TurnRunner:
+        return TurnRunner(
+            self.store,
+            {
+                "npc_reply": make_npc_reply_handler(self.npc_pool, self.package.role_cards),
+                "scenario_cue": scenario_cue,
+            },
+            max_steps=self.max_steps,
+            selector=self.selector,
+            telemetry=self.telemetry,
+        )
+
+    async def run_ready_work(self, game_id: str) -> RunResult:
+        """Resume due work after an external scheduler advances the game clock."""
+        lock = self._locks.setdefault(game_id, asyncio.Lock())
+        async with lock:
+            before = self.store.load(game_id)
+            scenario = before.data.get("scenario", {})
+            if scenario.get("id") != self.package.package_id or scenario.get("version") != self.package.version:
+                raise ValueError("game belongs to another scenario")
+            return await self._runner().run_async(game_id)
+
     async def run_turn(self, game_id: str, player_text: str, turn_id: str) -> TurnOutcome:
         if not player_text.strip() or not turn_id:
             raise ValueError("turn requires text and an ID")
@@ -129,16 +151,7 @@ class GameSession:
         else:
             raise ValueError(f"unsupported main intent: {decision.intent}")
 
-        runner = TurnRunner(
-            self.store,
-            {
-                "npc_reply": make_npc_reply_handler(self.npc_pool, self.package.role_cards),
-                "scenario_cue": scenario_cue,
-            },
-            max_steps=self.max_steps,
-            selector=self.selector,
-            telemetry=self.telemetry,
-        )
+        runner = self._runner()
         with self.telemetry.span("work-queue", {"max_steps": self.max_steps}) as queue_span:
             result = await runner.run_async(game_id)
             queue_span.update(metadata={

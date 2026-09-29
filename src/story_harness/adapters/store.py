@@ -19,6 +19,12 @@ class GameStore(Protocol):
 
     def load(self, game_id: str) -> Snapshot: ...
 
+    def event_exists(self, game_id: str, event_id: str) -> bool: ...
+
+    def event_details(self, game_id: str, event_id: str) -> dict[str, object] | None: ...
+
+    def completed_turn_count(self, game_id: str) -> int: ...
+
     def commit(
         self,
         game_id: str,
@@ -147,6 +153,30 @@ class SQLiteGameStore:
             raise KeyError(game_id)
         return self._snapshot(row)
 
+    def event_exists(self, game_id: str, event_id: str) -> bool:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM events WHERE game_id = ? AND event_id = ?",
+                (game_id, event_id),
+            ).fetchone()
+        return row is not None
+
+    def event_details(self, game_id: str, event_id: str) -> dict[str, object] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT details FROM events WHERE game_id = ? AND event_id = ?",
+                (game_id, event_id),
+            ).fetchone()
+        return json.loads(row["details"]) if row is not None else None
+
+    def completed_turn_count(self, game_id: str) -> int:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM events WHERE game_id = ? AND kind = 'campaign_turn_completed'",
+                (game_id,),
+            ).fetchone()
+        return int(row["total"])
+
     def commit(
         self,
         game_id: str,
@@ -257,9 +287,11 @@ class SQLiteGameStore:
     def observations_for(self, game_id: str, recipient_id: str) -> list[Observation]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                """SELECT observation_id, event_id, recipient_id, channel, content, tick
-                   FROM observations WHERE game_id = ? AND recipient_id = ?
-                   ORDER BY tick, observation_id""",
+                """SELECT o.observation_id, o.event_id, o.recipient_id, o.channel, o.content, o.tick
+                   FROM observations AS o
+                   JOIN events AS e ON e.game_id = o.game_id AND e.event_id = o.event_id
+                   WHERE o.game_id = ? AND o.recipient_id = ?
+                   ORDER BY e.state_version, o.rowid""",
                 (game_id, recipient_id),
             ).fetchall()
         return [Observation(**dict(row)) for row in rows]

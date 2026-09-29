@@ -20,6 +20,8 @@ def make_npc_reply_handler(
             raise ValueError("NPC reply work requires actor_id and player_message")
         if type(duration_ticks) is not int or duration_ticks < 0:
             raise ValueError("duration_ticks must be a nonnegative integer")
+        if "campaign" in snapshot.data and duration_ticks > 0:
+            raise ValueError("campaign NPC reply duration_ticks must be zero")
         if actor_id not in role_cards:
             raise ValueError(f"unknown NPC: {actor_id}")
 

@@ -165,6 +165,19 @@ class NpcAgentPoolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_observations[0].channel, "dialogue")
         self.assertIn("reply from game-1:A", player_observations[0].content)
 
+    async def test_campaign_npc_reply_cannot_advance_past_choice_gate(self) -> None:
+        self.store.create_game(Snapshot("campaign-game", 0, 0, {
+            "scenario": {"id": "show"}, "campaign": {"cursor": 0}, "actors": {"A": {}},
+        }), (PendingWork("slow-reply", "npc_reply", 0, 10, None, {
+            "actor_id": "A", "player_message": "你好", "duration_ticks": 2,
+        }),))
+        handler = make_npc_reply_handler(self.pool, {"A": "嘉宾"})
+
+        with self.assertRaisesRegex(ValueError, "campaign.*duration_ticks"):
+            await TurnRunner(self.store, {"npc_reply": handler}, 1).run_async("campaign-game")
+        self.assertEqual(self.store.load("campaign-game").tick, 0)
+        self.assertEqual(len(self.store.pending_work("campaign-game")), 1)
+
     async def test_failed_world_commit_rolls_back_uncommitted_npc_memory(self) -> None:
         work = PendingWork(
             "ask-a",

@@ -10,6 +10,7 @@ from story_harness.core.contracts import Observation
 from story_harness.agents.main_agent import MainDecision
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.adapters.store import SQLiteGameStore
+from story_harness.runtime.schedule import advance_time
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -47,6 +48,13 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
 
     def session(self, main: ScriptedMain) -> GameSession:
         return GameSession(self.store, self.package, lambda game_id: main, self.pool, max_steps=8)
+
+    async def test_ready_work_can_be_resumed_after_external_clock_advance(self) -> None:
+        advance_time(self.store, "game", 4, "external-clock")
+        session = self.session(ScriptedMain(MainDecision(intent="inspect")))
+        result = await session.run_ready_work("game")
+        self.assertIn("harbor-opening-cue", result.processed_work_ids)
+        self.assertEqual(result.snapshot.data["world"]["market_phase"], "open")
 
     async def test_narration_keeps_dialogue_verbatim_in_event_order(self) -> None:
         seen: list[list[str]] = []

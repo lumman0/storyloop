@@ -22,23 +22,8 @@ from story_harness.adapters.telemetry import configured_telemetry
 DEFAULT_CONFIG = Path(__file__).resolve().parents[3] / "config" / "bailian-token-plan.json"
 
 
-async def play(
-    package_path: str, config_path: str, game_id: str, db_path: str | None = None
-) -> None:
-    config = HarnessConfig.load(config_path)
-    package = ScenarioPackage.load(package_path)
-    values = dict(os.environ)
-    if not values.get(config.api_key_env):
-        values[config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
-    telemetry = configured_telemetry()
-    store = config.create_store(db_path)
-    new_game = False
-    try:
-        store.load(game_id)
-    except KeyError:
-        package.seed_game(store, game_id)
-        new_game = True
-
+def make_react_session(config, package, store, values, telemetry):
+    """Wire the shared ReAct loop for terminal modes."""
     pool = NpcAgentPool(
         store,
         lambda _game_id, _actor_id: config.create_model("npc_reply", values, telemetry),
@@ -46,7 +31,7 @@ async def play(
         worldbook=package.worldbook,
         telemetry=telemetry,
     )
-    session = GameSession(
+    return GameSession(
         store,
         package,
         lambda active_game_id: MainReActAgent(
@@ -65,6 +50,26 @@ async def play(
         selector=AgentScopeWorkSelector(config.create_model("work_selection", values, telemetry), telemetry=telemetry),
         telemetry=telemetry,
     )
+
+
+async def play(
+    package_path: str, config_path: str, game_id: str, db_path: str | None = None
+) -> None:
+    config = HarnessConfig.load(config_path)
+    package = ScenarioPackage.load(package_path)
+    values = dict(os.environ)
+    if not values.get(config.api_key_env):
+        values[config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
+    telemetry = configured_telemetry()
+    store = config.create_store(db_path)
+    new_game = False
+    try:
+        store.load(game_id)
+    except KeyError:
+        package.seed_game(store, game_id)
+        new_game = True
+
+    session = make_react_session(config, package, store, values, telemetry)
     print(f"{package.package_id} | game={game_id} | /quit 退出")
     if new_game and package.opening:
         print(package.opening)

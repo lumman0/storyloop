@@ -106,6 +106,35 @@ class SQLiteGameStoreTests(unittest.TestCase):
         self.assertEqual(restarted.dialogue_history_for_actor("game-1", "A"), [("你好", "我看到了窗户")])
         self.assertEqual(restarted.dialogue_history_for_actor("game-1", "B"), [])
 
+    def test_observations_at_same_tick_follow_commit_order(self) -> None:
+        first = Observation("z-observation", "z-event", "player", "choice", "first", 0)
+        second = Observation("a-observation", "a-event", "player", "choice", "second", 0)
+        self.store.commit("game-1", 0, WorldEvent("z-event", "choice", "player", None, 0, ()),
+                          (first,), ())
+        self.store.commit("game-1", 1, WorldEvent("a-event", "choice", "player", None, 0, ()),
+                          (second,), ())
+        self.assertEqual(self.store.observations_for("game-1", "player"), [first, second])
+
+    def test_event_exists_is_scoped_to_game(self) -> None:
+        self.store.commit("game-1", 0, WorldEvent("choice-1", "choice", "player", None, 0, ()), (), ())
+        self.assertTrue(self.store.event_exists("game-1", "choice-1"))
+        self.assertFalse(self.store.event_exists("game-1", "missing"))
+
+    def test_completed_turn_count_uses_committed_markers(self) -> None:
+        self.assertEqual(self.store.completed_turn_count("game-1"), 0)
+        self.store.commit("game-1", 0,
+                          WorldEvent("turn-1:completed", "campaign_turn_completed", "player", None, 0, ()),
+                          (), ())
+        self.assertEqual(self.store.completed_turn_count("game-1"), 1)
+
+    def test_event_details_return_committed_request(self) -> None:
+        self.store.commit("game-1", 0,
+                          WorldEvent("choice-1", "campaign_choice", "player", None, 0, (),
+                                     {"request_text": "/choose a"}), (), ())
+        self.assertEqual(self.store.event_details("game-1", "choice-1"),
+                         {"request_text": "/choose a"})
+        self.assertIsNone(self.store.event_details("game-1", "missing"))
+
 
 if __name__ == "__main__":
     unittest.main()
