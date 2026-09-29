@@ -17,7 +17,7 @@ from story_harness.runtime.runner import TurnRunner, WorkSelector
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.schedule import scenario_cue
 from story_harness.adapters.store import GameStore
-from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan, session_id_for_game
 
 
 class MainAgent(Protocol):
@@ -86,6 +86,7 @@ class GameSession:
                 "story-turn", {"game_id": game_id, "turn_id": turn_id,
                                "scenario_id": self.package.package_id},
                 input=player_text if self.telemetry.capture_content else None,
+                session_id=session_id_for_game(game_id, self.package.package_id),
             ) as turn_span:
                 try:
                     outcome = await self._run_locked_turn(game_id, player_text, turn_id, turn_span)

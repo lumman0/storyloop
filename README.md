@@ -56,6 +56,8 @@ set LANGFUSE_BASE_URL=https://cloud.langfuse.com
 
 一轮游戏产生一条 `story-turn` trace，以 `game_id`、`turn_id`、剧本 ID 关联。子步骤包含主控决策、上下文来源、世界书和状态工具、模型 generation、待办选择、NPC 回复、事件效果、观察投递与最终叙述。模型 generation 报告模型名、任务和 token 用量；Langfuse 的 Metrics 面板可聚合调用量、耗时、token 和成本。数值 score `story.turn_success`、`story.work_processed`、`story.work_remaining`、`story.player_observations` 和 `story.narration_fallback` 可用于成功率、剧情节奏与回退率看板。终端每轮会打印 `turn_id` 供检索。
 
+同一剧本和 `game_id` 的回合自动归入一个 Langfuse Session，Session ID 为 `<scenario-id>:<game-id>`；每次玩家输入仍是独立的 trace。离线互动演示也使用相同规则，因此可以在 Sessions 页面连续查看一局中的多个回合。过长或含非 ASCII 字符的 ID 会映射为稳定的哈希 ID，原始 `game_id` 仍保留在 trace metadata 中。此设置只影响新产生的 trace，不会改写旧记录。
+
 `main-context` 内的模型文本属于决策过程，不会直接展示给玩家或写成世界事实；该步骤的有效结果是结构化的 `MainDecision`。玩家最终看到已提交的可见观察：NPC 对话保留原文，其他观察由叙述模型组织。主控下一轮从已提交的玩家输入、观察和状态重建上下文，清除上一轮未提交的草稿。
 
 默认只记录结构、计数和 ID。若要在 Langfuse 中检查完整提示词、角色卡、玩家输入、工具结果与模型输出，启动前显式设置 `STORY_TRACE_CONTENT=1`；这些内容会发送到所配置的 Langfuse 项目。离线演示 `python -m story_harness.cli.interaction_demo examples\freeform` 使用同一适配器，无需模型 API Key。退出 CLI 时会 flush 已排队的观测数据。

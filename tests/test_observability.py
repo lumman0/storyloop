@@ -1,7 +1,11 @@
 import tempfile
 import unittest
 import os
+import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agentscope.model import ChatModelBase, ChatResponse, OpenAIChatModel
@@ -78,6 +82,77 @@ class SceneDecisionModel(ChatModelBase):
 
 
 class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_offline_demo_turns_also_share_a_langfuse_session(self):
+        active_session = ContextVar("test_offline_session", default=None)
+        roots: list[str | None] = []
+
+        @contextmanager
+        def propagate_attributes(*, session_id: str):
+            token = active_session.set(session_id)
+            try:
+                yield
+            finally:
+                active_session.reset(token)
+
+        class SessionClient(FakeLangfuse):
+            def start_as_current_observation(self, **kwargs):
+                if kwargs["name"] == "game-turn":
+                    roots.append(active_session.get())
+                return super().start_as_current_observation(**kwargs)
+
+        fake_langfuse = SimpleNamespace(propagate_attributes=propagate_attributes)
+        with patch.dict(sys.modules, {"langfuse": fake_langfuse}):
+            await run_interaction_demo(EXAMPLE, turns=2, telemetry=LangfuseTelemetry(SessionClient()))
+            await run_interaction_demo(
+                EXAMPLE.parent / "scheduled", turns=1,
+                telemetry=LangfuseTelemetry(SessionClient()),
+            )
+
+        self.assertEqual(roots[:2], ["harbor-freeform:demo-game"] * 2)
+        self.assertEqual(roots[2], "relay-schedule:demo-game")
+        self.assertIsNone(active_session.get())
+
+    async def test_turns_share_game_session_across_root_and_child_observations(self):
+        active_session = ContextVar("test_langfuse_session", default=None)
+        sessions_seen: list[tuple[str, str | None]] = []
+
+        @contextmanager
+        def propagate_attributes(*, session_id: str):
+            token = active_session.set(session_id)
+            try:
+                yield
+            finally:
+                active_session.reset(token)
+
+        class SessionClient(FakeLangfuse):
+            def start_as_current_observation(self, **kwargs):
+                sessions_seen.append((kwargs["name"], active_session.get()))
+                return super().start_as_current_observation(**kwargs)
+
+        with tempfile.TemporaryDirectory() as directory:
+            package = ScenarioPackage.load(EXAMPLE)
+            store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
+            package.seed_game(store, "game")
+            client = SessionClient()
+            session = GameSession(
+                store, package, lambda _: ScriptedMain(), npc_pool=None,
+                max_steps=2, telemetry=LangfuseTelemetry(client),
+            )
+            fake_langfuse = SimpleNamespace(propagate_attributes=propagate_attributes)
+            with patch.dict(sys.modules, {"langfuse": fake_langfuse}):
+                await session.run_turn("game", "查看周围", "turn-1")
+                await session.run_turn("game", "再看一次", "turn-2")
+                package.seed_game(store, "港口-1")
+                await session.run_turn("港口-1", "查看周围", "turn-3")
+
+        root_sessions = [session_id for name, session_id in sessions_seen if name == "story-turn"]
+        self.assertEqual(root_sessions[:2], ["harbor-freeform:game"] * 2)
+        self.assertEqual(len(root_sessions), 3)
+        self.assertTrue(root_sessions[2].isascii())
+        self.assertNotEqual(root_sessions[2], "harbor-freeform:game")
+        self.assertTrue(all(session_id is not None for _, session_id in sessions_seen))
+        self.assertIsNone(active_session.get())
+
     async def test_offline_demo_uses_the_same_observability_adapter(self):
         client = FakeLangfuse()
 

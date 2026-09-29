@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from story_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
 from story_harness.core.perception import physical_observations
 from story_harness.adapters.store import GameStore
-from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 
 
 @dataclass(frozen=True)
@@ -61,9 +61,14 @@ class TurnRunner:
 
     async def run_async(self, game_id: str) -> RunResult:
         snapshot = self.store.load(game_id)
+        scenario = snapshot.data.get("scenario")
+        scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
         with self.telemetry.span(
             "game-turn",
             {"game_id": game_id, "state_version": snapshot.version, "tick": snapshot.tick},
+            session_id=session_id_for_game(
+                game_id, scenario_id if isinstance(scenario_id, str) else None
+            ),
         ) as turn_span:
             result = await self._process_ready(game_id, snapshot)
             turn_span.update(output={

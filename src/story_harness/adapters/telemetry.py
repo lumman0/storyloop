@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import inspect
 import os
 from collections.abc import Callable
 from typing import Protocol
+
+
+def session_id_for_game(game_id: str, scenario_id: str | None = None) -> str:
+    candidate = f"{scenario_id}:{game_id}" if scenario_id else game_id
+    if candidate.isascii() and len(candidate) <= 200:
+        return candidate
+    return "game-" + hashlib.sha256(candidate.encode("utf-8")).hexdigest()
 
 
 class TraceSpan(Protocol):
@@ -26,19 +34,26 @@ class _NoopSpan:
 class _SafeContext:
     def __init__(self, client: object | None, name: str, metadata: dict[str, object],
                  kind: str = "span", input: object | None = None,
-                 model: str | None = None) -> None:
+                 model: str | None = None, session_id: str | None = None) -> None:
         self.client = client
         self.name = name
         self.metadata = metadata
         self.kind = kind
         self.input = input
         self.model = model
+        self.session_id = session_id
         self._context: object | None = None
+        self._attributes_context: object | None = None
 
     def __enter__(self) -> TraceSpan:
         if self.client is None:
             return _NoopSpan()
         try:
+            if self.session_id is not None:
+                from langfuse import propagate_attributes
+
+                self._attributes_context = propagate_attributes(session_id=self.session_id)
+                self._attributes_context.__enter__()
             kwargs: dict[str, object] = {
                 "as_type": self.kind, "name": self.name, "metadata": self.metadata,
             }
@@ -50,14 +65,27 @@ class _SafeContext:
             return _SafeSpan(self._context.__enter__())
         except Exception:
             self._context = None
+            if self._attributes_context is not None:
+                try:
+                    self._attributes_context.__exit__(None, None, None)
+                except Exception:
+                    pass
+                self._attributes_context = None
             return _NoopSpan()
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> bool:
-        if self._context is not None:
-            try:
-                self._context.__exit__(exc_type, exc, traceback)
-            except Exception:
-                pass
+        try:
+            if self._context is not None:
+                try:
+                    self._context.__exit__(exc_type, exc, traceback)
+                except Exception:
+                    pass
+        finally:
+            if self._attributes_context is not None:
+                try:
+                    self._attributes_context.__exit__(exc_type, exc, traceback)
+                except Exception:
+                    pass
         return False
 
 
@@ -82,7 +110,8 @@ class Telemetry(Protocol):
     capture_content: bool
 
     def span(self, name: str, metadata: dict[str, object], *, kind: str = "span",
-             input: object | None = None, model: str | None = None) -> _SafeContext: ...
+             input: object | None = None, model: str | None = None,
+             session_id: str | None = None) -> _SafeContext: ...
 
     def flush(self) -> None: ...
 
@@ -93,8 +122,9 @@ class LangfuseTelemetry:
         self.capture_content = capture_content
 
     def span(self, name: str, metadata: dict[str, object], *, kind: str = "span",
-             input: object | None = None, model: str | None = None) -> _SafeContext:
-        return _SafeContext(self.client, name, metadata, kind, input, model)
+             input: object | None = None, model: str | None = None,
+             session_id: str | None = None) -> _SafeContext:
+        return _SafeContext(self.client, name, metadata, kind, input, model, session_id)
 
     def flush(self) -> None:
         if self.client is not None:
