@@ -291,7 +291,7 @@ class CampaignSession:
     @staticmethod
     def _prompt(step: dict[str, Any]) -> str:
         options = " / ".join(f"{item['id']}={item['label']}" for item in step["options"])
-        suffix = "；留言格式：/choose 嘉宾ID 留言内容" if step["kind"] == "message" else "；输入 /choose 选项ID"
+        suffix = "；留言格式：/choose 选项ID 留言内容" if step["kind"] == "message" else "；输入 /choose 选项ID"
         return f"{step['prompt']}\n可选：{options}{suffix}"
 
     def _commit_choice(self, before: Snapshot, step: dict[str, Any], option: dict[str, Any],

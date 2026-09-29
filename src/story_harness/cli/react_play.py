@@ -17,6 +17,8 @@ from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.agents.selector_agent import AgentScopeWorkSelector
 from story_harness.adapters.telemetry import configured_telemetry
+from story_harness.cli.guidance_view import format_turn_output
+from story_harness.runtime.guidance import GuidanceAdvisor
 
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[3] / "config" / "bailian-token-plan.json"
@@ -71,6 +73,7 @@ async def play(
         new_game = True
 
     session = make_react_session(config, package, store, values, telemetry)
+    advisor = GuidanceAdvisor(store, package, telemetry=telemetry)
     print(f"{package.package_id} | game={game_id} | /quit 退出")
     if new_game and package.opening:
         print(package.opening)
@@ -86,10 +89,12 @@ async def play(
                 continue
             turn_id = uuid4().hex
             outcome = await session.run_turn(game_id, player_text, turn_id)
-            print(outcome.narration)
+            guidance = await advisor.advise(game_id, outcome.snapshot,
+                                            visible_text=outcome.narration)
+            body = outcome.narration
             if outcome.narration_fallback:
-                print("[叙述模型出错，以上为已提交的可见结果]")
-            print(f"[tick {outcome.snapshot.tick} | turn {turn_id}]")
+                body += "\n[叙述模型出错，以上为已提交的可见结果]"
+            print(format_turn_output(body, f"[tick {outcome.snapshot.tick} | turn {turn_id}]", guidance))
     finally:
         telemetry.flush()
 

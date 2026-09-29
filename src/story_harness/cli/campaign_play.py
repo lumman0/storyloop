@@ -12,7 +12,9 @@ from pathlib import Path
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.cli.react_play import DEFAULT_CONFIG, make_react_session
+from story_harness.cli.guidance_view import format_turn_output
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
+from story_harness.runtime.guidance import GuidanceAdvisor
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -36,6 +38,7 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
         new_game = True
     react = make_react_session(config, package, store, values, telemetry)
     session = CampaignSession(store, program, react, telemetry=telemetry)
+    advisor = GuidanceAdvisor(store, package, program, telemetry=telemetry)
     print(f"{package.package_id} | game={game_id} | /next 推进时段 | /quit 退出")
     if new_game and package.opening:
         print(package.opening)
@@ -51,9 +54,12 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
                 if isinstance(prior_text, str) and prior_text and prior_text != initial.text:
                     print("[上次回合回放]")
                     print(prior_text)
-        if initial.text:
-            print(initial.text)
-        print(f"[第 {initial.snapshot.data['campaign']['day']} 天 | tick {initial.snapshot.tick}]")
+        guidance = await advisor.advise(game_id, initial.snapshot,
+                                        gate_id=initial.gate_id, complete=initial.complete,
+                                        visible_text=initial.text)
+        print(format_turn_output(initial.text,
+                                 f"[第 {initial.snapshot.data['campaign']['day']} 天 | tick {initial.snapshot.tick}]",
+                                 guidance))
         while not initial.complete:
             try:
                 player_text = input("你> ").strip()
@@ -69,9 +75,12 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
             except ValueError as error:
                 print(f"[输入未生效] {error}")
                 continue
-            if outcome.text:
-                print(outcome.text)
-            print(f"[第 {outcome.snapshot.data['campaign']['day']} 天 | tick {outcome.snapshot.tick}]")
+            guidance = await advisor.advise(game_id, outcome.snapshot,
+                                            gate_id=outcome.gate_id, complete=outcome.complete,
+                                            visible_text=outcome.text)
+            print(format_turn_output(outcome.text,
+                                     f"[第 {outcome.snapshot.data['campaign']['day']} 天 | tick {outcome.snapshot.tick}]",
+                                     guidance))
             initial = outcome
     finally:
         telemetry.flush()

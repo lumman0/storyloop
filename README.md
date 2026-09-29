@@ -49,7 +49,9 @@ py -3.12 -m venv .venv
 & '.venv\Scripts\python.exe' -m story_harness.cli.campaign_play path\to\scenario --db game.sqlite3 --game-id my-game
 ```
 
-在终端使用 `/choose 选项ID` 回答选择，留言格式为 `/choose 嘉宾ID 留言内容`；`/next` 推进一个时间格，`/quit` 保留进度并退出。剧本数据可放在仓库外，仓库中不需要包含私人原件。日程调度、选择和来信与 ReAct 回合共用 `GameStore` 事件和同一个 Langfuse Session。
+在终端使用 `/choose 选项ID` 回答选择，留言格式为 `/choose 选项ID 留言内容`；`/next` 推进一个时间格，`/quit` 保留进度并退出。剧本数据可放在仓库外，仓库中不需要包含私人原件。日程调度、选择和来信与 ReAct 回合共用 `GameStore` 事件和同一个 Langfuse Session。
+
+每次回合结束后，CLI 会在剧情正文和时间状态下方显示独立的「下一步建议」区。默认规则根据当前选择关卡、同场角色、最近互动和主线时间进度给出最多两条可执行建议；日程游戏还会提示 `/next`。建议只读玩家可见状态，不写入世界事件或 NPC 记忆，也不额外调用模型。`GuidanceProvider` 是可替换接口，之后可接轻量模型；提供器失败时自动回退到规则建议。Langfuse Session 中另有 `player-guidance` 观测和 `story.guidance_items` 指标。
 
 同一 `--db` 与 `--game-id` 会接续进度；若进程在已提交玩家行为、尚未结束回合时中断，启动时会先恢复该回合。带日程的剧本要求 NPC 回复工作耗时为 0 个时间格，玩家输入或 `/next` 负责推进时间，避免后台回复跨过尚未处理的选择。
 
