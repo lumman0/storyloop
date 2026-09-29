@@ -1,0 +1,10 @@
+{
+  "games": [
+    {
+      "id": "npc-chat",
+      "title": "港口 NPC 对话",
+      "mode": "freeform",
+      "package": "../examples/freeform"
+    }
+  ]
+}

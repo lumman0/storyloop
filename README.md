@@ -55,6 +55,34 @@ py -3.12 -m venv .venv
 
 同一 `--db` 与 `--game-id` 会接续进度；若进程在已提交玩家行为、尚未结束回合时中断，启动时会先恢复该回合。带日程的剧本要求 NPC 回复工作耗时为 0 个时间格，玩家输入或 `/next` 负责推进时间，避免后台回复跨过尚未处理的选择。
 
+## 玩家入口：登录、选游戏、续玩
+
+玩家入口是独立于剧情引擎的薄层：SQLite 保存账号、会话令牌和存档归属；剧本目录登记可选游戏；登录后的玩家只能查看自己的存档。恋综日程模式与自由 NPC 对话模式使用同一组入口，回合仍由原有 harness 执行。玩家画像暂未接入。
+
+先复制 [`config/games.example.json`](config/games.example.json)，按需要加入恋综包：
+
+```json
+{"games": [
+  {"id": "winter-show", "title": "冬日恋综", "mode": "campaign", "package": "你的恋综剧本目录"},
+  {"id": "npc-chat", "title": "港口 NPC 对话", "mode": "freeform", "package": "你的 freeform 剧本目录"}
+]}
+```
+
+剧本目录可以在仓库外；`package` 相对目录文件所在位置解析。私人目录文件也应保留在仓库外。设置好模型 API Key 后，运行交互式入口：
+
+```powershell
+$env:STORY_BAILIAN_API_KEY='你的模型密钥'
+& '.venv\Scripts\python.exe' -m story_harness.cli.portal_play --catalog path\to\games.json --db portal.sqlite3
+```
+
+入口会提示注册或登录，并列出新游戏与已有存档。游戏内 `/back` 返回目录，`/quit` 退出。若未设置模型密钥，终端会在进入游戏时隐藏读取。API 可以独立启动，默认只监听本机 `127.0.0.1:8765`：
+
+```powershell
+& '.venv\Scripts\python.exe' -m story_harness.cli.portal_api --catalog path\to\games.json --db portal.sqlite3
+```
+
+JSON API 提供 `POST /v1/accounts` 注册、`POST /v1/sessions` 登录、`GET /v1/catalog` 列目录、`GET/POST /v1/saves` 列存档或开局，以及 `POST /v1/saves/{game_id}/resume` 和 `POST /v1/saves/{game_id}/turns`。请求体使用 `Content-Type: application/json`；登录返回的令牌通过 `Authorization: Bearer <token>` 传递。提交回合可带稳定的 `request_id` 用于重复请求去重；若自由回合已提交而返回途中中断，会从已提交的可见观察恢复结果。API 返回的 `body` 与 `suggestions` 是独立字段。存档绑定剧本内容指纹；剧本更新后旧存档会标记为不可继续，等待显式迁移。
+
 ## Langfuse 链路与指标
 
 Langfuse 是 harness 的可选可观测适配器，适用于实时 ReAct 演示和离线互动演示。安装 `observability` 扩展并设置项目的公钥、密钥和服务地址即可启用；未设置密钥时游戏照常运行，密钥只设置了一半时会明确报错。Windows CMD 示例：

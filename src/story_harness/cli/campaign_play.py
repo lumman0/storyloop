@@ -11,10 +11,11 @@ from pathlib import Path
 
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
-from story_harness.cli.react_play import DEFAULT_CONFIG, make_react_session
+from story_harness.cli.react_play import DEFAULT_CONFIG
 from story_harness.cli.guidance_view import format_turn_output
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.guidance import GuidanceAdvisor
+from story_harness.runtime.react_factory import make_react_session
 from story_harness.world.scenario import ScenarioPackage
 
 

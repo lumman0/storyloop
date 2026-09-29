@@ -10,49 +10,15 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.runtime.game_session import GameSession
-from story_harness.agents.main_agent import MainReActAgent
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.world.scenario import ScenarioPackage
-from story_harness.agents.selector_agent import AgentScopeWorkSelector
 from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.cli.guidance_view import format_turn_output
 from story_harness.runtime.guidance import GuidanceAdvisor
+from story_harness.runtime.react_factory import make_react_session
 
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[3] / "config" / "bailian-token-plan.json"
-
-
-def make_react_session(config, package, store, values, telemetry):
-    """Wire the shared ReAct loop for terminal modes."""
-    pool = NpcAgentPool(
-        store,
-        lambda _game_id, _actor_id: config.create_model("npc_reply", values, telemetry),
-        max_iters=config.runtime.npc_max_iters,
-        worldbook=package.worldbook,
-        telemetry=telemetry,
-    )
-    return GameSession(
-        store,
-        package,
-        lambda active_game_id: MainReActAgent(
-            active_game_id,
-            store,
-            package.worldbook,
-            config.create_model("main_react", values, telemetry),
-            max_iters=config.runtime.main_max_iters,
-            action_rules=package.action_rules,
-            narration_model=config.create_model("narration", values, telemetry),
-            telemetry=telemetry,
-            opening=package.opening,
-        ),
-        pool,
-        max_steps=config.runtime.max_steps,
-        max_npc_replies=config.runtime.max_npc_replies,
-        selector=AgentScopeWorkSelector(config.create_model("work_selection", values, telemetry), telemetry=telemetry),
-        telemetry=telemetry,
-    )
 
 
 async def play(
