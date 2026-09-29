@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from agentscope.formatter import OpenAIChatFormatter
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
@@ -14,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from story_harness.core.actions import ActionRule
 from story_harness.agents.quiet_agent import QuietReActAgent
+from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from story_harness.world.worldbook import Worldbook
@@ -136,7 +136,7 @@ class MainReActAgent:
                 "其他动作不能自行提交状态变化。"
             ),
             model=model,
-            formatter=OpenAIChatFormatter(),
+            formatter=ThinkingSafeOpenAIChatFormatter(),
             toolkit=toolkit,
             memory=InMemoryMemory(),
             max_iters=max_iters,
@@ -149,7 +149,7 @@ class MainReActAgent:
                     "只能根据本次已提交的玩家可见结果叙述，不能追加事实或透露幕后信息。"
                 ),
                 model=narration_model,
-                formatter=OpenAIChatFormatter(),
+                formatter=ThinkingSafeOpenAIChatFormatter(),
                 toolkit=Toolkit(),
                 memory=InMemoryMemory(),
                 max_iters=max_iters,

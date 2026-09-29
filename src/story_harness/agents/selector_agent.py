@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-from agentscope.formatter import OpenAIChatFormatter
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
@@ -13,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from story_harness.core.contracts import PendingWork, Snapshot
 from story_harness.agents.quiet_agent import QuietReActAgent
+from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
 
 
@@ -42,7 +42,7 @@ class AgentScopeWorkSelector:
                 "你不能修改世界状态，也不能假定未提供的幕后事实。"
             ),
             model=self.model,
-            formatter=OpenAIChatFormatter(),
+            formatter=ThinkingSafeOpenAIChatFormatter(),
             toolkit=Toolkit(),
             memory=InMemoryMemory(),
             max_iters=self.max_iters,

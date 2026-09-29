@@ -17,6 +17,7 @@ from agentscope.tool import ToolResponse, Toolkit
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from story_harness.agents.quiet_agent import QuietReActAgent
+from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.world.worldbook import Worldbook
 
 
@@ -35,7 +36,7 @@ class NpcAgentPool:
         store: GameStore,
         model_factory: Callable[[str, str], ChatModelBase],
         max_iters: int = 3,
-        formatter_factory: Callable[[], OpenAIChatFormatter] = OpenAIChatFormatter,
+        formatter_factory: Callable[[], OpenAIChatFormatter] = ThinkingSafeOpenAIChatFormatter,
         worldbook: Worldbook | None = None,
         telemetry: Telemetry | None = None,
     ) -> None:
