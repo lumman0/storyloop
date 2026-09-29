@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from story_harness.cli.guidance_view import format_turn_output
 from story_harness.cli.react_play import DEFAULT_CONFIG
+from story_harness.portal.local_config import LocalPreferences
 from story_harness.portal.service import PlayerPortal
 from story_harness.runtime.guidance import GuidanceResult
 
@@ -23,9 +24,18 @@ def _show(view: dict) -> None:
                              GuidanceResult(tuple(view["suggestions"]), "portal")))
 
 
-async def play(portal: PlayerPortal) -> None:
+async def play(portal: PlayerPortal, preferences: LocalPreferences | None = None) -> None:
     print("玩家入口 | /quit 退出")
-    while True:
+    cached = preferences.session(portal.db_path) if preferences else None
+    token = None
+    if cached and isinstance(cached.get("token"), str):
+        try:
+            portal.accounts.resolve_token(cached["token"])
+            token = cached["token"]
+            print(f"已恢复登录：{cached.get('username', '玩家')}")
+        except PermissionError:
+            preferences.clear_session(portal.db_path)
+    while token is None:
         try:
             action = input("登录或注册？[login/register] ").strip().lower()
             if action == "/quit":
@@ -36,13 +46,16 @@ async def play(portal: PlayerPortal) -> None:
             password = getpass.getpass("密码: ")
             session = (portal.register(username, password) if action == "register"
                        else portal.login(username, password))
+            token = session["token"]
+            if preferences:
+                preferences.save_session(portal.db_path, username, token)
             break
         except EOFError:
             return
         except (ValueError, PermissionError) as error:
             print(f"[登录未生效] {error}")
-    token = session["token"]
-    print("登录成功。")
+    if not cached or token != cached.get("token"):
+        print("登录成功。")
     try:
         while True:
             games = portal.games(token)
@@ -56,10 +69,15 @@ async def play(portal: PlayerPortal) -> None:
                       + (" [已结束]" if save["complete"] else "")
                       + (" [剧本已变化]" if not save["available"] else ""))
             try:
-                choice = input("选择编号，或 /quit: ").strip()
+                choice = input("选择编号，或 /logout、/quit: ").strip()
             except EOFError:
                 break
             if choice == "/quit":
+                break
+            if choice == "/logout":
+                portal.logout(token)
+                if preferences:
+                    preferences.clear_session(portal.db_path)
                 break
             try:
                 if choice.startswith("s") and choice[1:].isdigit():
@@ -75,7 +93,9 @@ async def play(portal: PlayerPortal) -> None:
                         raise ValueError("游戏编号无效")
                     catalog_id = games[index]["id"]
                     operation = portal.create_save(token, catalog_id)
-                if not os.environ.get(portal.config.api_key_env):
+                if preferences:
+                    preferences.activate_model_key(portal.config.api_key_env, prompt=True)
+                elif not os.environ.get(portal.config.api_key_env):
                     os.environ[portal.config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
                 view = await operation
             except (ValueError, IndexError, KeyError) as error:
@@ -107,12 +127,21 @@ async def play(portal: PlayerPortal) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--catalog", required=True)
-    parser.add_argument("--config", default=str(DEFAULT_CONFIG))
+    parser.add_argument("--catalog", help="scenario catalog; remembered after first launch")
+    parser.add_argument("--config", help="model config; remembered after first launch")
     parser.add_argument("--db", help="SQLite database shared by accounts and games")
     args = parser.parse_args()
+    preferences = LocalPreferences()
+    saved = preferences.load_settings()
+    catalog = args.catalog or saved.get("catalog")
+    if not catalog:
+        parser.error("--catalog is required on first launch")
+    config = args.config or saved.get("config") or str(DEFAULT_CONFIG)
+    portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
+    preferences.save_settings(catalog, config, portal.db_path)
+    preferences.activate_model_key(portal.config.api_key_env)
     sys.stdout.reconfigure(encoding="utf-8")
-    asyncio.run(play(PlayerPortal(args.catalog, args.config, args.db)))
+    asyncio.run(play(portal, preferences))
 
 
 if __name__ == "__main__":

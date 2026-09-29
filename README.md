@@ -10,7 +10,7 @@
 
 ```powershell
 py -3.12 -m venv .venv
-& '.venv\Scripts\python.exe' -m pip install -e '.[agents]'
+& '.venv\Scripts\python.exe' -m pip install -e '.[agents,portal]'
 ```
 
 ## 离线验证
@@ -68,20 +68,23 @@ py -3.12 -m venv .venv
 ]}
 ```
 
-剧本目录可以在仓库外；`package` 相对目录文件所在位置解析。私人目录文件也应保留在仓库外。设置好模型 API Key 后，运行交互式入口：
+剧本目录可以在仓库外；`package` 相对目录文件所在位置解析。私人目录文件也应保留在仓库外。首次运行交互式入口时指定目录和数据库：
 
 ```powershell
-$env:STORY_BAILIAN_API_KEY='你的模型密钥'
 & '.venv\Scripts\python.exe' -m story_harness.cli.portal_play --catalog path\to\games.json --db portal.sqlite3
 ```
 
-入口会提示注册或登录，并列出新游戏与已有存档。游戏内 `/back` 返回目录，`/quit` 退出。若未设置模型密钥，终端会在进入游戏时隐藏读取。API 可以独立启动，默认只监听本机 `127.0.0.1:8765`：
+入口会提示注册或登录，并列出新游戏与已有存档。游戏内 `/back` 返回目录，`/quit` 退出，目录中的 `/logout` 注销并清除本机登录缓存。下次启动可以直接运行 `python -m story_harness.cli.portal_play`：目录、模型配置和数据库路径会从本机设置读取；仍有效的登录也会自动恢复。首次进入游戏时会隐藏读取模型 API Key，之后自动复用。
+
+Windows 上，普通设置保存在当前用户 `%LOCALAPPDATA%\StoryHarness\settings.json`，模型密钥和登录令牌由 Windows DPAPI 加密后保存在同目录的 `credentials.dpapi`。这两个文件都不应提交到仓库；密钥不会写入剧本包或普通设置。可用 `STORY_PORTAL_HOME` 覆盖本机设置目录。在非 Windows 系统，路径设置仍可持久化，密钥需每次从环境变量提供，交互入口也可再次隐藏输入；登录令牌不会落盘。
+
+API 使用 FastAPI 和 Uvicorn，可以独立启动，默认只监听本机 `127.0.0.1:8765`：
 
 ```powershell
 & '.venv\Scripts\python.exe' -m story_harness.cli.portal_api --catalog path\to\games.json --db portal.sqlite3
 ```
 
-JSON API 提供 `POST /v1/accounts` 注册、`POST /v1/sessions` 登录、`GET /v1/catalog` 列目录、`GET/POST /v1/saves` 列存档或开局，以及 `POST /v1/saves/{game_id}/resume` 和 `POST /v1/saves/{game_id}/turns`。请求体使用 `Content-Type: application/json`；登录返回的令牌通过 `Authorization: Bearer <token>` 传递。提交回合可带稳定的 `request_id` 用于重复请求去重；若自由回合已提交而返回途中中断，会从已提交的可见观察恢复结果。API 返回的 `body` 与 `suggestions` 是独立字段。存档绑定剧本内容指纹；剧本更新后旧存档会标记为不可继续，等待显式迁移。
+后续可直接运行 `python -m story_harness.cli.portal_api`。启动后访问 `http://127.0.0.1:8765/docs` 查看交互式 API 文档。JSON API 提供 `POST /v1/accounts` 注册、`POST /v1/sessions` 登录、`DELETE /v1/sessions/current` 注销、`GET /v1/catalog` 列目录、`GET/POST /v1/saves` 列存档或开局，以及 `POST /v1/saves/{game_id}/resume` 和 `POST /v1/saves/{game_id}/turns`。请求体使用 `Content-Type: application/json`；登录返回的令牌通过 `Authorization: Bearer <token>` 传递。提交回合可带稳定的 `request_id` 用于重复请求去重；若自由回合已提交而返回途中中断，会从已提交的可见观察恢复结果。API 返回的 `body` 与 `suggestions` 是独立字段。存档绑定剧本内容指纹；剧本更新后旧存档会标记为不可继续，等待显式迁移。
 
 ## Langfuse 链路与指标
 

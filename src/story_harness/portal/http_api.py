@@ -1,135 +1,135 @@
-"""Small localhost JSON API for account, catalog, save, and turn operations."""
+"""FastAPI adapter for the independent player portal service."""
 
 from __future__ import annotations
 
-import asyncio
-import json
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlsplit
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from story_harness.portal.service import PlayerPortal
+
+
+class AccountBody(BaseModel):
+    username: str
+    password: str
+
+
+class SaveBody(BaseModel):
+    catalog_id: str
+
+
+class TurnBody(BaseModel):
+    text: str
+    request_id: str | None = None
+
+
+def _http_error(error: Exception) -> HTTPException:
+    if isinstance(error, PermissionError):
+        return HTTPException(status_code=401, detail=str(error))
+    if isinstance(error, KeyError):
+        return HTTPException(status_code=404, detail=str(error.args[0]))
+    if isinstance(error, ValueError):
+        return HTTPException(status_code=400, detail=str(error))
+    raise error
+
+
+def create_app(portal: PlayerPortal) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            portal.close()
+
+    app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
+    bearer = HTTPBearer(auto_error=False)
+
+    @app.middleware("http")
+    async def local_request_only(request: Request, call_next):
+        host = request.headers.get("host", "").split(":", 1)[0]
+        if host not in {"127.0.0.1", "localhost"}:
+            return JSONResponse({"error": "invalid local host"}, status_code=401)
+        origin = request.headers.get("origin")
+        if origin and origin not in {f"http://{host}:{request.url.port}", f"http://{host}"}:
+            return JSONResponse({"error": "cross-origin requests are not allowed"}, status_code=401)
+        needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves"}
+                      or request.url.path.endswith("/turns"))
+        if request.method in {"POST", "PUT", "PATCH"} and needs_json:
+            content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if content_type != "application/json":
+                return JSONResponse({"error": "Content-Type must be application/json"}, status_code=400)
+        return await call_next(request)
+
+    def token(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
+        if credentials is None:
+            raise HTTPException(status_code=401, detail="Bearer token required")
+        try:
+            portal.accounts.resolve_token(credentials.credentials)
+        except PermissionError as error:
+            raise _http_error(error) from error
+        return credentials.credentials
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"status": "ok"}
+
+    @app.post("/v1/accounts", status_code=201)
+    def register(body: AccountBody) -> dict:
+        try:
+            return portal.register(body.username, body.password)
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/sessions")
+    def login(body: AccountBody) -> dict:
+        try:
+            return portal.login(body.username, body.password)
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.delete("/v1/sessions/current")
+    def logout(auth: str = Depends(token)) -> dict:
+        portal.logout(auth)
+        return {"status": "logged_out"}
+
+    @app.get("/v1/catalog")
+    def catalog(auth: str = Depends(token)) -> dict:
+        return {"games": portal.games(auth)}
+
+    @app.get("/v1/saves")
+    def saves(auth: str = Depends(token)) -> dict:
+        return {"saves": portal.saves(auth)}
+
+    @app.post("/v1/saves", status_code=201)
+    async def create_save(body: SaveBody, auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.create_save(auth, body.catalog_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/saves/{game_id}/resume")
+    async def resume(game_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.resume_save(auth, game_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/saves/{game_id}/turns")
+    async def turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.turn(auth, game_id, body.text, body.request_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    return app
 
 
 def serve(portal: PlayerPortal, host: str = "127.0.0.1", port: int = 8765) -> None:
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("player portal HTTP login is available on localhost only")
-    loop = asyncio.new_event_loop()
-    loop_thread = threading.Thread(target=loop.run_forever, name="player-portal-loop", daemon=True)
-    loop_thread.start()
+    import uvicorn
 
-    class Handler(BaseHTTPRequestHandler):
-        @staticmethod
-        def _run(coroutine):
-            return asyncio.run_coroutine_threadsafe(coroutine, loop).result()
-
-        def _body(self) -> dict:
-            content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            if content_type != "application/json":
-                raise ValueError("Content-Type must be application/json")
-            length = int(self.headers.get("Content-Length", "0"))
-            if length < 1 or length > 65_536:
-                raise ValueError("JSON request body must be 1–65536 bytes")
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError("JSON request body must be an object")
-            return payload
-
-        def _token(self) -> str:
-            scheme, _, token = self.headers.get("Authorization", "").partition(" ")
-            if scheme.lower() != "bearer" or not token:
-                raise PermissionError("Bearer token required")
-            return token
-
-        def _write(self, code: int, payload: dict | list) -> None:
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def _dispatch(self) -> None:
-            method = self.command
-            path = urlsplit(self.path).path
-            allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-            if self.headers.get("Host", "") not in allowed_hosts:
-                raise PermissionError("invalid local host")
-            origin = self.headers.get("Origin")
-            if origin and origin not in {f"http://{host}" for host in allowed_hosts}:
-                raise PermissionError("cross-origin requests are not allowed")
-            if method == "GET" and path == "/health":
-                self._write(200, {"status": "ok"})
-                return
-            if method == "POST" and path == "/v1/accounts":
-                body = self._body()
-                self._write(201, portal.register(body.get("username"), body.get("password")))
-                return
-            if method == "POST" and path == "/v1/sessions":
-                body = self._body()
-                self._write(200, portal.login(body.get("username"), body.get("password")))
-                return
-            token = self._token()
-            if method == "DELETE" and path == "/v1/sessions/current":
-                portal.logout(token)
-                self._write(200, {"status": "logged_out"})
-                return
-            if method == "GET" and path == "/v1/catalog":
-                self._write(200, {"games": portal.games(token)})
-                return
-            if method == "GET" and path == "/v1/saves":
-                self._write(200, {"saves": portal.saves(token)})
-                return
-            if method == "POST" and path == "/v1/saves":
-                body = self._body()
-                self._write(201, self._run(portal.create_save(token, body.get("catalog_id"))))
-                return
-            parts = path.strip("/").split("/")
-            if len(parts) == 4 and parts[:2] == ["v1", "saves"] and parts[3] == "resume" and method == "POST":
-                self._write(200, self._run(portal.resume_save(token, parts[2])))
-                return
-            if len(parts) == 4 and parts[:2] == ["v1", "saves"] and parts[3] == "turns" and method == "POST":
-                body = self._body()
-                self._write(200, self._run(portal.turn(token, parts[2], body.get("text"),
-                                                       body.get("request_id"))))
-                return
-            self._write(404, {"error": "not found"})
-
-        def do_GET(self) -> None:
-            self._handle()
-
-        def do_POST(self) -> None:
-            self._handle()
-
-        def do_DELETE(self) -> None:
-            self._handle()
-
-        def _handle(self) -> None:
-            try:
-                self._dispatch()
-            except PermissionError as error:
-                self._write(401, {"error": str(error)})
-            except KeyError as error:
-                self._write(404, {"error": str(error.args[0])})
-            except (ValueError, UnicodeError, json.JSONDecodeError) as error:
-                self._write(400, {"error": str(error)})
-            except Exception:
-                self.log_exception()
-                self._write(500, {"error": "internal error"})
-
-        def log_exception(self) -> None:
-            import logging
-            logging.exception("player portal request failed")
-
-    server = None
-    try:
-        server = HTTPServer((host, port), Handler)
-        print(f"Player Portal API: http://{host}:{port}", flush=True)
-        server.serve_forever()
-    finally:
-        if server is not None:
-            server.server_close()
-        loop.call_soon_threadsafe(loop.stop)
-        loop_thread.join(timeout=5)
-        loop.close()
-        portal.close()
+    uvicorn.run(create_app(portal), host=host, port=port)
