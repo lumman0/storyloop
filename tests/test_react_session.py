@@ -145,9 +145,9 @@ class ReactSessionTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(result.decision.target_ids, ["dockhand"])
             self.assertEqual(result.snapshot.tick, 1)
-            self.assertIn("A：你好。", [item.content for item in result.player_observations])
+            self.assertIn("【码头工】\nA：你好。", [item.content for item in result.player_observations])
             self.assertIn("dockhand", json.dumps(speech_model.prompts, ensure_ascii=False))
-            self.assertEqual(result.narration, "A：你好。")
+            self.assertEqual(result.narration, "【码头工】\nA：你好。")
             self.assertEqual(narration_model.prompts, [])
 
 

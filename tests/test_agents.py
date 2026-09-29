@@ -87,6 +87,13 @@ class NpcAgentPoolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reply from game-1:A", a_reply)
         self.assertIn("reply from game-1:B", b_reply)
 
+    async def test_npc_prompt_calls_for_brief_natural_group_greetings(self) -> None:
+        await self.pool.respond("game-1", "A", "谨慎的目击者", "大家好呀")
+
+        prompt = str(self.models[("game-1", "A")].prompts[0])
+        self.assertIn("群体寒暄", prompt)
+        self.assertIn("不要逐项复述角色卡", prompt)
+
     async def test_npc_worldbook_tool_respects_actor_visibility(self) -> None:
         path = Path(self.temp.name) / "worldbook.json"
         path.write_text(json.dumps({

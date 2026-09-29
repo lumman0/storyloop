@@ -16,6 +16,7 @@ class HarnessConfigTests(unittest.TestCase):
         self.assertEqual(config.model_name("npc_selection"), "qwen3.8-flash")
         self.assertEqual(config.model_name("main_react"), "qwen3.8-max")
         self.assertEqual(config.runtime.max_steps, 8)
+        self.assertEqual(config.runtime.max_npc_replies, 3)
         self.assertEqual(config.storage.driver, "sqlite")
         self.assertEqual(config.tool_choice_policy, "auto_only")
         self.assertNotIn("sk-sp-", DEFAULT.read_text(encoding="utf-8"))
@@ -31,12 +32,14 @@ class HarnessConfigTests(unittest.TestCase):
             raw["models"]["base_url"] = "https://example.invalid/v1"
             raw["models"]["tasks"]["main_react"] = "another-model"
             raw["runtime"]["max_steps"] = 3
+            raw["runtime"]["max_npc_replies"] = 2
             path.write_text(json.dumps(raw), encoding="utf-8")
 
             config = HarnessConfig.load(path)
 
             self.assertEqual(config.model_name("main_react"), "another-model")
             self.assertEqual(config.runtime.max_steps, 3)
+            self.assertEqual(config.runtime.max_npc_replies, 2)
             self.assertEqual(str(config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "x"}).client.base_url), "https://example.invalid/v1/")
 
     def test_invalid_budget_and_missing_key_fail_before_model_call(self) -> None:

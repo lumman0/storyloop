@@ -44,7 +44,7 @@ async def play(package_path: str, db_path: str, game_id: str, actor_id: str | No
     runner = TurnRunner(
         store,
         {
-            "npc_reply": make_npc_reply_handler(pool, package.role_cards),
+            "npc_reply": make_npc_reply_handler(pool, package.role_cards, package.actor_names),
             "scenario_cue": scenario_cue,
         },
         max_steps=8,

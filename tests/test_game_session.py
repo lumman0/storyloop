@@ -1,4 +1,5 @@
 import tempfile
+import json
 import unittest
 from pathlib import Path
 
@@ -79,8 +80,61 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.snapshot.tick, 1)
         self.assertEqual(self.store.player_inputs_for("game")[0].text, "你好")
-        self.assertEqual(outcome.narration, "A：我听见了。")
+        self.assertEqual(outcome.narration, "【码头工】\nA：我听见了。")
         self.assertEqual(main.visible_results, [])
+
+    async def test_group_speech_has_named_reply_blocks_and_all_nearby_npcs_hear_it(self) -> None:
+        root = Path(self.temp.name) / "group"
+        root.mkdir()
+        (root / "worldbook.json").write_text(json.dumps({
+            "package_id": "group", "version": "1", "entries": [
+                {"id": "shared_card", "kind": "card", "visibility": "public", "text": "只说自己知道的事。"},
+            ],
+        }), encoding="utf-8")
+        actors = [("a", "甲"), ("b", "乙"), ("c", "店员"), ("d", "店员"), ("e", "戊")]
+        (root / "manifest.json").write_text(json.dumps({
+            "id": "group", "version": "1", "time_unit": "tick", "worldbook": "worldbook.json",
+            "actors": [{"id": actor_id, "name": name, "card": "shared_card"} for actor_id, name in actors],
+            "initial_state": {"actors": {"player": {"location": "room"}} |
+                              {actor_id: {"location": "room"} for actor_id, _ in actors}},
+            "initial_work": [], "actions": [],
+        }, ensure_ascii=False), encoding="utf-8")
+        package = ScenarioPackage.load(root)
+        package.seed_game(self.store, "group")
+        main = ScriptedMain(MainDecision(intent="speech", audience="room",
+                                        target_ids=[actor_id for actor_id, _ in actors]))
+        session = GameSession(self.store, package, lambda _game: main, self.pool,
+                              max_steps=8, max_npc_replies=2)
+
+        result = await session.run_turn("group", "大家好呀", "group-turn")
+
+        self.assertEqual(result.decision.target_ids, ["a", "b"])
+        self.assertEqual(result.narration, "【甲】\nA：我听见了。\n\n【乙】\nA：我听见了。")
+        self.assertEqual(len(result.player_observations), 2)
+        self.assertEqual(result.processed_work_ids,
+                         ("group-turn:input:reply:a", "group-turn:input:reply:b"))
+        self.assertTrue(all(self.store.observations_for("group", actor_id)[0].content == "大家好呀"
+                            for actor_id, _ in actors))
+
+        main.decision = MainDecision(intent="speech", channel="private_message",
+                                     target_ids=[actor_id for actor_id, _ in actors[:4]])
+        private = await session.run_turn("group", "只告诉这四个人", "private-turn")
+        self.assertEqual(len(private.player_observations), 4)
+        self.assertEqual(private.decision.target_ids, ["a", "b", "c", "d"])
+        self.assertIn("【店员 (c)】", private.narration)
+        self.assertIn("【店员 (d)】", private.narration)
+        self.assertTrue(all(any(item.content == "只告诉这四个人"
+                                for item in self.store.observations_for("group", actor_id))
+                            for actor_id, _ in actors[:4]))
+        self.assertFalse(any(item.content == "只告诉这四个人"
+                             for item in self.store.observations_for("group", "e")))
+
+        main.decision = MainDecision(intent="speech", target_ids=["a"])
+        await session.run_turn("group", "只对甲说的普通话", "targeted-turn")
+        self.assertTrue(any(item.content == "只对甲说的普通话"
+                            for item in self.store.observations_for("group", "a")))
+        self.assertFalse(any(item.content == "只对甲说的普通话"
+                             for item in self.store.observations_for("group", "e")))
 
     async def test_action_changes_tracked_window_then_repeat_is_rejected(self) -> None:
         main = ScriptedMain(MainDecision(intent="action", action_id="break_shop_window"))

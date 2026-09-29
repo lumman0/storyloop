@@ -18,6 +18,7 @@
   },
   "runtime": {
     "max_steps": 8,
+    "max_npc_replies": 3,
     "main_max_iters": 4,
     "npc_max_iters": 3
   },

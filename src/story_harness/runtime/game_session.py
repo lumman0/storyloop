@@ -66,7 +66,10 @@ class GameSession:
         max_steps: int,
         selector: WorkSelector | None = None,
         telemetry: Telemetry | None = None,
+        max_npc_replies: int = 3,
     ) -> None:
+        if type(max_npc_replies) is not int or max_npc_replies < 1:
+            raise ValueError("max_npc_replies must be positive")
         self.store = store
         self.package = package
         self.main_factory = main_factory
@@ -74,6 +77,7 @@ class GameSession:
         self.max_steps = max_steps
         self.selector = selector
         self.telemetry = telemetry or LangfuseTelemetry()
+        self.max_npc_replies = max_npc_replies
         self._main: dict[str, MainAgent] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -81,7 +85,8 @@ class GameSession:
         return TurnRunner(
             self.store,
             {
-                "npc_reply": make_npc_reply_handler(self.npc_pool, self.package.role_cards),
+                "npc_reply": make_npc_reply_handler(self.npc_pool, self.package.role_cards,
+                                                     self.package.actor_names),
                 "scenario_cue": scenario_cue,
             },
             max_steps=self.max_steps,
@@ -138,8 +143,12 @@ class GameSession:
             kind="agent",
         ) as decision_span:
             decision = await main.decide(player_text)
+            if (decision.intent == "speech" and decision.channel == "speech"
+                    and len(decision.target_ids) > self.max_npc_replies):
+                decision = decision.model_copy(update={"target_ids": decision.target_ids[:self.max_npc_replies]})
             decision_span.update(metadata={
                 "intent": decision.intent, "target_ids": decision.target_ids,
+                "audience": decision.audience,
                 "entry_id": decision.entry_id, "action_id": decision.action_id,
             })
         if decision.intent == "speech":
@@ -211,7 +220,7 @@ class GameSession:
             raise ValueError("main agent selected an actor outside this scenario")
         submit_player_input(
             self.store, game_id, f"{turn_id}:input", text,
-            tuple(decision.target_ids), channel=decision.channel,
+            tuple(decision.target_ids), channel=decision.channel, audience=decision.audience,
         )
 
     def _inspect(

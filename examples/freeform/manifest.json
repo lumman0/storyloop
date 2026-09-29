@@ -5,7 +5,7 @@
   "ticks_per_day": 4,
   "worldbook": "worldbook.json",
   "opening": "你来到港口广场。旧码头与新码头由一条步道相连，市集还没有开门；一名码头工正在附近整理用具。这里没有预设的胜负答案：先观察环境、和他交谈，或尝试你想做的事。时间会随交谈和行动推进，到了开市时刻，港口也会发生变化。你现在想做什么？",
-  "actors": [{"id": "dockhand", "card": "dockhand_card"}],
+  "actors": [{"id": "dockhand", "name": "码头工", "card": "dockhand_card"}],
   "initial_state": {
     "world": {"location": "harbor_square", "market_phase": "closed", "shop_window": {"broken": false}},
     "plot": {"market_day": "not_started", "pressure": 0},

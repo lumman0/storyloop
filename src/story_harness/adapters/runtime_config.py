@@ -32,6 +32,7 @@ class RuntimeSettings:
     max_steps: int
     main_max_iters: int
     npc_max_iters: int
+    max_npc_replies: int = 3
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class HarnessConfig:
             _positive_int(runtime.get("max_steps"), "max_steps"),
             _positive_int(runtime.get("main_max_iters"), "main_max_iters"),
             _positive_int(runtime.get("npc_max_iters"), "npc_max_iters"),
+            _positive_int(runtime.get("max_npc_replies", 3), "max_npc_replies"),
         )
         driver = _string(storage.get("driver"), "storage.driver")
         raw_path = storage.get("path")

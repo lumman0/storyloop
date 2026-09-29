@@ -47,6 +47,7 @@ def make_react_session(config, package, store, values, telemetry):
         ),
         pool,
         max_steps=config.runtime.max_steps,
+        max_npc_replies=config.runtime.max_npc_replies,
         selector=AgentScopeWorkSelector(config.create_model("work_selection", values, telemetry), telemetry=telemetry),
         telemetry=telemetry,
     )

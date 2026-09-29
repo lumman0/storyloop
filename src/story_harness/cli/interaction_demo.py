@@ -47,7 +47,7 @@ async def run_interaction_demo(
         runner = TurnRunner(
             store,
             {
-                "npc_reply": make_npc_reply_handler(pool, package.role_cards),
+                "npc_reply": make_npc_reply_handler(pool, package.role_cards, package.actor_names),
                 "scenario_cue": scenario_cue,
             },
             max_steps=8,

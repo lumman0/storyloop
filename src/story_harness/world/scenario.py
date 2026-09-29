@@ -28,6 +28,7 @@ class ScenarioPackage:
     time_unit: str
     ticks_per_day: int | None
     actor_cards: tuple[tuple[str, str], ...]
+    actor_names: dict[str, str]
     initial_state: dict[str, object]
     initial_work: tuple[PendingWork, ...]
     worldbook: Worldbook
@@ -73,14 +74,19 @@ class ScenarioPackage:
         if not isinstance(raw_actors, list):
             raise ValueError("actors must be a list")
         actors: list[tuple[str, str]] = []
+        actor_names: dict[str, str] = {}
         for item in raw_actors:
             if not isinstance(item, dict):
                 raise ValueError("actor declaration must be an object")
             actor_id = _required_string(item, "id")
             card_id = _required_string(item, "card")
+            name = item.get("name", actor_id)
+            if not isinstance(name, str) or not name.strip() or "\n" in name or "\r" in name:
+                raise ValueError("actor name must be a single nonempty line")
             if worldbook.get(card_id, actor_id) is None:
                 raise ValueError(f"actor {actor_id} cannot read card {card_id}")
             actors.append((actor_id, card_id))
+            actor_names[actor_id] = name.strip()
         if len({actor_id for actor_id, _ in actors}) != len(actors):
             raise ValueError("duplicate actor ID")
 
@@ -113,7 +119,8 @@ class ScenarioPackage:
             raise ValueError("duplicate work ID")
 
         action_rules = parse_action_rules(raw.get("actions", []), state)
-        return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), state, tuple(work), worldbook, action_rules, opening)
+        return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
+                   state, tuple(work), worldbook, action_rules, opening)
 
     def seed_game(self, store: GameStore, game_id: str) -> None:
         state = deepcopy(self.initial_state)

@@ -16,7 +16,7 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
 class PlayerInputTests(unittest.TestCase):
-    def test_speech_is_recorded_and_delivered_to_only_addressed_npc(self) -> None:
+    def test_speech_is_recorded_and_addressed_npc_gets_reply_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             ScenarioPackage.load(EXAMPLES / "freeform").seed_game(store, "game")
@@ -77,11 +77,12 @@ class PlayerNpcIntegrationTests(unittest.IsolatedAsyncioTestCase):
             submit_player_input(store, "game", "input-1", "这家店卖什么？", ("dockhand",))
             model = CaptureModel()
             pool = NpcAgentPool(store, lambda game_id, actor_id: model)
-            handler = make_npc_reply_handler(pool, package.role_cards)
+            handler = make_npc_reply_handler(pool, package.role_cards, package.actor_names)
 
             result = await TurnRunner(store, {"npc_reply": handler}, 1).run_async("game")
 
             self.assertEqual(result.snapshot.tick, 1)
             self.assertEqual(len(store.observations_for("game", "player")), 1)
+            self.assertTrue(store.observations_for("game", "player")[0].content.startswith("【码头工】\n"))
             self.assertEqual(str(model.prompts[0]).count("这家店卖什么？"), 1)
             self.assertNotIn("港口市集每天开门一次", str(model.prompts[0]))

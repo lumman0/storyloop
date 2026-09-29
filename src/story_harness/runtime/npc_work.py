@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 
 from story_harness.agents.npc_agent import NpcAgentPool
@@ -10,8 +11,11 @@ from story_harness.runtime.runner import WorkHandler, WorkResult
 
 
 def make_npc_reply_handler(
-    pool: NpcAgentPool, role_cards: Mapping[str, str]
+    pool: NpcAgentPool, role_cards: Mapping[str, str], display_names: Mapping[str, str] | None = None,
 ) -> WorkHandler:
+    names = display_names or {}
+    label_counts = Counter(names.get(actor_id, actor_id) for actor_id in role_cards)
+
     async def handle(snapshot: Snapshot, work: PendingWork) -> WorkResult:
         actor_id = work.payload.get("actor_id")
         player_message = work.payload.get("player_message")
@@ -41,12 +45,15 @@ def make_npc_reply_handler(
             effects=(),
             details={"player_message": player_message, "speech": prepared.speech},
         )
+        label = names.get(actor_id, actor_id)
+        if label_counts[label] > 1:
+            label = f"{label} ({actor_id})"
         player_heard = Observation(
             observation_id=f"{work.work_id}:player-heard",
             event_id=event.event_id,
             recipient_id="player",
             channel="dialogue",
-            content=prepared.speech,
+            content=f"【{label}】\n{prepared.speech.strip()}",
             tick=event.tick,
         )
         return WorkResult(

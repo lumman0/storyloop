@@ -18,6 +18,7 @@ class ScenarioPackageTests(unittest.TestCase):
                 package = ScenarioPackage.load(EXAMPLES / name)
                 if name == "freeform":
                     self.assertIn("港口", package.opening)
+                    self.assertEqual(package.actor_names["dockhand"], "码头工")
                 self.assertEqual(package.time_unit, expected_unit)
                 self.assertEqual(package.ticks_per_day, 4)
                 self.assertEqual(package.worldbook.package_id, package.package_id)
