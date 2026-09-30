@@ -1,0 +1,58 @@
+.loading-state {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  color: oklch(0.69 0.022 20);
+}
+.loading-glyph {
+  width: 57px;
+  height: 57px;
+  display: grid;
+  place-items: center;
+  border: 1px solid oklch(0.48 0.055 20);
+  border-radius: 16px;
+  color: oklch(0.82 0.12 29);
+  animation: breath 1.8s ease-in-out infinite;
+}
+@keyframes breath {
+  50% {
+    opacity: 0.55;
+    transform: translateY(-5px);
+  }
+}
+.notice {
+  padding: 20px;
+  border: 1px solid oklch(0.55 0.1 20);
+  border-radius: 12px;
+  background: oklch(0.29 0.055 18);
+  color: oklch(0.95 0.012 20);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.notice p {
+  margin: 0;
+}
+.empty-state {
+  padding: 72px 25px;
+  text-align: center;
+  border: 1px dashed oklch(0.4 0.025 12);
+  border-radius: 15px;
+  color: oklch(0.68 0.018 20);
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 15px;
+}
+.empty-state h2 {
+  color: oklch(0.94 0.01 20);
+  margin: 0;
+  font-size: 1.25rem;
+}
+.empty-state p {
+  margin: 0 0 8px;
+}

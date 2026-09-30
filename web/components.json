@@ -3,6 +3,6 @@
   "style": "new-york",
   "rsc": false,
   "tsx": true,
-  "tailwind": { "css": "src/styles.css", "baseColor": "neutral", "cssVariables": true },
+  "tailwind": { "css": "src/styles/base.css", "baseColor": "neutral", "cssVariables": true },
   "aliases": { "components": "./src/components", "utils": "./src/lib/utils" }
 }

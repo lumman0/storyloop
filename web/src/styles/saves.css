@@ -1,0 +1,49 @@
+.saves-page {
+  min-height: 65vh;
+}
+.page-title {
+  padding: 65px 0 38px;
+}
+.page-title h1 {
+  font-size: 2.35rem;
+  margin: 12px 0;
+  letter-spacing: -0.03em;
+}
+.page-title p {
+  color: oklch(0.67 0.02 20);
+  margin: 0;
+}
+.save-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.save-row {
+  min-height: 105px;
+  border: 1px solid oklch(0.33 0.018 11);
+  border-radius: 13px;
+  background: oklch(0.21 0.016 10);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 25px;
+}
+.save-main {
+  flex: 1;
+}
+.save-main h2 {
+  font-size: 1.05rem;
+  margin: 0 0 8px;
+}
+.save-main p {
+  font-size: 0.8rem;
+  color: oklch(0.65 0.02 20);
+  margin: 0;
+}
+.save-main p span {
+  padding: 0 5px;
+}
+.unavailable {
+  font-size: 0.82rem;
+  color: oklch(0.58 0.02 20);
+}
