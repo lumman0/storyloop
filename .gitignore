@@ -8,3 +8,6 @@ build/
 dist/
 .env
 .env.*
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo

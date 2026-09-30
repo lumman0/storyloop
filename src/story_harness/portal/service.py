@@ -14,7 +14,7 @@ from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
-from story_harness.runtime.guidance import GuidanceAdvisor
+from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
 from story_harness.world.scenario import ScenarioPackage
 
@@ -56,8 +56,21 @@ class PlayerPortal:
 
     def games(self, token: str) -> list[dict]:
         self.accounts.resolve_token(token)
-        return [{"id": item.game_id, "title": item.title, "mode": item.mode}
+        return [{"id": item.game_id, "title": item.title, "mode": item.mode,
+                 "summary": item.summary, "genre": item.genre, "theme": item.theme}
                 for item in self.catalog.list_games()]
+
+    def history(self, token: str, game_id: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        record = self.accounts.get_save(player_id, game_id)
+        item = self._verified_listing(record)
+        intro = self.accounts.get_intro(game_id)
+        if intro is None:
+            package = ScenarioPackage.load(item.package_path)
+            intro = self._view(game_id, item.game_id, item.mode, "", self.store.load(game_id),
+                               guidance=GuidanceResult((), "history_fallback"),
+                               opening=package.opening)
+        return {"game_id": game_id, "intro": intro, "turns": self.accounts.list_turns(game_id)}
 
     def saves(self, token: str) -> list[dict]:
         player_id = self.accounts.resolve_token(token)
@@ -127,7 +140,9 @@ class PlayerPortal:
         package.seed_game(self.store, game_id)
         self.accounts.create_save(player_id, item.game_id, game_id,
                                   item.package_id, item.package_version, item.fingerprint)
-        return await self._open_save(item, package, game_id, opening=package.opening)
+        result = await self._open_save(item, package, game_id, opening=package.opening)
+        self.accounts.store_intro(game_id, result)
+        return result
 
     async def resume_save(self, token: str, game_id: str) -> dict:
         player_id = self.accounts.resolve_token(token)
@@ -139,8 +154,11 @@ class PlayerPortal:
                 and not self.store.ready_work(game_id, snapshot.tick)):
             return {**latest, "opening": ""}
         package = ScenarioPackage.load(item.package_path)
-        return await self._open_save(item, package, game_id,
-                                     opening=package.opening if latest is None else "")
+        result = await self._open_save(item, package, game_id,
+                                       opening=package.opening if latest is None else "")
+        if latest is None:
+            self.accounts.store_intro(game_id, result)
+        return result
 
     async def _open_save(self, item: GameListing, package: ScenarioPackage,
                          game_id: str, opening: str = "") -> dict:

@@ -58,6 +58,22 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                 save = client.post("/v1/saves", json={"catalog_id": "npc-chat"}, headers=headers)
                 self.assertEqual(save.status_code, 201)
                 game_id = save.json()["game_id"]
+                intro = client.get(f"/v1/saves/{game_id}/history", headers=headers)
+                self.assertEqual(intro.status_code, 200)
+                self.assertIn("港口广场", intro.json()["intro"]["opening"])
+                self.assertEqual(intro.json()["turns"], [])
+                portal.accounts.store_turn_response(game_id, "test-turn", "我走向码头", {
+                    **save.json(), "body": "码头工看向你。", "turn_id": "portal-test-turn",
+                })
+                history = client.get(f"/v1/saves/{game_id}/history", headers=headers).json()
+                self.assertEqual(history["turns"][0]["input"], "我走向码头")
+                self.assertEqual(history["turns"][0]["response"]["body"], "码头工看向你。")
+                stranger = client.post("/v1/accounts", json={
+                    "username": "stranger", "password": "test-pass-123",
+                }).json()["token"]
+                self.assertEqual(client.get(f"/v1/saves/{game_id}/history", headers={
+                    "Authorization": f"Bearer {stranger}",
+                }).status_code, 404)
                 self.assertEqual(client.post(f"/v1/saves/{game_id}/resume", headers=headers).status_code, 200)
                 self.assertEqual(client.get("/v1/saves", headers=headers).json()["saves"][0]["game_id"],
                                  game_id)

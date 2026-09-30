@@ -59,7 +59,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
             return JSONResponse({"error": "invalid host"}, status_code=401)
         origin = request.headers.get("origin")
         if portal.config.profile == "local":
-            origins = {f"http://{host}:{request.url.port}", f"http://{host}"}
+            origins = {f"http://{host}:{request.url.port}", f"http://{host}",
+                       "http://127.0.0.1:5173", "http://localhost:5173"}
         else:
             origins = set(portal.config.allowed_origins())
         if origin and origin not in origins:
@@ -111,6 +112,13 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.get("/v1/saves")
     def saves(auth: str = Depends(token)) -> dict:
         return {"saves": portal.saves(auth)}
+
+    @app.get("/v1/saves/{game_id}/history")
+    def history(game_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.history(auth, game_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
 
     @app.post("/v1/saves", status_code=201)
     async def create_save(body: SaveBody, auth: str = Depends(token)) -> dict:

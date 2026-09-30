@@ -139,15 +139,38 @@ class SQLPlayerRepository:
                 {"game_id": game_id}).mappings().first()
         return json.loads(row["response_json"]) if row else None
 
+    def store_intro(self, game_id: str, response: dict) -> None:
+        payload = json.dumps(response, ensure_ascii=False)
+        with self.engine.begin() as db:
+            db.execute(text("""INSERT INTO portal_intros (game_id,response_json)
+                VALUES (:game_id,:response_json)
+                ON CONFLICT (game_id) DO NOTHING"""),
+                {"game_id": game_id, "response_json": payload})
+
+    def get_intro(self, game_id: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(text("SELECT response_json FROM portal_intros WHERE game_id=:game_id"),
+                             {"game_id": game_id}).mappings().first()
+        return json.loads(row["response_json"]) if row else None
+
+    def list_turns(self, game_id: str) -> list[dict]:
+        with self.engine.connect() as db:
+            rows = db.execute(text("""SELECT request_id,input_text,response_json FROM portal_turns
+                WHERE game_id=:game_id ORDER BY created_order,request_id"""),
+                {"game_id": game_id}).mappings().all()
+        return [{"request_id": row["request_id"], "input": row["input_text"],
+                 "response": json.loads(row["response_json"])} for row in rows]
+
     def store_turn_response(self, game_id: str, request_id: str, text_input: str,
                             response: dict) -> None:
         try:
             with self.engine.begin() as db:
                 db.execute(text("""INSERT INTO portal_turns
-                    (game_id,request_id,input_hash,response_json,created_order)
-                    VALUES (:game_id,:request_id,:input_hash,:response_json,:created_order)"""),
+                    (game_id,request_id,input_hash,input_text,response_json,created_order)
+                    VALUES (:game_id,:request_id,:input_hash,:input_text,:response_json,:created_order)"""),
                     {"game_id": game_id, "request_id": request_id,
                      "input_hash": hashlib.sha256(text_input.encode()).digest(),
+                     "input_text": text_input,
                      "response_json": json.dumps(response, ensure_ascii=False),
                      "created_order": time.time_ns()})
         except IntegrityError as error:

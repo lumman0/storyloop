@@ -10,7 +10,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m story_harness.cli.portal_api --profile local --catalog config\games.example.json --db game.sqlite3
 ```
 
-本地配置是 `config/local.json`。API 仅绑定 `127.0.0.1`，SQLite 文件包含账号、存档与事件。旧版 SQLite 表在启动时原位迁移并保留数据；迁移前建议备份数据库文件。
+本地配置是 `config/local.json`。API 仅绑定 `127.0.0.1`，SQLite 文件包含账号、存档与事件。旧版 SQLite 表在启动时原位迁移并保留数据；迁移前建议备份数据库文件。前端在另一个终端运行 `cd web && npm install && npm run dev`，访问 `http://127.0.0.1:5173`。
 
 ## 线上 / Online
 
@@ -20,7 +20,7 @@ py -3.12 -m venv .venv
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@DB_HOST:5432/story
 STORY_BAILIAN_API_KEY=<model key>
 STORY_ALLOWED_HOSTS=game.example.com
-STORY_ALLOWED_ORIGINS=https://game.example.com
+STORY_ALLOWED_ORIGINS=https://app.example.com
 STORY_CATALOG=/srv/story/config/games.json
 ```
 
@@ -30,7 +30,7 @@ STORY_CATALOG=/srv/story/config/games.json
 python -m story_harness.cli.portal_api --profile online --port 8765
 ```
 
-线上配置是 `config/online.json`。服务绑定 `0.0.0.0`，请求 Host 必须匹配 `STORY_ALLOWED_HOSTS`；带 Origin 的请求必须匹配 `STORY_ALLOWED_ORIGINS`。没有浏览器前端时，`STORY_ALLOWED_ORIGINS` 可以留空。外部流量应由 HTTPS 反向代理接入；代理转发原始 Host。服务启动时自动执行 Alembic 迁移，PostgreSQL 迁移通过 advisory lock 串行化。
+线上配置是 `config/online.json`。服务绑定 `0.0.0.0`，请求 Host 必须匹配 `STORY_ALLOWED_HOSTS`；带 Origin 的请求必须匹配 `STORY_ALLOWED_ORIGINS`。在 `web/` 运行 `npm ci && npm run build`，将 `dist/` 作为静态站点部署。浏览器若与 API 不同域，构建时设置 `VITE_API_BASE_URL=https://game.example.com`，并把前端地址加入 `STORY_ALLOWED_ORIGINS`。同域部署则由反向代理将 `/v1` 路由到 API。外部流量应由 HTTPS 反向代理接入；代理转发原始 Host。服务启动时自动执行 Alembic 迁移，PostgreSQL 迁移通过 advisory lock 串行化。
 
 当前线上运行建议单个 API worker。单个游戏的并发回合与跨实例调度锁尚未实现；数据库乐观版本校验会拒绝冲突提交。Redis 可以在后续作为活跃会话缓存加入，不承担存档权威数据。
 

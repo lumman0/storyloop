@@ -34,6 +34,9 @@ class GameListing:
     package_id: str
     package_version: str
     fingerprint: str
+    summary: str = ""
+    genre: str = ""
+    theme: str = "harbor"
 
 
 class GameCatalog:
@@ -58,6 +61,9 @@ class GameCatalog:
                 raise ValueError("catalog game requires id, title, mode, and package")
             if item["mode"] not in {"campaign", "freeform"}:
                 raise ValueError("catalog game mode must be campaign or freeform")
+            for field in ("summary", "genre", "theme"):
+                if field in item and not isinstance(item[field], str):
+                    raise ValueError(f"catalog game {field} must be a string")
             package_path = (source.parent / item["package"]).resolve()
             package = ScenarioPackage.load(package_path)
             if item["mode"] == "campaign":
@@ -66,7 +72,9 @@ class GameCatalog:
                     raise ValueError("catalog campaign does not match scenario")
             listings.append(GameListing(item["id"], item["title"], item["mode"], package_path,
                                         package.package_id, package.version,
-                                        _package_fingerprint(package_path, item["mode"])))
+                                        _package_fingerprint(package_path, item["mode"]),
+                                        item.get("summary", ""), item.get("genre", ""),
+                                        item.get("theme", "harbor")))
         return cls(tuple(listings))
 
     def list_games(self) -> tuple[GameListing, ...]:
