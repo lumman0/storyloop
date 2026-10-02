@@ -15,6 +15,9 @@ function Prose({ text }: { text: string }) {
 
 function Segment({ segment }: { segment: StorySegment }) {
   if (segment.kind === "prompt") return null;
+  if (segment.kind === "time") {
+    return <div className="time-block" aria-label="时间流逝">{segment.text}</div>;
+  }
   if (segment.kind === "dialogue") {
     return (
       <div className="dialogue-block">

@@ -19,7 +19,7 @@ export type Save = {
   complete: boolean;
 };
 export type StorySegment = {
-  kind: "narration" | "scene" | "dialogue" | "message" | "prompt";
+  kind: "narration" | "scene" | "dialogue" | "message" | "prompt" | "time";
   text: string;
   speaker_id?: string;
   speaker_name?: string;
@@ -47,6 +47,7 @@ export type View = {
   tick: number;
   state_version: number;
   day: number | null;
+  time_of_day?: string | null;
   complete: boolean;
   turn_id: string | null;
 };

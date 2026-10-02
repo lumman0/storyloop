@@ -64,7 +64,7 @@ class RuleGuidanceProvider:
             first = "可以先观察周围，寻找当前能接触的人或物。"
 
         if context.campaign_progress is not None:
-            return (first, "如果想让主线继续，输入 /next 推进一个时段。")
+            return (first, "可以用 /next 推进一个时段；到了晚上，也可以用 /rest 休息到次日。")
         return (first, "也可以描述你想观察的地方，或明确说出下一步行动。")
 
 
@@ -74,13 +74,17 @@ class GuidanceAdvisor:
     def __init__(self, store: GameStore, package: ScenarioPackage,
                  program: CampaignProgram | None = None,
                  provider: GuidanceProvider | None = None,
-                 telemetry: Telemetry | None = None) -> None:
+                 telemetry: Telemetry | None = None,
+                 turns_per_story_tick: int = 1) -> None:
+        if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
+            raise ValueError("turns_per_story_tick must be positive")
         self.store = store
         self.package = package
         self.program = program
         self.provider = provider or RuleGuidanceProvider()
         self.fallback = RuleGuidanceProvider()
         self.telemetry = telemetry or LangfuseTelemetry()
+        self.turns_per_story_tick = turns_per_story_tick
 
     async def advise(self, game_id: str, snapshot: Snapshot, *, gate_id: str | None = None,
                      complete: bool = False, visible_text: str = "") -> GuidanceResult:
@@ -134,8 +138,8 @@ class GuidanceAdvisor:
         if gate_id is not None and self.program is not None:
             due_step = next((step for step in self.program.steps
                              if step["id"] == gate_id and step["kind"] in {"choice", "message"}
-                             and step["at"] <= snapshot.tick), None)
-        progress = (min(1.0, snapshot.tick / self.program.final_tick)
+                             and step["at"] <= snapshot.tick // self.turns_per_story_tick), None)
+        progress = (min(1.0, (snapshot.tick // self.turns_per_story_tick) / self.program.final_tick)
                     if self.program is not None else None)
         return GuidanceContext(game_id, snapshot.tick, nearby, recent_targets, unmet,
                                due_step["prompt"] if due_step else None,

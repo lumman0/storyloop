@@ -9,6 +9,7 @@ from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEve
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.runner import TurnRunner
 from story_harness.runtime.schedule import scenario_cue
+from story_harness.runtime.story_clock import StoryClock
 
 
 class FakeReact:
@@ -98,6 +99,54 @@ class CampaignTests(unittest.TestCase):
             result = self.run_async(session.submit("paced", "继续交谈", f"paced-{index}"))
         self.assertEqual(result.snapshot.tick, 6)
         self.assertEqual(result.snapshot.data["campaign"]["day"], 2)
+
+    def test_variable_action_time_reaches_evening_then_rest_starts_next_day(self):
+        paced = CampaignProgram.from_dict({
+            "id": "timed", "ticks_per_day": 2, "final_tick": 4,
+            "steps": [
+                {"id": "arrival", "at": 0, "kind": "choice", "prompt": "开始",
+                 "options": [{"id": "m1", "label": "甲"}]},
+                {"id": "ending", "at": 4, "kind": "finale", "choice_key": "arrival",
+                 "threshold": 1, "success_text": "结束", "other_text": "结束"},
+            ],
+        })
+        self.store.create_game(Snapshot("timed", 0, 0, {
+            "scenario": {"id": "timed", "version": "1"},
+            "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
+            "campaign": paced.initial_state(["m1"]),
+        }))
+        clock = StoryClock(6)
+
+        class TimedReact:
+            async def run_turn(self, game_id, text, turn_id):
+                duration = "extended" if text == "逛了一下午" else "brief"
+                before = self_store.load(game_id)
+                delta = clock.elapsed(duration, before.tick)
+                after = self_store.commit(game_id, before.version,
+                    WorldEvent(f"{turn_id}:input", "player_input", "player", None,
+                               before.tick + delta, (),
+                               {"text": text, "before_tick": before.tick,
+                                "duration_ticks": delta, "duration": duration}), (), ())
+                return SimpleNamespace(narration="交互完成", segments=(),
+                    decision=SimpleNamespace(intent="speech", target_ids=[], duration=duration),
+                    snapshot=after)
+
+        self_store = self.store
+        session = CampaignSession(self.store, paced, TimedReact(), turns_per_story_tick=3)
+        self.run_async(session.start("timed"))
+        self.run_async(session.submit("timed", "/choose m1", "choice"))
+        first = self.run_async(session.submit("timed", "打个招呼", "first"))
+        afternoon = self.run_async(session.submit("timed", "逛了一下午", "long"))
+        evening = self.run_async(session.submit("timed", "再聊一会儿", "last"))
+        morning = self.run_async(session.submit("timed", "/rest", "sleep"))
+
+        self.assertEqual([(item.snapshot.tick, item.time_of_day) for item in
+                          (first, afternoon, evening, morning)],
+                         [(1, "上午"), (4, "下午"), (5, "晚上"), (6, "上午")])
+        self.assertEqual(morning.snapshot.data["campaign"]["day"], 2)
+        self.assertIn("休息一晚", morning.text)
+        self.assertNotIn("暂时没有可见变化", morning.text)
+        self.assertEqual(evening.segments[-1].kind, "time")
 
     def test_gate_blocks_react_and_scheduled_scene_advances_once(self):
         start = self.run_async(self.session.start("g"))

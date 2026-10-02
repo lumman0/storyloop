@@ -19,6 +19,7 @@ from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, obser
 from story_harness.agents.quiet_agent import QuietReActAgent
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.world.worldbook import Worldbook
+from story_harness.runtime.story_clock import StoryClock
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class NpcAgentPool:
         formatter_factory: Callable[[], OpenAIChatFormatter] = ThinkingSafeOpenAIChatFormatter,
         worldbook: Worldbook | None = None,
         telemetry: Telemetry | None = None,
+        story_clock: StoryClock | None = None,
     ) -> None:
         self.store = store
         self.model_factory = model_factory
@@ -46,6 +48,7 @@ class NpcAgentPool:
         self.max_iters = max_iters
         self.worldbook = worldbook
         self.telemetry = telemetry or LangfuseTelemetry()
+        self.story_clock = story_clock
         self._agents: dict[tuple[str, str], QuietReActAgent] = {}
         self._delivered: dict[tuple[str, str], set[str]] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
@@ -114,26 +117,32 @@ class NpcAgentPool:
                     and item.content == player_message
                 )
             ]
-            content = json.dumps(
-                {
-                    "new_observations": [
-                        {
-                            "event_id": item.event_id,
-                            "channel": item.channel,
-                            "content": item.content,
-                            "tick": item.tick,
-                        }
-                        for item in visible_unseen
-                    ],
-                    "player_message": player_message,
-                },
-                ensure_ascii=False,
-            )
+            snapshot = self.store.load(game_id)
+            request = {
+                "new_observations": [
+                    {
+                        "event_id": item.event_id,
+                        "channel": item.channel,
+                        "content": item.content,
+                        "tick": item.tick,
+                    }
+                    for item in visible_unseen
+                ],
+                "player_message": player_message,
+            }
+            if self.story_clock is not None:
+                request["current_time"] = {
+                    "day": snapshot.tick // self.story_clock.ticks_per_day + 1,
+                    "period": self.story_clock.period(snapshot.tick),
+                }
+            content = json.dumps(request, ensure_ascii=False)
             agent = self._agents[key]
             prior_state = deepcopy(agent.state_dict())
             with self.telemetry.span(
                 "npc-response", {"game_id": game_id, "actor_id": actor_id,
-                                 "context_sources": ["role_card", "npc_memory", "own_observations", "player_message"],
+                                 "context_sources": ["role_card", "npc_memory", "own_observations",
+                                                     "player_message"]
+                                                    + (["current_time"] if self.story_clock is not None else []),
                                  "new_observation_count": len(visible_unseen),
                                  "observation_ids": [item.observation_id for item in visible_unseen]},
                 kind="agent", input=json.loads(content) if self.telemetry.capture_content else None,

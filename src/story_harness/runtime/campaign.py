@@ -13,6 +13,7 @@ from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, sessi
 from story_harness.core.contracts import Effect, Observation, Snapshot, WorldEvent
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.turn_progress import TurnProgress, emit
+from story_harness.runtime.story_clock import StoryClock
 
 
 DisplayPart = str | StorySegment
@@ -29,6 +30,7 @@ class CampaignOutcome:
     gate_id: str | None
     complete: bool
     segments: tuple[StorySegment, ...] = ()
+    time_of_day: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,7 @@ class CampaignSession:
         self.react = react
         self.telemetry = telemetry or LangfuseTelemetry()
         self.turns_per_story_tick = turns_per_story_tick
+        self.clock = StoryClock(program.ticks_per_day * turns_per_story_tick)
         self._locks: dict[str, asyncio.Lock] = {}
 
     def _story_tick(self, snapshot: Snapshot) -> int:
@@ -212,6 +215,8 @@ class CampaignSession:
                       for item in self.store.observations_for(game_id, "player")
                       if item.event_id.startswith(f"{turn_id}:")]
             parts = resumed + [part for part in replay if part not in resumed]
+            self._append_passage(parts, details.get("before_tick"), details.get("duration_ticks"),
+                                 details.get("duration", "brief"))
             return self._drain(game_id, parts or ["上次操作已提交，继续当前进度。"])
         if snapshot.data["campaign"]["ending"] is not None:
             raise ValueError("campaign is complete")
@@ -236,23 +241,44 @@ class CampaignSession:
                                + [StorySegment("message", item) for item in incoming])
         if text.startswith("/choose "):
             raise ValueError("no campaign choice is due")
-        if text == "/next":
-            next_tick = (self._story_tick(snapshot) + 1) * self.turns_per_story_tick
+        if text in {"/next", "/rest"}:
+            duration = "rest" if text == "/rest" else "standard"
+            next_tick = (snapshot.tick + self.clock.elapsed("rest", snapshot.tick)
+                         if text == "/rest" else
+                         (self._story_tick(snapshot) + 1) * self.turns_per_story_tick)
             self.store.commit(game_id, snapshot.version,
                               WorldEvent(f"{turn_id}:advance", "time_advanced", "player", None,
-                                         next_tick, (), {"request_text": text}), (), ())
+                                         next_tick, (), {"request_text": text,
+                                                         "before_tick": snapshot.tick,
+                                                         "duration_ticks": next_tick - snapshot.tick,
+                                                         "duration": duration}), (), ())
             await emit(progress, "stage", stage="background")
             parts = await self._flush_ready(game_id, progress)
+            self._append_passage(parts, snapshot.tick, next_tick - snapshot.tick, duration)
         else:
             if self.react is None:
                 raise ValueError("free-form turns require a ReAct session")
             result = (await self.react.run_turn(game_id, text, turn_id, progress=progress)
                       if progress is not None else await self.react.run_turn(game_id, text, turn_id))
-            parts = list(getattr(result, "segments", ())) or [StorySegment("narration", result.narration)]
+            parts = list(getattr(result, "segments", ()))
+            if not parts and getattr(result.decision, "duration", "brief") != "rest":
+                parts = [StorySegment("narration", result.narration)]
             parts.extend(await self._flush_ready(game_id, progress))
             if result.decision.intent == "speech":
                 self._record_encounters(game_id, result.decision.target_ids, turn_id)
+            self._append_passage(parts, snapshot.tick, result.snapshot.tick - snapshot.tick,
+                                 getattr(result.decision, "duration", "brief"))
         return self._drain(game_id, parts)
+
+    def _append_passage(self, parts: list[DisplayPart], before_tick: object,
+                        duration_ticks: object, duration: object) -> None:
+        if type(before_tick) is not int or type(duration_ticks) is not int:
+            return
+        if duration not in {"brief", "standard", "extended", "rest"}:
+            duration = "brief"
+        passage = self.clock.passage(before_tick, before_tick + duration_ticks, duration)
+        if passage:
+            parts.append(StorySegment("time", passage))
 
     async def _flush_ready(self, game_id: str,
                            progress: TurnProgress | None = None) -> list[StorySegment]:
@@ -452,4 +478,5 @@ class CampaignSession:
                          for part in parts if part)
         return CampaignOutcome("\n\n".join(part.body_text for part in segments if part.text), snapshot,
                                gate["id"] if gate else None,
-                               snapshot.data["campaign"]["ending"] is not None, segments)
+                               snapshot.data["campaign"]["ending"] is not None, segments,
+                               self.clock.period(snapshot.tick))

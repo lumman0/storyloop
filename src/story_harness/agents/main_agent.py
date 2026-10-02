@@ -17,10 +17,12 @@ from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatte
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from story_harness.world.worldbook import Worldbook
+from story_harness.runtime.story_clock import StoryClock
 
 
 class MainDecision(BaseModel):
     intent: Literal["speech", "inspect", "action"]
+    duration: Literal["brief", "standard", "extended", "rest"] = "brief"
     target_ids: list[str] = Field(default_factory=list)
     channel: Literal["speech", "private_message"] = "speech"
     audience: Literal["targets", "room"] = "targets"
@@ -50,6 +52,7 @@ class MainReActAgent:
         narration_model: ChatModelBase | None = None,
         telemetry: Telemetry | None = None,
         opening: str = "",
+        story_clock: StoryClock | None = None,
     ) -> None:
         self.game_id = game_id
         self.store = store
@@ -57,6 +60,7 @@ class MainReActAgent:
         self.action_rules = action_rules or {}
         self.telemetry = telemetry or LangfuseTelemetry()
         self.opening = opening
+        self.story_clock = story_clock
         toolkit = Toolkit()
 
         def get_worldbook_entry(entry_id: str) -> ToolResponse:
@@ -142,6 +146,9 @@ class MainReActAgent:
                 "对多人寒暄时只挑最相关的少数人回应，"
                 "不要安排所有在场角色依次自我介绍。"
                 "只返回结构化决策，不写玩家可见的场景叙述或代替 NPC 发言。"
+                "同时估计本次行动耗时：寒暄或简短查看为 brief，持续交谈、用餐为 standard，"
+                "下午的活动或长途外出为 extended，睡觉或整夜休息为 rest。"
+                "玩家明确说出时间跨度时优先遵从；睡觉或休息设 speech，target_ids 留空，duration=rest。"
                 "只有 get_available_actions 列出的 ID 可用于 action；执行时仍会校验世界状态。"
                 "其他动作不能自行提交状态变化。"
             ),
@@ -183,11 +190,17 @@ class MainReActAgent:
                 for item in observations
             ],
         }
+        if self.story_clock is not None:
+            request["current_time"] = {
+                "day": snapshot.tick // self.story_clock.ticks_per_day + 1,
+                "period": self.story_clock.period(snapshot.tick),
+            }
         if snapshot.tick == 0 and self.opening:
             request["opening"] = self.opening
         with self.telemetry.span(
             "main-context",
-            {"sources": ["current_state", "recent_player_inputs", "recent_player_observations"],
+            {"sources": ["current_state", "recent_player_inputs", "recent_player_observations"]
+             + (["current_time"] if self.story_clock is not None else []),
              "state_version": snapshot.version, "tick": snapshot.tick,
              "player_input_count": len(history),
              "player_observation_ids": [item.observation_id for item in observations]},

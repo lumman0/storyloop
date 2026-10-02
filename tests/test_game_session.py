@@ -12,6 +12,7 @@ from story_harness.agents.main_agent import MainDecision
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.adapters.store import SQLiteGameStore
 from story_harness.runtime.schedule import advance_time
+from story_harness.runtime.story_clock import StoryClock
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -82,6 +83,17 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.player_inputs_for("game")[0].text, "你好")
         self.assertEqual(outcome.narration, "【码头工】\nA：我听见了。")
         self.assertEqual(main.visible_results, [])
+
+    async def test_campaign_clock_uses_main_decision_duration(self) -> None:
+        main = ScriptedMain(MainDecision(intent="speech", target_ids=[], duration="extended"))
+        session = GameSession(self.store, self.package, lambda _game: main, self.pool,
+                              max_steps=8, story_clock=StoryClock(6))
+        result = await session.run_turn("game", "逛了一下午", "long")
+        self.assertEqual(result.snapshot.tick, 3)
+        self.assertEqual(self.store.event_details("game", "long:input")["duration"], "extended")
+        main.decision = MainDecision(intent="speech", target_ids=[], duration="rest")
+        result = await session.run_turn("game", "睡觉", "sleep")
+        self.assertEqual(result.snapshot.tick, 6)
 
     async def test_private_message_remains_separate_from_narration(self) -> None:
         async def summarize(_text: str, results: list[str]) -> str:

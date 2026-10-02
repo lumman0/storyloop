@@ -20,6 +20,7 @@ from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan, session_id_for_game
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.turn_progress import TurnProgress, emit
+from story_harness.runtime.story_clock import StoryClock
 
 
 class MainAgent(Protocol):
@@ -84,6 +85,7 @@ class GameSession:
         selector: WorkSelector | None = None,
         telemetry: Telemetry | None = None,
         max_npc_replies: int = 3,
+        story_clock: StoryClock | None = None,
     ) -> None:
         if type(max_npc_replies) is not int or max_npc_replies < 1:
             raise ValueError("max_npc_replies must be positive")
@@ -95,6 +97,7 @@ class GameSession:
         self.selector = selector
         self.telemetry = telemetry or LangfuseTelemetry()
         self.max_npc_replies = max_npc_replies
+        self.story_clock = story_clock
         self._main: dict[str, MainAgent] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -175,16 +178,20 @@ class GameSession:
                 decision = decision.model_copy(update={"target_ids": decision.target_ids[:self.max_npc_replies]})
             decision_span.update(metadata={
                 "intent": decision.intent, "target_ids": decision.target_ids,
+                "duration": decision.duration,
                 "audience": decision.audience,
                 "entry_id": decision.entry_id, "action_id": decision.action_id,
             })
         await emit(progress, "stage", stage="committing")
+        duration_ticks = (self.story_clock.elapsed(decision.duration, before.tick)
+                          if self.story_clock is not None else 1)
         if decision.intent == "speech":
-            self.store_input(game_id, turn_id, player_text, decision)
+            self.store_input(game_id, turn_id, player_text, decision, duration_ticks)
         elif decision.intent == "inspect":
-            self._inspect(before, turn_id, player_text, decision)
+            self._inspect(before, turn_id, player_text, decision,
+                          duration_ticks if self.story_clock is not None else 0)
         elif decision.intent == "action":
-            self._act(before, turn_id, player_text, decision)
+            self._act(before, turn_id, player_text, decision, duration_ticks)
         else:
             raise ValueError(f"unsupported main intent: {decision.intent}")
 
@@ -264,7 +271,8 @@ class GameSession:
                            segment=segment_for_observation(self.store, game_id, item).to_dict())
 
     def store_input(
-        self, game_id: str, turn_id: str, text: str, decision: MainDecision
+        self, game_id: str, turn_id: str, text: str, decision: MainDecision,
+        duration_ticks: int = 1,
     ) -> None:
         from story_harness.runtime.player_input import submit_player_input
 
@@ -273,10 +281,12 @@ class GameSession:
         submit_player_input(
             self.store, game_id, f"{turn_id}:input", text,
             tuple(decision.target_ids), channel=decision.channel, audience=decision.audience,
+            duration_ticks=duration_ticks, duration=decision.duration,
         )
 
     def _inspect(
-        self, before: Snapshot, turn_id: str, text: str, decision: MainDecision
+        self, before: Snapshot, turn_id: str, text: str, decision: MainDecision,
+        duration_ticks: int = 0,
     ) -> None:
         entry = (
             self.package.worldbook.get(decision.entry_id, viewer="player")
@@ -285,29 +295,35 @@ class GameSession:
         content = entry.text if entry is not None else "没有找到你能查看的相关资料。"
         event_id = f"{turn_id}:query"
         event = WorldEvent(
-            event_id, "player_query", "player", None, before.tick, (),
-            details={"text": text, "entry_id": decision.entry_id},
+            event_id, "player_query", "player", None, before.tick + duration_ticks, (),
+            details={"text": text, "entry_id": decision.entry_id,
+                     "before_tick": before.tick, "duration_ticks": duration_ticks,
+                     "duration": decision.duration},
         )
         observation = Observation(
-            f"{event_id}:result", event_id, "player", "worldbook", content, before.tick
+            f"{event_id}:result", event_id, "player", "worldbook", content, event.tick
         )
         self.store.commit(before.game_id, before.version, event, (observation,), ())
 
     def _act(
-        self, before: Snapshot, turn_id: str, text: str, decision: MainDecision
+        self, before: Snapshot, turn_id: str, text: str, decision: MainDecision,
+        duration_ticks: int = 1,
     ) -> None:
         event_id = f"{turn_id}:action"
         rule = self.package.action_rules.get(decision.action_id or "")
         if rule is None:
             reason = "这个行动没有对应的剧本规则，世界状态未改变。"
             event = WorldEvent(
-                event_id, "action_rejected", "player", None, before.tick + 1, (),
-                details={"text": text, "action_id": decision.action_id, "reason": reason},
+                event_id, "action_rejected", "player", None, before.tick + duration_ticks, (),
+                details={"text": text, "action_id": decision.action_id, "reason": reason,
+                         "before_tick": before.tick, "duration_ticks": duration_ticks,
+                         "duration": decision.duration},
             )
             observations = (
                 Observation(f"{event_id}:result", event_id, "player", "action_result", reason, event.tick),
             )
         else:
-            event, direct = adjudicate_action(before, rule, event_id, text)
+            event, direct = adjudicate_action(before, rule, event_id, text,
+                                              duration_ticks, decision.duration)
             observations = direct + physical_observations(before, event)
         self.store.commit(before.game_id, before.version, event, observations, ())

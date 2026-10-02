@@ -118,6 +118,17 @@
 .story-segments > :last-child .story-prose p:last-child {
   margin-bottom: 0;
 }
+.time-block {
+  align-self: center;
+  max-width: 680px;
+  border-top: 1px solid oklch(0.38 0.025 14);
+  border-bottom: 1px solid oklch(0.38 0.025 14);
+  padding: 10px 20px;
+  color: oklch(0.73 0.025 25);
+  font-size: 0.84rem;
+  line-height: 1.65;
+  text-align: center;
+}
 .dialogue-block {
   border: 1px solid oklch(0.35 0.025 14);
   border-radius: 12px;

@@ -19,6 +19,7 @@ from story_harness.runtime.presentation import StorySegment, segment_for_observa
 from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
 from story_harness.runtime.turn_progress import TurnProgress, emit
+from story_harness.runtime.story_clock import StoryClock
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -106,7 +107,10 @@ class PlayerPortal:
             return self._react_sessions[key]
         values = dict(os.environ)
         self._require_model_key(values)
-        session = make_react_session(self.config, package, self.store, values, self.telemetry)
+        clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick)
+                 if item.mode == "campaign" and package.ticks_per_day is not None else None)
+        session = make_react_session(self.config, package, self.store, values, self.telemetry,
+                                     story_clock=clock)
         self._react_sessions[key] = session
         return session
 
@@ -131,7 +135,8 @@ class PlayerPortal:
               snapshot, guidance, *, complete: bool = False,
               opening: str = "", turn_id: str | None = None,
               segments: tuple[StorySegment, ...] = (),
-              program: CampaignProgram | None = None, gate_id: str | None = None) -> dict:
+              program: CampaignProgram | None = None, gate_id: str | None = None,
+              time_of_day: str = "") -> dict:
         campaign = snapshot.data.get("campaign")
         return {"game_id": game_id, "catalog_id": catalog_id, "mode": mode,
                 "opening": opening, "body": body,
@@ -140,6 +145,7 @@ class PlayerPortal:
                 "suggestions": list(guidance.items),
                 "tick": snapshot.tick, "state_version": snapshot.version,
                 "day": campaign.get("day") if isinstance(campaign, dict) else None,
+                "time_of_day": time_of_day or None,
                 "complete": complete, "turn_id": turn_id}
 
     async def create_save(self, token: str, catalog_id: str) -> dict:
@@ -178,13 +184,15 @@ class PlayerPortal:
             program, session = self._campaign(item, package)
             outcome = await session.start(game_id)
             guidance = await GuidanceAdvisor(self.store, package, program,
-                                             telemetry=self.telemetry).advise(
+                                             telemetry=self.telemetry,
+                                             turns_per_story_tick=item.turns_per_story_tick).advise(
                 game_id, outcome.snapshot, gate_id=outcome.gate_id,
                 complete=outcome.complete, visible_text=outcome.text)
             return self._view(game_id, item.game_id, item.mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
                               opening=opening, segments=outcome.segments,
-                              program=program, gate_id=outcome.gate_id)
+                              program=program, gate_id=outcome.gate_id,
+                              time_of_day=outcome.time_of_day)
         snapshot = self.store.load(game_id)
         guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
             game_id, snapshot, visible_text=opening)
@@ -220,13 +228,15 @@ class PlayerPortal:
                        segments=[part.to_dict() for part in outcome.segments])
             await emit(progress, "stage", stage="guidance")
             guidance = await GuidanceAdvisor(self.store, package, program,
-                                             telemetry=self.telemetry).advise(
+                                             telemetry=self.telemetry,
+                                             turns_per_story_tick=item.turns_per_story_tick).advise(
                 game_id, outcome.snapshot, gate_id=outcome.gate_id,
                 complete=outcome.complete, visible_text=outcome.text)
             view = self._view(game_id, item.game_id, item.mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
                               turn_id=turn_id, segments=outcome.segments,
-                              program=program, gate_id=outcome.gate_id)
+                              program=program, gate_id=outcome.gate_id,
+                              time_of_day=outcome.time_of_day)
         else:
             outcome = await self._react(item, package).run_turn(
                 game_id, text, turn_id, progress=progress,

@@ -70,7 +70,9 @@ def parse_action_rules(raw: object, initial_state: dict[str, object]) -> dict[st
 
 
 def adjudicate_action(
-    before: Snapshot, rule: ActionRule, event_id: str, player_text: str
+    before: Snapshot, rule: ActionRule, event_id: str, player_text: str,
+    duration_ticks: int = 1,
+    duration: str = "brief",
 ) -> tuple[WorldEvent, tuple[Observation, ...]]:
     """Adjudicate against current state; a rejected attempt still becomes history."""
     actors = before.data.get("actors", {})
@@ -81,11 +83,15 @@ def adjudicate_action(
         reason = "你当前不在这个行动所需的位置。"
     elif _read(before.data, rule.when_path) != rule.when_value:
         reason = "当前状态已不允许重复完成这个行动。"
-    tick = before.tick + 1
+    if type(duration_ticks) is not int or duration_ticks < 1:
+        raise ValueError("duration_ticks must be positive")
+    tick = before.tick + duration_ticks
     if reason is not None:
         event = WorldEvent(
             event_id, "action_rejected", "player", None, tick, (),
-            details={"action_id": rule.action_id, "text": player_text, "reason": reason},
+            details={"action_id": rule.action_id, "text": player_text, "reason": reason,
+                     "before_tick": before.tick, "duration_ticks": duration_ticks,
+                     "duration": duration},
         )
         observation = Observation(
             f"{event_id}:player-result", event_id, "player", "action_result", reason, tick
@@ -96,6 +102,8 @@ def adjudicate_action(
         details={
             "action_id": rule.action_id, "text": player_text,
             "location": rule.location, "sensory": rule.sensory,
+            "before_tick": before.tick, "duration_ticks": duration_ticks,
+            "duration": duration,
         },
     )
     return event, ()

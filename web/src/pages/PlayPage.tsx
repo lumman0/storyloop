@@ -11,6 +11,7 @@ import { ChoicePanel } from "../components/ChoicePanel";
 function playerAction(text: string | null, previous: View | null | undefined) {
   if (!text) return "早期存档的行动记录不可用";
   if (text === "/next") return "推进到下一时段";
+  if (text === "/rest") return "休息到第二天";
   if (text.startsWith("/choose ")) {
     const [, id, ...rest] = text.split(/\s+/);
     const label = previous?.interaction?.options.find(
@@ -166,7 +167,7 @@ export function PlayPage({ token }: { token: string }) {
         </Link>
         <span className="reader-top-meta">
           {current?.day
-            ? `第 ${current.day} 天`
+            ? `第 ${current.day} 天${current.time_of_day ? ` · ${current.time_of_day}` : ""}`
             : `第 ${current?.tick ?? 0} 回合`}
         </span>
       </div>
@@ -332,7 +333,7 @@ export function PlayPage({ token }: { token: string }) {
               <span className="aside-kicker">当前进度</span>
               <div className="progress-value">
                 {current.day
-                  ? `第 ${current.day} 天`
+                  ? `第 ${current.day} 天${current.time_of_day ? ` · ${current.time_of_day}` : ""}`
                   : `第 ${current.tick} 回合`}
               </div>
               <p>世界仍在继续运转。</p>

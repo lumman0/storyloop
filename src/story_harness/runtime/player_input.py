@@ -15,8 +15,10 @@ def submit_player_input(
     *,
     channel: str = "speech",
     audience: str = "targets",
+    duration_ticks: int = 1,
+    duration: str = "brief",
 ) -> Snapshot:
-    """A player utterance costs one slot and records only that it was said."""
+    """Record an utterance and its elapsed world time before waking NPCs."""
     if not event_id or not isinstance(text, str) or not text.strip():
         raise ValueError("player input requires an event ID and nonempty text")
     if channel not in {"speech", "private_message"}:
@@ -25,6 +27,8 @@ def submit_player_input(
         raise ValueError(f"unsupported speech audience: {audience}")
     if len(set(target_ids)) != len(target_ids):
         raise ValueError("duplicate player input target")
+    if type(duration_ticks) is not int or duration_ticks < 1:
+        raise ValueError("duration_ticks must be positive")
     before = store.load(game_id)
     actors = before.data.get("actors")
     if not isinstance(actors, dict):
@@ -39,11 +43,12 @@ def submit_player_input(
         if channel == "speech" and target.get("location") != player["location"]:
             raise ValueError("spoken target must share the same location")
 
-    tick = before.tick + 1
+    tick = before.tick + duration_ticks
     event = WorldEvent(
         event_id, "player_input", "player", None, tick, (),
         details={"text": text, "channel": channel, "audience": audience,
-                 "target_ids": list(target_ids)},
+                 "target_ids": list(target_ids), "before_tick": before.tick,
+                 "duration_ticks": duration_ticks, "duration": duration},
     )
     hearer_ids = (
         tuple(actor_id for actor_id, state in actors.items()
