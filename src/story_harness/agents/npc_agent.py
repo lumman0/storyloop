@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import OrderedDict
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
+from weakref import WeakValueDictionary
 
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.memory import InMemoryMemory
@@ -41,7 +43,10 @@ class NpcAgentPool:
         worldbook: Worldbook | None = None,
         telemetry: Telemetry | None = None,
         story_clock: StoryClock | None = None,
+        max_cached_agents: int = 128,
     ) -> None:
+        if type(max_cached_agents) is not int or max_cached_agents < 1:
+            raise ValueError("max_cached_agents must be positive")
         self.store = store
         self.model_factory = model_factory
         self.formatter_factory = formatter_factory
@@ -49,9 +54,21 @@ class NpcAgentPool:
         self.worldbook = worldbook
         self.telemetry = telemetry or LangfuseTelemetry()
         self.story_clock = story_clock
+        self.max_cached_agents = max_cached_agents
         self._agents: dict[tuple[str, str], QuietReActAgent] = {}
         self._delivered: dict[tuple[str, str], set[str]] = {}
-        self._locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._locks: WeakValueDictionary[tuple[str, str], asyncio.Lock] = WeakValueDictionary()
+        self._recent_agents: OrderedDict[tuple[str, str], None] = OrderedDict()
+
+    def _prune_cache(self) -> None:
+        while len(self._agents) > self.max_cached_agents:
+            candidate = next((key for key in self._recent_agents
+                              if not (lock := self._locks.get(key)) or not lock.locked()), None)
+            if candidate is None:
+                return
+            self._recent_agents.pop(candidate, None)
+            self._agents.pop(candidate, None)
+            self._delivered.pop(candidate, None)
 
     async def respond(
         self,
@@ -98,11 +115,16 @@ class NpcAgentPool:
                     max_iters=self.max_iters,
                 )
                 self._delivered[key] = set()
+                self._recent_agents[key] = None
                 for previous_input, previous_speech in self.store.dialogue_history_for_actor(
                     game_id, actor_id
                 ):
                     await self._agents[key].memory.add(Msg("player", previous_input, "user"))
                     await self._agents[key].memory.add(Msg(actor_id, previous_speech, "assistant"))
+
+            self._recent_agents[key] = None
+            self._recent_agents.move_to_end(key)
+            self._prune_cache()
 
             unseen = [
                 item
@@ -157,6 +179,7 @@ class NpcAgentPool:
             if agent is not None and prior_state is not None:
                 agent.load_state_dict(prior_state)
             lock.release()
+            self._prune_cache()
             raise
 
         finished = False
@@ -167,6 +190,7 @@ class NpcAgentPool:
                 self._delivered[key].update(item.observation_id for item in unseen)
                 finished = True
                 lock.release()
+                self._prune_cache()
 
         def abort() -> None:
             nonlocal finished
@@ -174,6 +198,7 @@ class NpcAgentPool:
                 agent.load_state_dict(prior_state)
                 finished = True
                 lock.release()
+                self._prune_cache()
 
         return PreparedNpcReply(speech, confirm, abort)
 

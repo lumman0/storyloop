@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
+from weakref import WeakValueDictionary
 
 from story_harness.core.actions import adjudicate_action
 from story_harness.agents.npc_agent import NpcAgentPool
@@ -98,8 +99,7 @@ class GameSession:
         self.telemetry = telemetry or LangfuseTelemetry()
         self.max_npc_replies = max_npc_replies
         self.story_clock = story_clock
-        self._main: dict[str, MainAgent] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def _runner(self) -> TurnRunner:
         return TurnRunner(
@@ -164,9 +164,8 @@ class GameSession:
         visible_before = {
             item.observation_id for item in self.store.observations_for(game_id, "player")
         }
-        if game_id not in self._main:
-            self._main[game_id] = self.main_factory(game_id)
-        main = self._main[game_id]
+        # MainReActAgent rebuilds every turn's context from committed game data.
+        main = self.main_factory(game_id)
         await emit(progress, "stage", stage="thinking")
         with self.telemetry.span(
             "main-decision", {"state_version": before.version, "tick": before.tick},

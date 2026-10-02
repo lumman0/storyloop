@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
+from weakref import WeakValueDictionary
 
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
@@ -149,7 +150,7 @@ class CampaignSession:
         self.turns_per_story_tick = turns_per_story_tick
         self.clock = StoryClock(program.ticks_per_day * turns_per_story_tick)
         self.scene_presenter = scene_presenter
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def _story_tick(self, snapshot: Snapshot) -> int:
         return snapshot.tick // self.turns_per_story_tick

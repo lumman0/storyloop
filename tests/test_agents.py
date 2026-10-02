@@ -74,6 +74,19 @@ class NpcAgentPoolTests(unittest.IsolatedAsyncioTestCase):
 
         self.pool = NpcAgentPool(self.store, model_factory, max_iters=2)
 
+    async def test_cached_npc_agents_are_bounded_and_can_be_recreated(self) -> None:
+        self.store.create_game(Snapshot("game-2", 0, 0, {"world": {}}))
+        pool = NpcAgentPool(
+            self.store, lambda game_id, actor_id: RecordingModel(f"{game_id}:{actor_id}"),
+            max_iters=2, max_cached_agents=1,
+        )
+        await pool.respond("game-1", "A", "目击者", "第一次")
+        await pool.respond("game-2", "A", "目击者", "第二次")
+        self.assertEqual(len(pool._agents), 1)
+        self.assertIn("game-2", (await pool.respond("game-2", "A", "目击者", "继续")))
+        self.assertIn("game-1", (await pool.respond("game-1", "A", "目击者", "回来")))
+        self.assertEqual(len(pool._agents), 1)
+
     async def test_each_npc_receives_only_own_observations(self) -> None:
         a_reply = await self.pool.respond("game-1", "A", "谨慎的目击者", "发生了什么？")
         b_reply = await self.pool.respond("game-1", "B", "善于打听消息", "你知道什么？")

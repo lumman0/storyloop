@@ -126,14 +126,14 @@ export function AuthPage({
             />
             {mode === "register" && (
               <>
-                <label htmlFor="invite-code">邀请码（线上内测需要）</label>
+                <label htmlFor="invite-code">邀请码（内测注册需要）</label>
                 <input
                   id="invite-code"
                   autoComplete="off"
                   maxLength={128}
                   value={inviteCode}
                   onChange={(event) => setInviteCode(event.target.value)}
-                  placeholder="本地试玩可留空"
+                  placeholder="输入内测邀请码"
                 />
               </>
             )}
