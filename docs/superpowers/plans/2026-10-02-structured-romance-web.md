@@ -37,4 +37,4 @@
 
 - [x] Use the private local catalog to create a browser save, submit choices, converse with an NPC, resume, and reach day 14 ending.
 - [x] Check stored history and the visible reader against API output.
-- [ ] Run the focused Python suite and frontend build; commit and push only public harness changes.
+- [x] Run the focused Python suite and frontend build; commit and push only public harness changes.
