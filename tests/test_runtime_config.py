@@ -51,8 +51,13 @@ class HarnessConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "max_steps"):
                 HarnessConfig.load(path)
 
-        with self.assertRaisesRegex(ValueError, "STORY_BAILIAN_API_KEY"):
-            HarnessConfig.load(DEFAULT).create_model("npc_reply", {})
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "harness.json"
+            raw = json.loads(DEFAULT.read_text(encoding="utf-8"))
+            raw["models"]["api_key_file"] = "missing.local.json"
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "STORY_BAILIAN_API_KEY"):
+                HarnessConfig.load(path).create_model("npc_reply", {})
 
     def test_local_secret_file_is_loaded_at_startup_with_environment_override(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
