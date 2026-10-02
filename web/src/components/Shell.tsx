@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { BookOpen, Coins, Compass, LogOut, Menu, UserRound, X } from "lucide-react";
+import { BookOpen, Coins, Compass, FileUp, LogOut, Menu, UserRound, X } from "lucide-react";
 import { api, type CreditWallet, type Session } from "../lib/api";
 import { Brand } from "./Brand";
 
@@ -57,6 +57,10 @@ export function Shell({
             <NavLink to="/saves" onClick={() => setMenuOpen(false)}>
               <BookOpen size={17} />
               我的存档
+            </NavLink>
+            <NavLink to="/my-scenarios" onClick={() => setMenuOpen(false)}>
+              <FileUp size={17} />
+              我的剧本
             </NavLink>
             <NavLink to="/credits" onClick={() => setMenuOpen(false)}>
               <Coins size={17} />

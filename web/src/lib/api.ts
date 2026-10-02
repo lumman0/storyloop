@@ -8,6 +8,15 @@ export type Game = {
   genre: string;
   theme: string;
 };
+export type UserScenario = {
+  id: string;
+  title: string;
+  summary: string;
+  mode: "campaign" | "freeform";
+  status: "draft" | "published";
+  package_version: string;
+  created_at: number;
+};
 export type Save = {
   game_id: string;
   catalog_id: string;
@@ -139,6 +148,32 @@ async function request<T>(
   return payload as T;
 }
 
+async function uploadScenario(
+  token: string,
+  title: string,
+  summary: string,
+  file: File,
+): Promise<UserScenario> {
+  const form = new FormData();
+  form.append("title", title);
+  form.append("summary", summary);
+  form.append("file", file);
+  const response = await fetch(`${API_BASE}/v1/my-scenarios`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(
+      payload && typeof payload.detail === "string"
+        ? payload.detail : "上传未能完成，请稍后重试。",
+      response.status,
+    );
+  }
+  return payload as UserScenario;
+}
+
 async function streamTurn(
   token: string,
   gameId: string,
@@ -205,6 +240,12 @@ export const api = {
   logout: (token: string) =>
     request<{ status: string }>("/v1/sessions/current", token, "DELETE"),
   catalog: (token: string) => request<{ games: Game[] }>("/v1/catalog", token),
+  myScenarios: (token: string) => request<{ scenarios: UserScenario[] }>("/v1/my-scenarios", token),
+  uploadScenario,
+  publishScenario: (token: string, id: string) =>
+    request<UserScenario>(`/v1/my-scenarios/${encodeURIComponent(id)}/publish`, token, "POST"),
+  deleteScenarioDraft: (token: string, id: string) =>
+    request<{ status: string }>(`/v1/my-scenarios/${encodeURIComponent(id)}`, token, "DELETE"),
   saves: (token: string) => request<{ saves: Save[] }>("/v1/saves", token),
   wallet: (token: string) => request<CreditWallet>("/v1/billing/wallet", token),
   creditLedger: (token: string) => request<{ entries: CreditEntry[] }>("/v1/billing/ledger", token),

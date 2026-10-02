@@ -9,7 +9,7 @@
 3. 创建 `/srv/storyloop-data`。只有系统盘时，该目录可暂时放在系统盘上；应定期将数据库备份复制到 ECS 以外。以后增加数据盘时，先用 `lsblk -f` 核对设备，再将数据迁移到挂载点并设置开机自动挂载；不要假定设备名。
 4. 将私有剧本放在 `/srv/storyloop-private`。目录内需要 `catalog.json` 和其中引用的剧本包，例如 `winter-show/`。剧本包路径相对于 `catalog.json`，不需要复制进公开仓库。当前本地可使用 `D:\ai\romance-validation-private\catalog.json` 与同目录的 `winter-show/`；旧版 `portal-catalog.json` 含指向本机其他目录的条目，不能直接用于容器。
 
-目前剧本仍由本地只读挂载提供。代码已将目录元数据和发布包文件分成两个存储接口，之后可分别接 PostgreSQL 与私有 OSS。当前部署没有自动上传或同步剧本；备份 ECS 之外的数据库时，也要单独备份 `/srv/storyloop-private`，并保持 `catalog.json` 与剧本包版本一致。
+官方剧本仍由本地只读挂载提供。用户上传剧本写入 `/srv/storyloop-data/uploads`，作者与版本元数据写入 PostgreSQL；上传包不会写入官方目录。备份数据库时，也要备份 `/srv/storyloop-private` 和 `/srv/storyloop-data/uploads`，保持数据库记录与发布包版本一致。后期可将用户发布包迁往私有 OSS。
 
 ## 配置与启动
 

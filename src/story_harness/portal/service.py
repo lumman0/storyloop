@@ -18,6 +18,7 @@ from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
 from story_harness.portal.sql_billing import SQLBillingRepository
+from story_harness.portal.user_scenarios import UserScenarioService
 from story_harness.portal.presentation import campaign_interaction
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
@@ -32,18 +33,30 @@ from story_harness.world.scenario import ScenarioPackage
 class PlayerPortal:
     """Identity and save ownership stay outside scenario and agent contexts."""
 
-    def __init__(self, catalog_path: str | Path, config_path: str | Path,
+    def __init__(self, catalog_path: str | Path | None, config_path: str | Path,
                  db_path: str | None = None,
-                 accounts: PlayerRepository | None = None) -> None:
-        self.catalog = GameCatalog.load(catalog_path)
+                 accounts: PlayerRepository | None = None,
+                 *, catalog: GameCatalog | None = None) -> None:
+        if catalog is not None:
+            self.catalog = catalog
+        elif catalog_path is not None:
+            self.catalog = GameCatalog.load(catalog_path)
+        else:
+            raise ValueError("catalog path or catalog provider is required")
         self.config = HarnessConfig.load(config_path)
         self.config.allowed_hosts()
         if self.config.profile == "online":
             self._require_model_key()
         self.db_path = db_path or self.config.storage.path
+        upload_dir = os.environ.get("STORY_UPLOAD_DIR")
+        if not upload_dir and self.config.profile == "online":
+            raise ValueError("STORY_UPLOAD_DIR is required in online mode")
+        if not upload_dir:
+            upload_dir = str(Path(self.db_path).resolve().parent / "uploaded-scenarios")
         self.engine = self.config.create_database(db_path)
         self.store = self.config.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
+        self.user_scenarios = UserScenarioService(self.engine, upload_dir)
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
         self.telemetry = configured_telemetry()
@@ -92,10 +105,35 @@ class PlayerPortal:
         self.accounts.revoke_token(token)
 
     def games(self, token: str) -> list[dict]:
-        self.accounts.resolve_token(token)
+        player_id = self.accounts.resolve_token(token)
         return [{"id": item.game_id, "title": item.title, "mode": item.mode,
                  "summary": item.summary, "genre": item.genre, "theme": item.theme}
-                for item in self.catalog.list_games()]
+                for item in (*self.catalog.list_games(), *self.user_scenarios.list_playable(player_id))]
+
+    def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        return self.user_scenarios.upload(player_id, title, summary, archive)
+
+    def my_scenarios(self, token: str) -> list[dict]:
+        player_id = self.accounts.resolve_token(token)
+        return self.user_scenarios.list_mine(player_id)
+
+    def publish_scenario(self, token: str, scenario_id: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        return self.user_scenarios.publish(player_id, scenario_id)
+
+    def delete_scenario_draft(self, token: str, scenario_id: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        return self.user_scenarios.delete_draft(player_id, scenario_id)
+
+    def _listing_for(self, player_id: str, catalog_id: str,
+                     package_hash: str | None = None) -> GameListing:
+        try:
+            return self.catalog.get(catalog_id)
+        except KeyError:
+            if catalog_id.startswith("usr_"):
+                return self.user_scenarios.get_listing(player_id, catalog_id, package_hash)
+            raise
 
     def history(self, token: str, game_id: str) -> dict:
         player_id = self.accounts.resolve_token(token)
@@ -130,7 +168,7 @@ class PlayerPortal:
         return result
 
     def _verified_listing(self, record: SaveRecord) -> GameListing:
-        item = self.catalog.get(record.catalog_id)
+        item = self._listing_for(record.player_id, record.catalog_id, record.package_hash)
         if ((item.package_id, item.package_version, item.fingerprint)
                 != (record.package_id, record.package_version, record.package_hash)):
             raise ValueError("scenario package changed; this save needs an explicit migration")
@@ -189,7 +227,7 @@ class PlayerPortal:
 
     async def create_save(self, token: str, catalog_id: str) -> dict:
         player_id = self.accounts.resolve_token(token)
-        item = self.catalog.get(catalog_id)
+        item = self._listing_for(player_id, catalog_id)
         if item.retired:
             raise ValueError("this game is no longer available for new saves")
         self._require_model_key()

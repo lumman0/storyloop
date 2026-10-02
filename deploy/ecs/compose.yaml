@@ -35,12 +35,14 @@ services:
       STORY_ALLOWED_HOSTS: ${STORY_ALLOWED_HOSTS:?Set the public IP or domain in .env}
       STORY_ALLOWED_ORIGINS: ${STORY_ALLOWED_ORIGINS:?Set the browser origin in .env}
       STORY_CATALOG: /app/private/catalog.json
+      STORY_UPLOAD_DIR: /app/uploads
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       STORY_TRACE_CONTENT: ${STORY_TRACE_CONTENT:-0}
     volumes:
       - ${STORY_PRIVATE_DIR:?Set STORY_PRIVATE_DIR to the private scenario directory}:/app/private:ro
+      - ${STORY_DATA_DIR:?Set STORY_DATA_DIR to a persistent data directory}/uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy

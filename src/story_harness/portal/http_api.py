@@ -7,7 +7,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from story_harness.portal.service import PlayerPortal
+from story_harness.portal.user_scenarios import MAX_ARCHIVE_BYTES
 
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,43 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.get("/v1/catalog")
     def catalog(auth: str = Depends(token)) -> dict:
         return {"games": portal.games(auth)}
+
+    @app.get("/v1/my-scenarios")
+    def my_scenarios(auth: str = Depends(token)) -> dict:
+        return {"scenarios": portal.my_scenarios(auth)}
+
+    @app.post("/v1/my-scenarios", status_code=201)
+    async def upload_scenario(title: str = Form(...), summary: str = Form(""),
+                              file: UploadFile = File(...), auth: str = Depends(token)) -> dict:
+        if file.content_type not in {"application/zip", "application/x-zip-compressed",
+                                     "application/octet-stream"}:
+            raise HTTPException(status_code=415, detail="file must be a ZIP archive")
+        content = bytearray()
+        try:
+            while chunk := await file.read(64 * 1024):
+                content.extend(chunk)
+                if len(content) > MAX_ARCHIVE_BYTES:
+                    raise HTTPException(status_code=413, detail="ZIP file exceeds 4 MiB")
+        finally:
+            await file.close()
+        try:
+            return portal.upload_scenario(auth, title, summary, bytes(content))
+        except ValueError as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/my-scenarios/{scenario_id}/publish")
+    def publish_scenario(scenario_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.publish_scenario(auth, scenario_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.delete("/v1/my-scenarios/{scenario_id}")
+    def delete_scenario_draft(scenario_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.delete_scenario_draft(auth, scenario_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
 
     @app.get("/v1/saves")
     def saves(auth: str = Depends(token)) -> dict:

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from story_harness.portal.scenario_storage import (
+    LocalScenarioCatalogSource, LocalScenarioPackageStore,
+    ScenarioCatalogSource, ScenarioPackageStore,
+)
 from story_harness.runtime.campaign import CampaignProgram
 from story_harness.world.scenario import ScenarioPackage
 
@@ -42,19 +46,29 @@ class GameListing:
 
 
 class GameCatalog:
-    def __init__(self, listings: tuple[GameListing, ...]) -> None:
+    def __init__(self, listings: tuple[GameListing, ...],
+                 package_store: ScenarioPackageStore | None = None,
+                 package_refs: dict[str, str] | None = None) -> None:
         if len({item.game_id for item in listings}) != len(listings):
             raise ValueError("duplicate catalog game ID")
         self._listings = {item.game_id: item for item in listings}
+        self._package_store = package_store
+        self._package_refs = package_refs or {}
 
     @classmethod
     def load(cls, path: str | Path) -> GameCatalog:
         source = Path(path).resolve()
-        raw = json.loads(source.read_text(encoding="utf-8"))
-        games = raw.get("games") if isinstance(raw, dict) else None
+        return cls.from_sources(LocalScenarioCatalogSource(source),
+                                LocalScenarioPackageStore(source.parent))
+
+    @classmethod
+    def from_sources(cls, catalog_source: ScenarioCatalogSource,
+                     package_store: ScenarioPackageStore) -> GameCatalog:
+        games = catalog_source.games()
         if not isinstance(games, list) or not games:
             raise ValueError("catalog requires a nonempty games list")
         listings: list[GameListing] = []
+        package_refs: dict[str, str] = {}
         for item in games:
             if not isinstance(item, dict) or any(
                 not isinstance(item.get(key), str) or not item[key].strip()
@@ -72,7 +86,7 @@ class GameCatalog:
             for field in ("summary", "genre", "theme"):
                 if field in item and not isinstance(item[field], str):
                     raise ValueError(f"catalog game {field} must be a string")
-            package_path = (source.parent / item["package"]).resolve()
+            package_path = Path(package_store.materialize(item["package"])).resolve()
             package = ScenarioPackage.load(package_path)
             if item["mode"] == "campaign":
                 program = CampaignProgram.load(package_path / "campaign.json")
@@ -83,7 +97,8 @@ class GameCatalog:
                                         _package_fingerprint(package_path, item["mode"]),
                                         item.get("summary", ""), item.get("genre", ""),
                                         item.get("theme", "harbor"), turns_per_story_tick, retired))
-        return cls(tuple(listings))
+            package_refs[item["id"]] = item["package"]
+        return cls(tuple(listings), package_store, package_refs)
 
     def list_games(self) -> tuple[GameListing, ...]:
         return tuple(item for item in self._listings.values() if not item.retired)
@@ -94,9 +109,11 @@ class GameCatalog:
         except KeyError as error:
             raise KeyError("unknown catalog game") from error
         try:
-            current_fingerprint = _package_fingerprint(item.package_path, item.mode)
+            package_path = (Path(self._package_store.materialize(self._package_refs[game_id])).resolve()
+                            if self._package_store else item.package_path)
+            current_fingerprint = _package_fingerprint(package_path, item.mode)
         except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
             raise ValueError("scenario package is unavailable") from error
         if current_fingerprint != item.fingerprint:
             raise ValueError("scenario package changed; reload the catalog before creating a new game")
-        return item
+        return replace(item, package_path=package_path)
