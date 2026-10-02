@@ -9,6 +9,8 @@
 3. 创建 `/srv/storyloop-data`。只有系统盘时，该目录可暂时放在系统盘上；应定期将数据库备份复制到 ECS 以外。以后增加数据盘时，先用 `lsblk -f` 核对设备，再将数据迁移到挂载点并设置开机自动挂载；不要假定设备名。
 4. 将私有剧本放在 `/srv/storyloop-private`。目录内需要 `catalog.json` 和其中引用的剧本包，例如 `winter-show/`。剧本包路径相对于 `catalog.json`，不需要复制进公开仓库。当前本地可使用 `D:\ai\romance-validation-private\catalog.json` 与同目录的 `winter-show/`；旧版 `portal-catalog.json` 含指向本机其他目录的条目，不能直接用于容器。
 
+目前剧本仍由本地只读挂载提供。代码已将目录元数据和发布包文件分成两个存储接口，之后可分别接 PostgreSQL 与私有 OSS。当前部署没有自动上传或同步剧本；备份 ECS 之外的数据库时，也要单独备份 `/srv/storyloop-private`，并保持 `catalog.json` 与剧本包版本一致。
+
 ## 配置与启动
 
 在 ECS 上克隆仓库，然后进入 `deploy/ecs`：
@@ -33,7 +35,7 @@ test -d /srv/storyloop-data
 docker compose config -q
 docker compose up -d --build
 docker compose ps
-curl -fsS http://127.0.0.1/health
+curl -fsS -H 'Host: <ECS 公网 IP>' http://127.0.0.1/health
 ```
 
 线上注册需要一次性邀请码。首次启动后，在 `deploy/ecs` 目录执行下面的命令生成邀请码，再通过安全渠道交给内测玩家。每个邀请码只能注册一个账号，默认 30 天有效；登录不需要邀请码。
