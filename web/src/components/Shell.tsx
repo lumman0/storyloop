@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { BookOpen, Compass, LogOut, Menu, UserRound, X } from "lucide-react";
-import { api, type Session } from "../lib/api";
+import { BookOpen, Coins, Compass, LogOut, Menu, UserRound, X } from "lucide-react";
+import { api, type CreditWallet, type Session } from "../lib/api";
 import { Brand } from "./Brand";
 
 export function Shell({
@@ -14,7 +14,24 @@ export function Shell({
   onLogout: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [wallet, setWallet] = useState<CreditWallet | null>(null);
   const navigate = useNavigate();
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void api.wallet(session.token).then((value) => {
+        if (active) setWallet(value);
+      }).catch(() => {
+        if (active) setWallet(null);
+      });
+    };
+    refresh();
+    window.addEventListener("story:billing-updated", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("story:billing-updated", refresh);
+    };
+  }, [session.token]);
   async function logout() {
     try {
       await api.logout(session.token);
@@ -41,12 +58,20 @@ export function Shell({
               <BookOpen size={17} />
               我的存档
             </NavLink>
+            <NavLink to="/credits" onClick={() => setMenuOpen(false)}>
+              <Coins size={17} />
+              积分明细
+            </NavLink>
             <button type="button" className="mobile-logout" onClick={logout}>
               <LogOut size={17} />
               退出登录
             </button>
           </nav>
           <div className="header-actions">
+            <NavLink to="/credits" className="credit-balance" title="查看积分明细">
+              <Coins size={16} />
+              <span>{wallet ? `${wallet.balance_points} 积分` : "积分"}</span>
+            </NavLink>
             <span className="user-avatar" title="已登录玩家">
               <UserRound size={17} />
             </span>

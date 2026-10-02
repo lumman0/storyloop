@@ -50,6 +50,42 @@ export type View = {
   time_of_day?: string | null;
   complete: boolean;
   turn_id: string | null;
+  billing?: TurnBilling;
+};
+export type TurnBilling = {
+  charged_milli_points: number;
+  charged_points: string;
+  usage_cost_milli_points: number;
+  balance_milli_points: number;
+  balance_points: string;
+  input_tokens: number;
+  output_tokens: number;
+  model_calls: number;
+};
+export type CreditWallet = {
+  balance_milli_points: number;
+  balance_points: string;
+  welcome_points: number;
+  points_per_rmb: number;
+};
+export type CreditEntry = {
+  entry_id: string;
+  kind: "welcome" | "turn";
+  game_id: string | null;
+  request_id: string | null;
+  delta_milli_points: number;
+  delta_points: string;
+  usage_cost_milli_points: number;
+  balance_after_points: string;
+  pricing_version: string;
+  usage: {
+    model: string;
+    task: string;
+    input_tokens: number;
+    output_tokens: number;
+    cached_input_tokens: number;
+  }[];
+  created_order: number;
 };
 export type History = {
   game_id: string;
@@ -168,6 +204,8 @@ export const api = {
     request<{ status: string }>("/v1/sessions/current", token, "DELETE"),
   catalog: (token: string) => request<{ games: Game[] }>("/v1/catalog", token),
   saves: (token: string) => request<{ saves: Save[] }>("/v1/saves", token),
+  wallet: (token: string) => request<CreditWallet>("/v1/billing/wallet", token),
+  creditLedger: (token: string) => request<{ entries: CreditEntry[] }>("/v1/billing/ledger", token),
   createSave: (token: string, catalogId: string) =>
     request<View>("/v1/saves", token, "POST", { catalog_id: catalogId }),
   resume: (token: string, gameId: string) =>

@@ -7,6 +7,7 @@ import "./styles/feedback.css";
 import "./styles/saves.css";
 import "./styles/auth.css";
 import "./styles/reader.css";
+import "./styles/credits.css";
 import "./styles/responsive.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

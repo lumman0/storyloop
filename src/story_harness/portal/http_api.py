@@ -120,6 +120,20 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     def saves(auth: str = Depends(token)) -> dict:
         return {"saves": portal.saves(auth)}
 
+    @app.get("/v1/billing/wallet")
+    def wallet(auth: str = Depends(token)) -> dict:
+        try:
+            return portal.wallet(auth)
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/billing/ledger")
+    def credit_ledger(limit: int = 30, auth: str = Depends(token)) -> dict:
+        try:
+            return {"entries": portal.credit_ledger(auth, limit)}
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
+
     @app.get("/v1/saves/{game_id}/history")
     def history(game_id: str, auth: str = Depends(token)) -> dict:
         try:

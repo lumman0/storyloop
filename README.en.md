@@ -12,6 +12,7 @@ An AI interactive fiction harness with a browser player portal. The director and
 - A browser catalog, personal saves, recoverable turn history, and separate next-step guidance.
 - Immediate player-action echo, with SSE updates for live stages and committed visible story segments.
 - Optional Langfuse traces, sessions, and metrics. Model routes and turn budgets are configurable.
+- Credits: new accounts receive 500 points. Successful turns are charged from reported model token usage using configurable model rates and multipliers. The browser shows the balance and ledger; see the [billing notes](docs/billing.md).
 
 `examples/freeform` and `examples/scheduled` are public synthetic scenarios. Private scenario sources and model keys are not included in this repository.
 

@@ -17,6 +17,7 @@ from story_harness.adapters.sql_database import open_database, sqlite_url, upgra
 from story_harness.adapters.sql_store import SQLGameStore
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import Telemetry
+from story_harness.core.billing import BillingPolicy
 
 
 def _string(value: object, name: str) -> str:
@@ -79,6 +80,7 @@ class HarnessConfig:
     allowed_hosts_env: str | None = None
     allowed_origins_env: str | None = None
     local_api_key: str | None = field(default=None, repr=False)
+    billing_policy: BillingPolicy | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> HarnessConfig:
@@ -156,6 +158,7 @@ class HarnessConfig:
             allowed_hosts_env=hosts_env,
             allowed_origins_env=origins_env,
             local_api_key=local_api_key,
+            billing_policy=BillingPolicy.from_dict(data.get("billing"), task_models),
         )
 
     def model_api_key(self, env: Mapping[str, str] | None = None) -> str:

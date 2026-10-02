@@ -104,6 +104,8 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                     self.assertNotIn(b"offline-test", encrypted)
 
                 headers = {"Authorization": f"Bearer {token}"}
+                self.assertEqual(client.get("/v1/billing/wallet", headers=headers)
+                                 .json()["balance_points"], "500.000")
                 self.assertEqual(client.get("/v1/catalog", headers=headers).json()["games"][0]["id"],
                                  "npc-chat")
                 save = client.post("/v1/saves", json={"catalog_id": "npc-chat"}, headers=headers)

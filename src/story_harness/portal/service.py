@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import os
 import re
+from contextlib import nullcontext
 from pathlib import Path
 from uuid import uuid4
 
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
+from story_harness.core.billing import collect_usage
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
+from story_harness.portal.sql_billing import SQLBillingRepository
 from story_harness.portal.presentation import campaign_interaction
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
@@ -39,6 +42,8 @@ class PlayerPortal:
         self.engine = self.config.create_database(db_path)
         self.store = self.config.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
+        self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
+                        if self.config.billing_policy is not None else None)
         self.telemetry = configured_telemetry()
         self._react_sessions: dict[Path, GameSession] = {}
         self._campaign_sessions: dict[Path, tuple[CampaignProgram, CampaignSession]] = {}
@@ -49,11 +54,27 @@ class PlayerPortal:
 
     def register(self, username: str, password: str) -> dict:
         player_id = self.accounts.register(username, password)
+        if self.billing is not None:
+            self.billing.ensure_wallet(player_id)
         return {"player_id": player_id, "token": self.accounts.issue_token(player_id)}
 
     def login(self, username: str, password: str) -> dict:
         player_id = self.accounts.authenticate(username, password)
+        if self.billing is not None:
+            self.billing.ensure_wallet(player_id)
         return {"player_id": player_id, "token": self.accounts.issue_token(player_id)}
+
+    def wallet(self, token: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        if self.billing is None:
+            raise ValueError("billing is not configured")
+        return self.billing.wallet(player_id)
+
+    def credit_ledger(self, token: str, limit: int = 30) -> list[dict]:
+        player_id = self.accounts.resolve_token(token)
+        if self.billing is None:
+            raise ValueError("billing is not configured")
+        return self.billing.ledger(player_id, limit)
 
     def logout(self, token: str) -> None:
         self.accounts.resolve_token(token)
@@ -223,41 +244,46 @@ class PlayerPortal:
         cached = self.accounts.get_turn_response(game_id, request_id, text)
         if cached is not None:
             return cached
+        if self.billing is not None:
+            self.billing.require_credit(player_id)
         package = ScenarioPackage.load(item.package_path)
         turn_id = f"portal-{request_id}"
-        if item.mode == "freeform":
-            recovered = await self._recover_freeform(item, package, game_id, text, turn_id)
+        context = collect_usage() if self.billing is not None else nullcontext(None)
+        with context as meter:
+            recovered = (await self._recover_freeform(item, package, game_id, text, turn_id)
+                         if item.mode == "freeform" else None)
             if recovered is not None:
-                self.accounts.store_turn_response(game_id, request_id, text, recovered)
-                return recovered
-        if item.mode == "campaign":
-            program, session = self._campaign(item, package)
-            outcome = await session.submit(game_id, text, turn_id, progress=progress)
-            await emit(progress, "preview", body=outcome.text,
-                       segments=[part.to_dict() for part in outcome.segments])
-            await emit(progress, "stage", stage="guidance")
-            guidance = await GuidanceAdvisor(self.store, package, program,
-                                             telemetry=self.telemetry,
-                                             turns_per_story_tick=item.turns_per_story_tick).advise(
-                game_id, outcome.snapshot, gate_id=outcome.gate_id,
-                complete=outcome.complete, visible_text=outcome.text)
-            view = self._view(game_id, item.game_id, item.mode, outcome.text,
-                              outcome.snapshot, guidance, complete=outcome.complete,
-                              turn_id=turn_id, segments=outcome.segments,
-                              program=program, gate_id=outcome.gate_id,
-                              time_of_day=outcome.time_of_day)
-        else:
-            outcome = await self._react(item, package).run_turn(
-                game_id, text, turn_id, progress=progress,
-            )
-            await emit(progress, "preview", body=outcome.narration,
-                       segments=[part.to_dict() for part in outcome.segments])
-            await emit(progress, "stage", stage="guidance")
-            guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
-                game_id, outcome.snapshot, visible_text=outcome.narration)
-            view = self._view(game_id, item.game_id, item.mode, outcome.narration,
-                              outcome.snapshot, guidance, turn_id=turn_id,
-                              segments=outcome.segments)
+                view = recovered
+            elif item.mode == "campaign":
+                program, session = self._campaign(item, package)
+                outcome = await session.submit(game_id, text, turn_id, progress=progress)
+                await emit(progress, "preview", body=outcome.text,
+                           segments=[part.to_dict() for part in outcome.segments])
+                await emit(progress, "stage", stage="guidance")
+                guidance = await GuidanceAdvisor(self.store, package, program,
+                                                 telemetry=self.telemetry,
+                                                 turns_per_story_tick=item.turns_per_story_tick).advise(
+                    game_id, outcome.snapshot, gate_id=outcome.gate_id,
+                    complete=outcome.complete, visible_text=outcome.text)
+                view = self._view(game_id, item.game_id, item.mode, outcome.text,
+                                  outcome.snapshot, guidance, complete=outcome.complete,
+                                  turn_id=turn_id, segments=outcome.segments,
+                                  program=program, gate_id=outcome.gate_id,
+                                  time_of_day=outcome.time_of_day)
+            else:
+                outcome = await self._react(item, package).run_turn(
+                    game_id, text, turn_id, progress=progress,
+                )
+                await emit(progress, "preview", body=outcome.narration,
+                           segments=[part.to_dict() for part in outcome.segments])
+                await emit(progress, "stage", stage="guidance")
+                guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
+                    game_id, outcome.snapshot, visible_text=outcome.narration)
+                view = self._view(game_id, item.game_id, item.mode, outcome.narration,
+                                  outcome.snapshot, guidance, turn_id=turn_id,
+                                  segments=outcome.segments)
+        if self.billing is not None:
+            return self.billing.settle_turn(player_id, game_id, request_id, text, view, meter.records)
         self.accounts.store_turn_response(game_id, request_id, text, view)
         return view
 

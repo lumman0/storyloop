@@ -31,6 +31,7 @@ class HarnessConfigTests(unittest.TestCase):
             raw = json.loads(DEFAULT.read_text(encoding="utf-8"))
             raw["models"]["base_url"] = "https://example.invalid/v1"
             raw["models"]["tasks"]["main_react"] = "another-model"
+            raw["billing"]["models"]["another-model"] = dict(raw["billing"]["models"]["qwen3.8-max"])
             raw["runtime"]["max_steps"] = 3
             raw["runtime"]["max_npc_replies"] = 2
             path.write_text(json.dumps(raw), encoding="utf-8")

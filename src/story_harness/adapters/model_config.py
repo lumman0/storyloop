@@ -10,6 +10,7 @@ from typing import Literal
 from agentscope.model import OpenAIChatModel
 
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
+from story_harness.core.billing import record_model_usage
 
 
 ToolChoicePolicy = Literal["native", "auto_only"]
@@ -49,6 +50,7 @@ class CompatibleOpenAIChatModel(OpenAIChatModel):
                     messages, tools=tools, tool_choice=tool_choice,
                     structured_model=structured_model, **kwargs,
                 )
+                record_model_usage(self.model_name, self.task, response.usage)
             except Exception as error:
                 generation.update(level="ERROR", status_message=type(error).__name__)
                 raise

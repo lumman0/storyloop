@@ -132,6 +132,7 @@ export function PlayPage({ token }: { token: string }) {
           : previous,
       );
       setCurrent(response);
+      window.dispatchEvent(new Event("story:billing-updated"));
       setPending(null);
       return true;
     } catch (cause) {
@@ -231,6 +232,13 @@ export function PlayPage({ token }: { token: string }) {
                     <div className="entry-content">
                       <span className="entry-label">故事回应</span>
                       <StoryContent view={turn.response} />
+                      {turn.response.billing && (
+                        <div className="turn-billing">
+                          消耗 {turn.response.billing.charged_points} 积分
+                          <span>·</span>
+                          输入 {turn.response.billing.input_tokens.toLocaleString()} / 输出 {turn.response.billing.output_tokens.toLocaleString()} Token
+                        </div>
+                      )}
                     </div>
                   </article>
                 </div>

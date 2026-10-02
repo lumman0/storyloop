@@ -18,7 +18,37 @@
       "narration": "qwen3.8-max"
     }
   },
-  "runtime": {"max_steps": 8, "max_npc_replies": 3, "main_max_iters": 4, "npc_max_iters": 3},
-  "storage": {"driver": "sqlite", "path": "story-game.sqlite3", "path_base": "cwd"},
-  "memory": {"driver": "in_memory"}
+  "runtime": {
+    "max_steps": 8,
+    "max_npc_replies": 3,
+    "main_max_iters": 4,
+    "npc_max_iters": 3
+  },
+  "storage": {
+    "driver": "sqlite",
+    "path": "story-game.sqlite3",
+    "path_base": "cwd"
+  },
+  "memory": {
+    "driver": "in_memory"
+  },
+  "billing": {
+    "welcome_points": 500,
+    "points_per_rmb": 50,
+    "pricing_version": "2026-10-02-cn-beijing-list",
+    "models": {
+      "qwen3.8-flash": {
+        "input_rmb_per_million": "0.8",
+        "output_rmb_per_million": "2.7",
+        "cached_input_rmb_per_million": "0.1",
+        "multiplier": "1"
+      },
+      "qwen3.8-max": {
+        "input_rmb_per_million": "12",
+        "output_rmb_per_million": "36",
+        "cached_input_rmb_per_million": "1.5",
+        "multiplier": "1"
+      }
+    }
+  }
 }

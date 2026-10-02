@@ -6,6 +6,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { SavesPage } from "./pages/SavesPage";
 import { PlayPage } from "./pages/PlayPage";
+import { CreditsPage } from "./pages/CreditsPage";
 import { Shell } from "./components/Shell";
 
 function ScrollToTop() {
@@ -55,6 +56,7 @@ export default function App() {
                     path="/play/:gameId"
                     element={<PlayPage token={session.token} />}
                   />
+                  <Route path="/credits" element={<CreditsPage token={session.token} />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Shell>
