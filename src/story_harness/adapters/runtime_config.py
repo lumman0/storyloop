@@ -91,6 +91,7 @@ class HarnessConfig:
     model_timeout_seconds: float = 90
     model_connect_timeout_seconds: float = 10
     model_max_retries: int = 2
+    base_url_env: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> HarnessConfig:
@@ -180,6 +181,8 @@ class HarnessConfig:
             model_timeout_seconds=timeout_seconds,
             model_connect_timeout_seconds=connect_timeout_seconds,
             model_max_retries=max_retries,
+            base_url_env=(_string(models["base_url_env"], "models.base_url_env")
+                          if models.get("base_url_env") is not None else None),
         )
 
     def model_api_key(self, env: Mapping[str, str] | None = None) -> str:
@@ -192,6 +195,12 @@ class HarnessConfig:
         except KeyError as error:
             raise ValueError(f"unconfigured model task: {task}") from error
 
+    def model_base_url(self, env: Mapping[str, str] | None = None) -> str:
+        if not self.base_url_env:
+            return self.base_url
+        values = os.environ if env is None else env
+        return values.get(self.base_url_env, "").strip() or self.base_url
+
     def create_model(
         self, task: str, env: Mapping[str, str] | None = None,
         telemetry: Telemetry | None = None,
@@ -200,7 +209,7 @@ class HarnessConfig:
         if not api_key:
             raise ValueError(f"set {self.api_key_env} or configure a local model key file before model use")
         return NpcModelConfig(
-            self.model_name(task), api_key, self.base_url,
+            self.model_name(task), api_key, self.model_base_url(env),
             self.tool_choice_policy,
             telemetry,
             task,

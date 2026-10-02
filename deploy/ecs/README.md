@@ -23,7 +23,7 @@ chmod 600 .env
 编辑 `.env`：
 
 - `POSTGRES_PASSWORD` 使用 URL 安全的随机字符串，例如 `openssl rand -hex 32` 的输出。数据库首次初始化后，不能只修改此值来轮换已有数据库密码。
-- `STORY_BAILIAN_API_KEY` 使用百炼**按量付费** API Key。线上配置的 Base URL 是北京地域的 `https://dashscope.aliyuncs.com/compatible-mode/v1`；Token Plan 个人版 Key 不用于公开应用后端。
+- `STORY_BAILIAN_API_KEY` 使用百炼**按量付费** API Key。`STORY_BAILIAN_BASE_URL` 必须与 Key 所属地域一致；当前 ECS 示例使用中国香港的 `https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1`。Token Plan 个人版 Key 不用于公开应用后端。
 - `STORY_ALLOWED_HOSTS` 填玩家访问的 IP 或域名，不含协议和端口；`STORY_ALLOWED_ORIGINS` 填浏览器完整来源，例如 `http://<ECS 公网 IP>`。切换 HTTPS 域名时同步修改两项。
 - `STORY_DATA_DIR` 和 `STORY_PRIVATE_DIR` 填前面准备的绝对路径。
 
