@@ -11,6 +11,10 @@ from typing import Any, Protocol
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 from story_harness.core.contracts import Effect, Observation, Snapshot, WorldEvent
+from story_harness.runtime.presentation import StorySegment, segment_for_observation
+
+
+DisplayPart = str | StorySegment
 
 
 class ReactTurn(Protocol):
@@ -23,6 +27,7 @@ class CampaignOutcome:
     snapshot: Snapshot
     gate_id: str | None
     complete: bool
+    segments: tuple[StorySegment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -193,7 +198,8 @@ class CampaignSession:
                 raise ValueError("turn ID already belongs to a different input")
             resumed = await self._flush_ready(game_id)
             self._reconcile_encounters(game_id)
-            replay = [item.content for item in self.store.observations_for(game_id, "player")
+            replay = [segment_for_observation(self.store, game_id, item)
+                      for item in self.store.observations_for(game_id, "player")
                       if item.event_id.startswith(f"{turn_id}:")]
             parts = resumed + [part for part in replay if part not in resumed]
             return self._drain(game_id, parts or ["上次操作已提交，继续当前进度。"])
@@ -202,21 +208,22 @@ class CampaignSession:
         gate = self._due_gate(snapshot)
         if gate is not None:
             if not text.startswith("/choose "):
-                return self._outcome(game_id, [self._prompt(gate)])
+                return self._outcome(game_id, [StorySegment("prompt", self._prompt(gate))])
             parts = text.split(maxsplit=2)
             if len(parts) < 2:
-                return self._outcome(game_id, [self._prompt(gate)])
+                return self._outcome(game_id, [StorySegment("prompt", self._prompt(gate))])
             selected = next((option for option in gate["options"] if option["id"] == parts[1]), None)
             if selected is None:
-                return self._outcome(game_id, ["这个选项不可用。", self._prompt(gate)])
+                return self._outcome(game_id, ["这个选项不可用。", StorySegment("prompt", self._prompt(gate))])
             if gate["kind"] == "message" and selected["id"] != "skip":
                 recipient = selected.get("recipient")
                 if recipient not in snapshot.data["campaign"]["met"] or not snapshot.data["campaign"]["met"][recipient]:
-                    return self._outcome(game_id, ["只能发送给已经互动过的嘉宾。", self._prompt(gate)])
+                    return self._outcome(game_id, ["只能发送给已经互动过的嘉宾。", StorySegment("prompt", self._prompt(gate))])
                 if len(parts) < 3 or not parts[2].strip():
-                    return self._outcome(game_id, ["请在选项后写留言内容。", self._prompt(gate)])
+                    return self._outcome(game_id, ["请在选项后写留言内容。", StorySegment("prompt", self._prompt(gate))])
             incoming = self._commit_choice(snapshot, gate, selected, parts[2] if len(parts) > 2 else "", turn_id, text)
-            return self._drain(game_id, [selected.get("text", f"已选择：{selected['label']}")] + incoming)
+            return self._drain(game_id, [StorySegment("narration", selected.get("text", f"已选择：{selected['label']}"))]
+                               + [StorySegment("message", item) for item in incoming])
         if text.startswith("/choose "):
             raise ValueError("no campaign choice is due")
         if text == "/next":
@@ -228,13 +235,13 @@ class CampaignSession:
             if self.react is None:
                 raise ValueError("free-form turns require a ReAct session")
             result = await self.react.run_turn(game_id, text, turn_id)
-            parts = [result.narration]
+            parts = list(getattr(result, "segments", ())) or [StorySegment("narration", result.narration)]
             parts.extend(await self._flush_ready(game_id))
             if result.decision.intent == "speech":
                 self._record_encounters(game_id, result.decision.target_ids, turn_id)
         return self._drain(game_id, parts)
 
-    async def _flush_ready(self, game_id: str) -> list[str]:
+    async def _flush_ready(self, game_id: str) -> list[StorySegment]:
         if not self.store.ready_work(game_id, self.store.load(game_id).tick):
             return []
         visible_before = {item.observation_id for item in self.store.observations_for(game_id, "player")}
@@ -244,7 +251,8 @@ class CampaignSession:
         for _ in range(16):
             await resume(game_id)
             if not self.store.ready_work(game_id, self.store.load(game_id).tick):
-                return [item.content for item in self.store.observations_for(game_id, "player")
+                return [segment_for_observation(self.store, game_id, item)
+                        for item in self.store.observations_for(game_id, "player")
                         if item.observation_id not in visible_before]
         raise RuntimeError("background work budget exhausted; retry this turn ID")
 
@@ -358,7 +366,7 @@ class CampaignSession:
             span.metric("story.incoming_messages", float(len(incoming_texts)))
         return incoming_texts
 
-    def _drain(self, game_id: str, parts: list[str]) -> CampaignOutcome:
+    def _drain(self, game_id: str, parts: list[DisplayPart]) -> CampaignOutcome:
         while True:
             before = self.store.load(game_id)
             campaign = before.data["campaign"]
@@ -376,7 +384,7 @@ class CampaignSession:
             if step["at"] > before.tick:
                 break
             if step["kind"] in {"choice", "message"}:
-                parts.append(self._prompt(step))
+                parts.append(StorySegment("prompt", self._prompt(step)))
                 break
             effects = [Effect(("campaign", "cursor"), cursor + 1)]
             event_id = f"campaign:{step['id']}"
@@ -415,12 +423,14 @@ class CampaignSession:
                                                       [item.recipient_id for item in observations]}) as span:
                 self.store.commit(game_id, before.version, event, tuple(observations), ())
                 span.metric("story.campaign_step", 1.0)
-            parts.append(text)
+            parts.append(StorySegment("scene", text))
         return self._outcome(game_id, parts)
 
-    def _outcome(self, game_id: str, parts: list[str]) -> CampaignOutcome:
+    def _outcome(self, game_id: str, parts: list[DisplayPart]) -> CampaignOutcome:
         snapshot = self.store.load(game_id)
         gate = self._due_gate(snapshot)
-        return CampaignOutcome("\n\n".join(part for part in parts if part), snapshot,
+        segments = tuple(part if isinstance(part, StorySegment) else StorySegment("narration", part)
+                         for part in parts if part)
+        return CampaignOutcome("\n\n".join(part.body_text for part in segments if part.text), snapshot,
                                gate["id"] if gate else None,
-                               snapshot.data["campaign"]["ending"] is not None)
+                               snapshot.data["campaign"]["ending"] is not None, segments)

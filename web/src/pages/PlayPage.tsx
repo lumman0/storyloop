@@ -5,18 +5,21 @@ import { api, type History, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
+import { StoryContent } from "../components/StoryContent";
+import { ChoicePanel } from "../components/ChoicePanel";
 
-function Prose({ text }: { text: string }) {
-  return (
-    <div className="story-prose">
-      {text
-        .split(/\n\s*\n/)
-        .filter(Boolean)
-        .map((paragraph, index) => (
-          <p key={index}>{paragraph}</p>
-        ))}
-    </div>
-  );
+function playerAction(text: string | null, previous: View | null | undefined) {
+  if (!text) return "早期存档的行动记录不可用";
+  if (text === "/next") return "推进到下一时段";
+  if (text.startsWith("/choose ")) {
+    const [, id, ...rest] = text.split(/\s+/);
+    const label = previous?.interaction?.options.find(
+      (item) => item.id === id,
+    )?.label;
+    if (label)
+      return `选择「${label}」${rest.length ? ` · ${rest.join(" ")}` : ""}`;
+  }
+  return text;
 }
 
 export function PlayPage({ token }: { token: string }) {
@@ -63,10 +66,8 @@ export function PlayPage({ token }: { token: string }) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [history?.turns.length]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const text = draft.trim();
-    if (!text || busy || current?.complete) return;
+  async function submitText(text: string): Promise<boolean> {
+    if (!text.trim() || busy || current?.complete) return false;
     setBusy(true);
     setError("");
     const requestId =
@@ -90,11 +91,18 @@ export function PlayPage({ token }: { token: string }) {
       setCurrent(response);
       setDraft("");
       pendingRequest.current = null;
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await submitText(draft.trim());
   }
 
   function useSuggestion(text: string) {
@@ -139,8 +147,12 @@ export function PlayPage({ token }: { token: string }) {
                   </div>
                   <div className="entry-content">
                     <span className="entry-label">序章</span>
-                    {intro.opening && <Prose text={intro.opening} />}
-                    {intro.body && <Prose text={intro.body} />}
+                    {intro.opening && (
+                      <div className="story-prose">
+                        <p>{intro.opening}</p>
+                      </div>
+                    )}
+                    <StoryContent view={intro} />
                   </div>
                 </article>
               )}
@@ -150,7 +162,14 @@ export function PlayPage({ token }: { token: string }) {
                     <span className="player-entry-label">
                       你的行动 · {index + 1}
                     </span>
-                    <p>{turn.input || "早期存档的行动记录不可用"}</p>
+                    <p>
+                      {playerAction(
+                        turn.input,
+                        index === 0
+                          ? intro
+                          : (history.turns[index - 1]?.response ?? null),
+                      )}
+                    </p>
                   </article>
                   <article className="story-entry">
                     <div className="entry-marker">
@@ -158,11 +177,7 @@ export function PlayPage({ token }: { token: string }) {
                     </div>
                     <div className="entry-content">
                       <span className="entry-label">故事回应</span>
-                      <Prose
-                        text={
-                          turn.response.body || "世界暂时没有给出新的回应。"
-                        }
-                      />
+                      <StoryContent view={turn.response} />
                     </div>
                   </article>
                 </div>
@@ -180,53 +195,68 @@ export function PlayPage({ token }: { token: string }) {
                 <span>这一段故事已经写完。你可以返回目录，开始新的旅程。</span>
               </div>
             )}
-            <form className="composer" onSubmit={submit}>
-              <label htmlFor="turn-input">写下你的行动或想说的话</label>
-              <div className="composer-field">
-                <textarea
-                  id="turn-input"
-                  value={draft}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
-                    if (
-                      pendingRequest.current?.text !== event.target.value.trim()
-                    )
-                      pendingRequest.current = null;
-                  }}
-                  placeholder="此刻，你想做什么？"
-                  rows={3}
-                  maxLength={10000}
-                  disabled={busy || current.complete}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  aria-label="发送行动"
-                  disabled={busy || !draft.trim() || current.complete}
-                >
-                  <Send size={18} />
-                </Button>
-              </div>
-              <div className="composer-hint">
-                <span>Enter 发送 · Shift + Enter 换行</span>
-                <span>{busy ? "世界正在回应…" : `${draft.length}/10000`}</span>
-              </div>
-              {error && (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
-              )}
-            </form>
+            {!current.complete && current.interaction ? (
+              <ChoicePanel
+                key={current.interaction.id}
+                interaction={current.interaction}
+                busy={busy}
+                onChoose={submitText}
+                error={error}
+              />
+            ) : (
+              !current.complete && (
+                <form className="composer" onSubmit={submit}>
+                  <label htmlFor="turn-input">写下你的行动或想说的话</label>
+                  <div className="composer-field">
+                    <textarea
+                      id="turn-input"
+                      value={draft}
+                      onChange={(event) => {
+                        setDraft(event.target.value);
+                        if (
+                          pendingRequest.current?.text !==
+                          event.target.value.trim()
+                        )
+                          pendingRequest.current = null;
+                      }}
+                      placeholder="此刻，你想做什么？"
+                      rows={3}
+                      maxLength={10000}
+                      disabled={busy || current.complete}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="submit"
+                      size="icon"
+                      aria-label="发送行动"
+                      disabled={busy || !draft.trim() || current.complete}
+                    >
+                      <Send size={18} />
+                    </Button>
+                  </div>
+                  <div className="composer-hint">
+                    <span>Enter 发送 · Shift + Enter 换行</span>
+                    <span>
+                      {busy ? "世界正在回应…" : `${draft.length}/10000`}
+                    </span>
+                  </div>
+                  {error && (
+                    <p className="form-error" role="alert">
+                      {error}
+                    </p>
+                  )}
+                </form>
+              )
+            )}
           </section>
           <aside className="reader-aside" aria-label="进度与建议">
             <div className="aside-panel">
@@ -243,7 +273,7 @@ export function PlayPage({ token }: { token: string }) {
                 <Sparkles size={18} />
                 <h2>接下来可以试试</h2>
               </div>
-              {current.suggestions.length ? (
+              {!current.interaction && current.suggestions.length ? (
                 <ul>
                   {current.suggestions.map((suggestion, index) => (
                     <li key={`${index}-${suggestion}`}>
@@ -259,7 +289,11 @@ export function PlayPage({ token }: { token: string }) {
                   ))}
                 </ul>
               ) : (
-                <p>自由说出你的想法，故事会回应你。</p>
+                <p>
+                  {current.interaction
+                    ? "先完成当前剧情选择，故事就会继续。"
+                    : "自由说出你的想法，故事会回应你。"}
+                </p>
               )}
               <small>建议只是灵感，行动由你决定。</small>
             </div>

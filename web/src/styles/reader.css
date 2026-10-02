@@ -110,6 +110,127 @@
 .intro-entry .story-prose:first-of-type p:first-child {
   font-size: 1.05rem;
 }
+.story-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.story-segments > :last-child .story-prose p:last-child {
+  margin-bottom: 0;
+}
+.dialogue-block {
+  border: 1px solid oklch(0.35 0.025 14);
+  border-radius: 12px;
+  background: oklch(0.235 0.018 12);
+  padding: 17px 21px 5px;
+  max-width: 680px;
+}
+.dialogue-speaker {
+  color: oklch(0.83 0.11 28);
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 9px;
+}
+.message-block {
+  border: 1px solid oklch(0.41 0.04 23);
+  border-radius: 12px;
+  background: oklch(0.265 0.025 19);
+  padding: 17px 21px 5px;
+  max-width: 680px;
+}
+.message-block > span {
+  display: block;
+  color: oklch(0.81 0.1 27);
+  font-size: 0.76rem;
+  font-weight: 700;
+  margin-bottom: 9px;
+}
+.choice-panel {
+  border-top: 1px solid oklch(0.32 0.022 11);
+  padding: 30px 0 44px;
+  margin-top: 16px;
+}
+.choice-heading > span {
+  display: block;
+  color: oklch(0.78 0.1 28);
+  font-size: 0.77rem;
+  font-weight: 700;
+  margin-bottom: 9px;
+}
+.choice-heading h2 {
+  font-size: 1.17rem;
+  line-height: 1.55;
+  font-weight: 600;
+  margin: 0 0 18px;
+  text-wrap: pretty;
+}
+.choice-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.choice-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
+  border-radius: 10px;
+  border: 1px solid oklch(0.39 0.027 14);
+  background: oklch(0.25 0.018 11);
+  color: oklch(0.92 0.01 20);
+  text-align: left;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+.choice-option:hover:not(:disabled),
+.choice-option.selected {
+  border-color: oklch(0.71 0.11 27);
+  background: oklch(0.31 0.033 17);
+}
+.choice-option:focus-visible,
+.choice-note textarea:focus-visible {
+  outline: 2px solid oklch(0.78 0.12 27);
+  outline-offset: 2px;
+}
+.choice-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.choice-option span:last-child {
+  color: oklch(0.81 0.1 27);
+}
+.choice-note {
+  display: block;
+  color: oklch(0.88 0.014 20);
+  font-size: 0.85rem;
+  margin-bottom: 18px;
+}
+.choice-note textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  margin-top: 10px;
+  min-height: 90px;
+  background: oklch(0.23 0.017 10);
+  color: oklch(0.95 0.01 20);
+  border: 1px solid oklch(0.4 0.025 13);
+  border-radius: 10px;
+  padding: 14px;
+  line-height: 1.6;
+}
+.choice-note textarea::placeholder {
+  color: oklch(0.67 0.015 20);
+}
+.choice-help {
+  color: oklch(0.72 0.02 20);
+  font-size: 0.82rem;
+  margin: 0 0 18px;
+}
+.choice-panel .form-error {
+  margin-top: 14px;
+}
 .turn-pair {
   padding-top: 8px;
 }

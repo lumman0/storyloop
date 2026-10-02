@@ -6,7 +6,7 @@ from pathlib import Path
 from agentscope.model import ChatModelBase, ChatResponse
 
 from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.runtime.game_session import GameSession, compose_visible_narration
+from story_harness.runtime.game_session import GameSession, compose_visible_narration, compose_visible_segments
 from story_harness.core.contracts import Observation
 from story_harness.agents.main_agent import MainDecision
 from story_harness.world.scenario import ScenarioPackage
@@ -83,6 +83,18 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.narration, "【码头工】\nA：我听见了。")
         self.assertEqual(main.visible_results, [])
 
+    async def test_private_message_remains_separate_from_narration(self) -> None:
+        async def summarize(_text: str, results: list[str]) -> str:
+            return "环境：" + "、".join(results)
+
+        observations = (
+            Observation("o1", "e1", "player", "scene", "雪停了", 1),
+            Observation("o2", "e2", "player", "private_message", "今晚见", 1),
+        )
+        segments = await compose_visible_segments("我看看", observations, summarize)
+        self.assertEqual([(item.kind, item.text) for item in segments],
+                         [("narration", "环境：雪停了"), ("message", "今晚见")])
+
     async def test_group_speech_has_named_reply_blocks_and_all_nearby_npcs_hear_it(self) -> None:
         root = Path(self.temp.name) / "group"
         root.mkdir()
@@ -110,6 +122,11 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.decision.target_ids, ["a", "b"])
         self.assertEqual(result.narration, "【甲】\nA：我听见了。\n\n【乙】\nA：我听见了。")
+        self.assertEqual([(part.kind, part.speaker_id, part.speaker_name, part.text)
+                          for part in result.segments], [
+            ("dialogue", "a", "甲", "A：我听见了。"),
+            ("dialogue", "b", "乙", "A：我听见了。"),
+        ])
         self.assertEqual(len(result.player_observations), 2)
         self.assertEqual(result.processed_work_ids,
                          ("group-turn:input:reply:a", "group-turn:input:reply:b"))

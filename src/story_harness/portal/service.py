@@ -12,8 +12,10 @@ from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
+from story_harness.portal.presentation import campaign_interaction
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
+from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
 from story_harness.world.scenario import ScenarioPackage
@@ -123,10 +125,15 @@ class PlayerPortal:
     @staticmethod
     def _view(game_id: str, catalog_id: str, mode: str, body: str,
               snapshot, guidance, *, complete: bool = False,
-              opening: str = "", turn_id: str | None = None) -> dict:
+              opening: str = "", turn_id: str | None = None,
+              segments: tuple[StorySegment, ...] = (),
+              program: CampaignProgram | None = None, gate_id: str | None = None) -> dict:
         campaign = snapshot.data.get("campaign")
         return {"game_id": game_id, "catalog_id": catalog_id, "mode": mode,
-                "opening": opening, "body": body, "suggestions": list(guidance.items),
+                "opening": opening, "body": body,
+                "segments": [part.to_dict() for part in segments],
+                "interaction": campaign_interaction(program, snapshot, gate_id) if program else None,
+                "suggestions": list(guidance.items),
                 "tick": snapshot.tick, "state_version": snapshot.version,
                 "day": campaign.get("day") if isinstance(campaign, dict) else None,
                 "complete": complete, "turn_id": turn_id}
@@ -151,7 +158,8 @@ class PlayerPortal:
         latest = self.accounts.latest_turn_response(game_id)
         snapshot = self.store.load(game_id)
         if (latest is not None and snapshot.version == latest["state_version"]
-                and not self.store.ready_work(game_id, snapshot.tick)):
+                and not self.store.ready_work(game_id, snapshot.tick)
+                and (item.mode != "campaign" or "interaction" in latest)):
             return {**latest, "opening": ""}
         package = ScenarioPackage.load(item.package_path)
         result = await self._open_save(item, package, game_id,
@@ -171,7 +179,8 @@ class PlayerPortal:
                 complete=outcome.complete, visible_text=outcome.text)
             return self._view(game_id, item.game_id, item.mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
-                              opening=opening)
+                              opening=opening, segments=outcome.segments,
+                              program=program, gate_id=outcome.gate_id)
         snapshot = self.store.load(game_id)
         guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
             game_id, snapshot, visible_text=opening)
@@ -209,13 +218,15 @@ class PlayerPortal:
                 complete=outcome.complete, visible_text=outcome.text)
             view = self._view(game_id, item.game_id, item.mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
-                              turn_id=turn_id)
+                              turn_id=turn_id, segments=outcome.segments,
+                              program=program, gate_id=outcome.gate_id)
         else:
             outcome = await self._react(item, package).run_turn(game_id, text, turn_id)
             guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
                 game_id, outcome.snapshot, visible_text=outcome.narration)
             view = self._view(game_id, item.game_id, item.mode, outcome.narration,
-                              outcome.snapshot, guidance, turn_id=turn_id)
+                              outcome.snapshot, guidance, turn_id=turn_id,
+                              segments=outcome.segments)
         self.accounts.store_turn_response(game_id, request_id, text, view)
         return view
 
@@ -234,10 +245,11 @@ class PlayerPortal:
             raise ValueError("a later turn has already started; resume the saved game")
         await self._react(item, package).run_ready_work(game_id)
         snapshot = self.store.load(game_id)
-        visible = [observation.content for observation in self.store.observations_for(game_id, "player")
+        visible = [observation for observation in self.store.observations_for(game_id, "player")
                    if observation.event_id.startswith(f"{turn_id}:")]
-        body = "\n\n".join(visible) or "上次操作已提交，暂时没有新的可见变化。"
+        segments = tuple(segment_for_observation(self.store, game_id, item) for item in visible)
+        body = "\n\n".join(item.body_text for item in segments) or "上次操作已提交，暂时没有新的可见变化。"
         guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
             game_id, snapshot, visible_text=body)
         return self._view(game_id, item.game_id, item.mode, body, snapshot, guidance,
-                          turn_id=turn_id)
+                          turn_id=turn_id, segments=segments)

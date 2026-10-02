@@ -73,11 +73,13 @@ class CampaignTests(unittest.TestCase):
     def test_gate_blocks_react_and_scheduled_scene_advances_once(self):
         start = self.run_async(self.session.start("g"))
         self.assertEqual(start.gate_id, "arrival")
+        self.assertEqual(start.segments[-1].kind, "prompt")
         blocked = self.run_async(self.session.submit("g", "随便聊聊", "t0"))
         self.assertEqual(blocked.gate_id, "arrival")
         self.assertEqual(self.react.calls, [])
         chosen = self.run_async(self.session.submit("g", "/choose m1", "t1"))
         self.assertIn("节目开始", chosen.text)
+        self.assertEqual([part.kind for part in chosen.segments], ["narration", "scene"])
         self.assertEqual(self.store.load("g").data["campaign"]["choices"]["arrival"], "m1")
         self.assertEqual(len(self.store.observations_for("g", "m1")), 1)
         self.assertEqual(self.store.observations_for("g", "m2"), [])

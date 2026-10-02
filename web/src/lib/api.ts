@@ -18,12 +18,31 @@ export type Save = {
   day: number | null;
   complete: boolean;
 };
+export type StorySegment = {
+  kind: "narration" | "scene" | "dialogue" | "message" | "prompt";
+  text: string;
+  speaker_id?: string;
+  speaker_name?: string;
+};
+export type Interaction = {
+  id: string;
+  kind: "choice" | "message";
+  prompt: string;
+  options: {
+    id: string;
+    label: string;
+    enabled: boolean;
+    requires_text: boolean;
+  }[];
+};
 export type View = {
   game_id: string;
   catalog_id: string;
   mode: string;
   opening: string;
   body: string;
+  segments?: StorySegment[];
+  interaction?: Interaction | null;
   suggestions: string[];
   tick: number;
   state_version: number;

@@ -36,6 +36,9 @@ def make_npc_reply_handler(
             player_message,
             current_input_event_id=work.cause_id,
         )
+        label = names.get(actor_id, actor_id)
+        if label_counts[label] > 1:
+            label = f"{label} ({actor_id})"
         event = WorldEvent(
             event_id=f"{work.work_id}:spoken",
             kind="npc_spoke",
@@ -43,11 +46,9 @@ def make_npc_reply_handler(
             cause_id=work.cause_id,
             tick=snapshot.tick + duration_ticks,
             effects=(),
-            details={"player_message": player_message, "speech": prepared.speech},
+            details={"player_message": player_message, "speech": prepared.speech,
+                     "speaker_id": actor_id, "speaker_name": label},
         )
-        label = names.get(actor_id, actor_id)
-        if label_counts[label] > 1:
-            label = f"{label} ({actor_id})"
         player_heard = Observation(
             observation_id=f"{work.work_id}:player-heard",
             event_id=event.event_id,

@@ -18,6 +18,7 @@ from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.schedule import scenario_cue
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan, session_id_for_game
+from story_harness.runtime.presentation import StorySegment, segment_for_observation
 
 
 class MainAgent(Protocol):
@@ -34,6 +35,7 @@ class TurnOutcome:
     processed_work_ids: tuple[str, ...]
     snapshot: Snapshot
     narration_fallback: bool = False
+    segments: tuple[StorySegment, ...] = ()
 
 
 async def compose_visible_narration(
@@ -41,19 +43,33 @@ async def compose_visible_narration(
     observations: tuple[Observation, ...],
     summarize: Callable[[str, list[str]], Awaitable[str]],
 ) -> str:
-    parts: list[str] = []
+    segments = await compose_visible_segments(player_text, observations, summarize)
+    return "\n\n".join(part.body_text for part in segments) or "暂时没有可见变化。"
+
+
+async def compose_visible_segments(
+    player_text: str,
+    observations: tuple[Observation, ...],
+    summarize: Callable[[str, list[str]], Awaitable[str]],
+    dialogue_segment: Callable[[Observation], StorySegment] | None = None,
+) -> tuple[StorySegment, ...]:
+    parts: list[StorySegment] = []
     scene_results: list[str] = []
     for observation in observations:
-        if observation.channel == "dialogue":
+        if observation.channel in {"dialogue", "private_message"}:
             if scene_results:
-                parts.append(await summarize(player_text, scene_results))
+                parts.append(StorySegment("narration", await summarize(player_text, scene_results)))
                 scene_results = []
-            parts.append(observation.content)
+            if observation.channel == "dialogue":
+                parts.append(dialogue_segment(observation) if dialogue_segment
+                             else StorySegment("dialogue", observation.content))
+            else:
+                parts.append(StorySegment("message", observation.content))
         else:
             scene_results.append(observation.content)
     if scene_results:
-        parts.append(await summarize(player_text, scene_results))
-    return "\n\n".join(part for part in parts if part) or "暂时没有可见变化。"
+        parts.append(StorySegment("narration", await summarize(player_text, scene_results)))
+    return tuple(part for part in parts if part.text)
 
 
 class GameSession:
@@ -184,12 +200,16 @@ class GameSession:
             input=scene_results if self.telemetry.capture_content else None,
         ) as narration_span:
             try:
-                narration = await compose_visible_narration(
-                    player_text, new_observations, main.summarize
+                segments = await compose_visible_segments(
+                    player_text, new_observations, main.summarize,
+                    lambda item: segment_for_observation(self.store, game_id, item),
                 )
+                narration = "\n\n".join(part.body_text for part in segments) or "暂时没有可见变化。"
                 narration_fallback = False
             except Exception as error:
                 narration = "\n\n".join(item.content for item in new_observations) or "暂时没有可见变化。"
+                segments = tuple(segment_for_observation(self.store, game_id, item)
+                                 for item in new_observations)
                 narration_fallback = True
                 narration_span.update(level="WARNING", status_message=type(error).__name__)
             narration_span.update(metadata={"narration_fallback": narration_fallback})
@@ -208,7 +228,7 @@ class GameSession:
             turn_span.update(output=narration)
         return TurnOutcome(
             decision, narration, new_observations,
-            result.processed_work_ids, result.snapshot, narration_fallback,
+            result.processed_work_ids, result.snapshot, narration_fallback, segments,
         )
 
     def store_input(
