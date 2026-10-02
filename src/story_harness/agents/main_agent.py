@@ -9,7 +9,7 @@ from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse, Toolkit
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from story_harness.core.actions import ActionRule
 from story_harness.agents.quiet_agent import QuietReActAgent
@@ -198,9 +198,28 @@ class MainReActAgent:
                     Msg("player", json.dumps(request, ensure_ascii=False), "user"),
                     structured_model=MainDecision,
                 )
-                if not isinstance(response.metadata, dict):
-                    raise ValueError("main agent returned no structured decision")
-                decision = MainDecision.model_validate(response.metadata)
+                try:
+                    decision = MainDecision.model_validate(response.metadata)
+                except ValidationError:
+                    with self.telemetry.span(
+                        "main-decision-recovery",
+                        {"reason": "invalid_or_missing_structured_output"},
+                        kind="agent",
+                    ):
+                        memory = await self.agent.memory.get_memory()
+                        prompt = await self.agent.formatter.format(msgs=[
+                            Msg("system", self.agent.sys_prompt, "system"),
+                            *memory[:-1],  # Exclude AgentScope's unstructured exhaustion summary.
+                            Msg("player", (
+                                "工具循环已结束。依据以上玩家输入和工具结果，"
+                                "现在只生成一次符合 MainDecision 的结构化决策；"
+                                "不能调用工具或添加未经证实的事实。"
+                            ), "user"),
+                        ])
+                        recovered = await self.agent.model(
+                            prompt, structured_model=MainDecision,
+                        )
+                        decision = MainDecision.model_validate(recovered.metadata)
                 if self.telemetry.capture_content:
                     context_span.update(output=decision.model_dump())
                 return decision

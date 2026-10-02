@@ -33,7 +33,41 @@ class ToolThenPlanModel(ChatModelBase):
         }])
 
 
+class TextUntilStructuredModel(ChatModelBase):
+    def __init__(self) -> None:
+        super().__init__(model_name="main-test", stream=False)
+        self.structured_calls = 0
+
+    async def __call__(self, prompt: object, **kwargs: object) -> ChatResponse:
+        if kwargs.get("structured_model") is not None:
+            self.structured_calls += 1
+            return ChatResponse(
+                content=[{"type": "text", "text": "已决定与 A 交谈"}],
+                metadata={"intent": "speech", "target_ids": ["A"]},
+            )
+        return ChatResponse(content=[{"type": "text", "text": "让我再确认场景。"}])
+
+
 class MainAgentTests(unittest.TestCase):
+    def test_main_react_finishes_decision_after_tool_loop_exhaustion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book_path = root / "worldbook.json"
+            book_path.write_text(json.dumps({
+                "package_id": "sample", "version": "1", "entries": [],
+            }), encoding="utf-8")
+            store = SQLiteGameStore(str(root / "game.sqlite3"))
+            store.create_game(Snapshot("game", 0, 0, {
+                "actors": {"player": {"location": "hall"}, "A": {"location": "hall"}},
+            }))
+            model = TextUntilStructuredModel()
+            agent = MainReActAgent("game", store, Worldbook.load(book_path), model, max_iters=2)
+
+            decision = asyncio.run(agent.decide("和 A 打招呼"))
+
+            self.assertEqual(decision.target_ids, ["A"])
+            self.assertEqual(model.structured_calls, 1)
+
     def test_main_react_can_use_worldbook_tool_without_private_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
