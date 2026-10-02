@@ -1,30 +1,28 @@
-# 用户剧本上传与后续创作
+# 用户剧本与公开审核
 
-官方剧本继续由部署者维护的 `catalog.json` 加载。登录用户现在可以在“我的剧本”上传 ZIP 剧本包，上传后先成为私有草稿；作者发布后，仅作者账号可在目录中看到并试玩。其他玩家不能读取、发布或创建该剧本的存档。网页内逐步编辑剧本和公开发布仍是后续功能。
+官方剧本由部署者维护的 `catalog.json` 加载。登录用户可以在“我的剧本”上传 ZIP 剧本包。上传后是私有草稿；开启私有试玩后，仅作者账号可以在目录中看到。作者也可以把一个固定版本提交审核，通过后进入公共目录。其他玩家不能读取未送审的草稿或创建其存档。
 
 ## 上传格式与限制
 
-ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；章节剧本还需 `campaign.json`。文件名仅接受英文字母、数字、下划线和短横线，以 `.json` 结尾；不接受外层文件夹、非 JSON 文件、符号链接、重复文件名或不安全路径。压缩包最大 4 MiB，最多 16 个文件，单文件解压后最大 2 MiB，全部解压后最大 8 MiB。服务端会使用现有 `ScenarioPackage` 和 `CampaignProgram` 规则校验；失败时保留具体错误，不创建草稿。
+ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；章节剧本还需 `campaign.json`。文件名仅接受英文字母、数字、下划线和短横线，以 `.json` 结尾；不接受外层文件夹、非 JSON 文件、符号链接、重复文件名或不安全路径。压缩包最大 4 MiB，最多 16 个文件，单文件解压后最大 2 MiB，全部解压后最大 8 MiB。服务端使用 `ScenarioPackage` 和 `CampaignProgram` 校验，失败时不创建草稿。
 
-上传包写入独立的 `STORY_UPLOAD_DIR`。数据库 `user_scenarios` 与 `user_scenario_versions` 记录作者、私有可见性、不可变的包引用、版本和指纹。发布不会修改包内容。现阶段一次上传生成一个草稿和一个版本；后续编辑和发布新版本时仍应保留旧版本，供已有存档恢复。
+上传包写入独立的 `STORY_UPLOAD_DIR`。数据库 `user_scenarios` 与 `user_scenario_versions` 记录作者、不可变包引用、版本和 SHA-256 内容指纹。上传新版本时保留旧版本，已有存档继续绑定原版本与指纹。同一剧本同时只允许一个待审提交；驳回或撤回后，作者上传新版本再提交。
 
-每个作者最多保留 20 个剧本。未发布的草稿可由作者删除并释放名额；已发布剧本不能直接删除，以免已有存档失去依赖的包。
+每位作者最多保留 20 个剧本。未发布、未送审的草稿可删除；已发布或送审的剧本不能直接删除，以免已有存档和审核记录失去依赖。
 
-## 剧本存储边界
+## 存储边界
 
-现阶段 `GameCatalog.load(path)` 使用 `LocalScenarioCatalogSource` 读取官方目录 JSON，使用 `LocalScenarioPackageStore` 解析其中的 `package` 路径。`PlayerPortal` 默认保持这个本地部署方式，也可注入由 `GameCatalog.from_sources(catalog_source, package_store)` 创建的目录。用户上传包通过 `PublishedPackageStore` 写入，当前实现为 `LocalPublishedPackageStore`。这些接口定义在 `src/story_harness/portal/scenario_storage.py`：
+`GameCatalog` 从 `ScenarioCatalogSource` 读取官方目录，并由 `ScenarioPackageStore` 定位发布包。用户上传包经 `PublishedPackageStore` 写入，当前实现为 `LocalPublishedPackageStore`。接口位于 `src/story_harness/portal/scenario_storage.py`：
 
-- `ScenarioCatalogSource.games()` 返回与现有 `games` 数组相同的条目；`package` 是不透明的发布包引用，不应来自玩家直接提交的路径。
-- `ScenarioPackageStore.materialize(reference)` 返回已准备好的本地目录，包含 `manifest.json`、世界书及可选的 `campaign.json`。远端实现需要把不可变对象下载到本地缓存，并在返回前完成原子写入。
-- `PublishedPackageStore.publish(reference, source)` 写入已验证的包，`remove(reference)` 清理数据库写入失败后的包。引用由服务端生成，不能使用玩家上传的文件名。
-- `GameCatalog` 读取包时校验剧本格式并计算 SHA-256 指纹；再次取用时重新定位和校验。存档继续保存 package ID、version、hash，内容发生变化时拒绝继续使用。
+- `ScenarioCatalogSource.games()` 返回目录条目；包引用由服务端生成。
+- `ScenarioPackageStore.materialize(reference)` 返回包含 manifest、世界书和可选 campaign 的本地目录。远端实现应在返回前完成原子缓存写入。
+- `PublishedPackageStore.publish(reference, source)` 写入已验证的包；`remove(reference)` 清理数据库写入失败后的包。
+- 取用存档时再次校验包 ID、版本与指纹；变更包内容需显式迁移。
 
-当前用户剧本的元数据已经由 SQLite 或 PostgreSQL 管理，发布包仍使用本地持久化目录。后期可把发布包写入私有 OSS，并把读取实现改为本地缓存；账号、剧本归属、发布版本与存档继续留在数据库。当前代码尚未实现 OSS 上传、网页内逐步创作或公开发布审核。
+元数据由 SQLite 或 PostgreSQL 管理，发布包使用本地持久化目录。后期可把发布包写入私有 OSS，并把读取实现改为本地缓存。当前代码未实现 OSS 上传、网页内逐步创作或玩家举报。
 
-后续把“创作草稿”和“可游玩版本”进一步分开：
+## 公开审核与权限
 
-1. 增加网页内逐步编辑角色、公开世界设定、初始状态和剧情节点，自动保存私有草稿。
-2. 支持将改动发布为同一剧本的新版本，旧存档固定到原版本和内容指纹。
-3. 公开发布前加入内容审核、举报和下架流程；公开目录按可见范围过滤。
+角色为普通玩家、审核员、管理员。权限在服务端按每次请求检查。审核员只能查看作者明确提交的固定版本，不能查看私有草稿或其他玩家存档。管理员可管理账号角色、停用账号、公开版本状态和审计记录。最后一个有效管理员不能被撤销或停用。
 
-用户上传目录不应直接挂进公开的官方目录，也不应向浏览器发送完整剧本包。
+审核通过后，该版本进入公共目录。普通退场停止新存档，已有存档可继续；违规下架同时阻止公开旧存档继续进入。审核员可用独立存档试玩待审版本，最多 12 回合，平台承担模型费用，不扣玩家积分，也不提取玩家画像。管理员审核自己提交的剧本时，必须填写覆盖原因。审核与管理操作记录在 `management_audit`。

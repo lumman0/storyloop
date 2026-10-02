@@ -92,6 +92,8 @@ class SQLPlayerRepository:
         digest = hashlib.pbkdf2_hmac("sha256", secret.encode(), row["password_salt"], 310_000)
         if not hmac.compare_digest(digest, row["password_hash"]):
             raise PermissionError("invalid username or password")
+        if row["status"] != "active":
+            raise PermissionError("account suspended")
         return row["player_id"]
 
     def issue_token(self, player_id: str) -> str:
@@ -107,10 +109,11 @@ class SQLPlayerRepository:
         if not isinstance(token, str) or not token:
             raise PermissionError("login required")
         with self.engine.connect() as db:
-            row = db.execute(text("""SELECT player_id,expires_at FROM player_sessions
-                WHERE token_hash=:token_hash"""),
+            row = db.execute(text("""SELECT s.player_id,s.expires_at,a.status
+                FROM player_sessions s JOIN player_accounts a ON a.player_id=s.player_id
+                WHERE s.token_hash=:token_hash"""),
                 {"token_hash": hashlib.sha256(token.encode()).digest()}).mappings().first()
-        if row is None or row["expires_at"] <= int(time.time()):
+        if row is None or row["expires_at"] <= int(time.time()) or row["status"] != "active":
             raise PermissionError("login required")
         return row["player_id"]
 

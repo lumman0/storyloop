@@ -65,14 +65,48 @@ export function UploadPage() {
     setError("");
     setSuccess("");
     try {
-      const result = await api.publishScenario(id);
-      setScenarios((current) => current.map((item) => item.id === id ? result : item));
+      await api.publishScenario(id);
+      setReload((value) => value + 1);
       setSuccess("已发布为仅自己可见的可玩剧本。");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function submit(id: string) {
+    setBusyId(id);
+    setError(""); setSuccess("");
+    try {
+      await api.submitScenario(id);
+      setSuccess("已提交公开审核。审核员只会查看这次提交的剧本版本。");
+      setReload((value) => value + 1);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusyId(null); }
+  }
+
+  async function withdraw(id: string) {
+    setBusyId(id);
+    setError(""); setSuccess("");
+    try {
+      await api.withdrawSubmission(id);
+      setSuccess("已撤回审核申请。修改后可上传新版本。");
+      setReload((value) => value + 1);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusyId(null); }
+  }
+
+  async function uploadVersion(item: UserScenario, file: File | null) {
+    if (!file) return;
+    setBusyId(item.id);
+    setError(""); setSuccess("");
+    try {
+      await api.uploadScenarioVersion(item.id, item.title, item.summary, file);
+      setSuccess("新版本已保存。确认后可以重新提交审核。");
+      setReload((value) => value + 1);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusyId(null); }
   }
 
   async function play(id: string) {
@@ -108,7 +142,7 @@ export function UploadPage() {
       <header className="page-title">
         <span className="section-label">作者空间</span>
         <h1>我的剧本</h1>
-        <p>上传剧本包，确认后发布为仅自己可见的故事。</p>
+        <p>上传并私有试玩剧本，也可以提交一个固定版本申请进入公共目录。</p>
       </header>
       <div className="upload-layout">
         <section className="upload-panel" aria-labelledby="upload-heading">
@@ -116,7 +150,7 @@ export function UploadPage() {
             <FileUp size={22} aria-hidden="true" />
             <div>
               <h2 id="upload-heading">上传剧本包</h2>
-              <p>先保存为草稿；发布后才可以试玩。</p>
+              <p>先保存为草稿；私有发布后可以试玩。</p>
             </div>
           </div>
           <form onSubmit={upload} className="upload-form">
@@ -133,7 +167,7 @@ export function UploadPage() {
             <p className="upload-hint">包根目录需有 manifest.json 和世界书 JSON；章节剧本另需 campaign.json。最多 4 MiB，解压后最多 8 MiB。</p>
             <Button type="submit" disabled={busy}>{busy ? "正在校验并保存…" : "上传为私有草稿"}</Button>
           </form>
-          <p className="upload-privacy"><LockKeyhole size={15} aria-hidden="true" /> 剧本内容不会出现在其他玩家的目录中。</p>
+          <p className="upload-privacy"><LockKeyhole size={15} aria-hidden="true" /> 未通过公开审核的版本不会出现在其他玩家的目录中。</p>
         </section>
         <section className="upload-list" aria-labelledby="upload-list-heading">
           <div className="upload-list-heading">
@@ -156,24 +190,45 @@ export function UploadPage() {
                     <div className="upload-item-title">
                       <h3>{item.title}</h3>
                       <span className={item.status === "published" ? "upload-status published" : "upload-status"}>
-                        {item.status === "published" ? "仅自己可见 · 已发布" : "私有草稿"}
+                        {item.public_state === "active" ? "公开可玩" : item.review_status === "pending" ? "公开审核中"
+                          : item.review_status === "rejected" ? "审核未通过"
+                          : item.status === "published" ? "私有试玩" : "私有草稿"}
                       </span>
                     </div>
                     {item.summary && <p>{item.summary}</p>}
                     <small>{item.mode === "campaign" ? "章节故事" : "自由探索"} · 包版本 {item.package_version}</small>
+                    {item.review_reason && <p className="upload-review-note">审核意见：{item.review_reason}</p>}
                     <div className="upload-item-actions">
-                      {item.status === "draft" ? (
-                        <>
-                          <Button type="button" size="small" onClick={() => publish(item.id)} disabled={busyId !== null}>
-                            {busyId === item.id ? "处理中…" : "发布为可试玩"}
-                          </Button>
-                          <Button type="button" size="small" variant="ghost" onClick={() => removeDraft(item.id)} disabled={busyId !== null}>
-                            删除草稿
-                          </Button>
-                        </>
-                      ) : (
+                      {item.status === "draft" && (
+                        <Button type="button" size="small" onClick={() => publish(item.id)} disabled={busyId !== null}>
+                          {busyId === item.id ? "处理中…" : "开启私有试玩"}
+                        </Button>
+                      )}
+                      {item.status === "published" && (
                         <Button type="button" size="small" variant="secondary" onClick={() => play(item.id)} disabled={busyId !== null}>
                           {busyId === item.id ? "正在进入…" : "开始试玩"} <ArrowRight size={15} />
+                        </Button>
+                      )}
+                      {!item.review_status && (
+                        <Button type="button" size="small" variant="secondary" onClick={() => submit(item.id)} disabled={busyId !== null}>
+                          提交公开审核
+                        </Button>
+                      )}
+                      {item.review_status === "pending" && item.submission_id && (
+                        <Button type="button" size="small" variant="ghost" onClick={() => withdraw(item.submission_id!)} disabled={busyId !== null}>
+                          撤回申请
+                        </Button>
+                      )}
+                      <input type="file" accept=".zip,application/zip" id={`version-${item.id}`}
+                        className="visually-hidden" disabled={busyId !== null}
+                        onChange={(event) => { void uploadVersion(item, event.target.files?.[0] || null); event.target.value = ""; }} />
+                      <Button type="button" size="small" variant="ghost" disabled={busyId !== null}
+                        onClick={() => document.getElementById(`version-${item.id}`)?.click()}>
+                        上传新版本
+                      </Button>
+                      {item.status === "draft" && !item.review_status && (
+                        <Button type="button" size="small" variant="ghost" onClick={() => removeDraft(item.id)} disabled={busyId !== null}>
+                          删除草稿
                         </Button>
                       )}
                     </div>

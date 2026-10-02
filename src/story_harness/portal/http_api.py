@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from story_harness.portal.service import PlayerPortal
+from story_harness.portal.access import AccessDenied
 from story_harness.portal.sql_repository import SESSION_TTL_SECONDS
 from story_harness.portal.user_scenarios import MAX_ARCHIVE_BYTES
 
@@ -59,7 +60,28 @@ class PlayerMemorySettingsBody(BaseModel):
     enabled: bool
 
 
+class ReviewDecisionBody(BaseModel):
+    decision: str
+    reason: str = ""
+
+
+class RoleBody(BaseModel):
+    role: str
+    enabled: bool
+
+
+class AccountStatusBody(BaseModel):
+    status: str
+
+
+class ReleaseStateBody(BaseModel):
+    state: str
+    reason: str = ""
+
+
 def _http_error(error: Exception) -> HTTPException:
+    if isinstance(error, AccessDenied):
+        return HTTPException(status_code=403, detail=str(error))
     if isinstance(error, PermissionError):
         return HTTPException(status_code=401, detail=str(error))
     if isinstance(error, KeyError):
@@ -120,6 +142,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
             return JSONResponse({"error": "Origin required"}, status_code=403)
         needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves",
                                                "/v1/me/memory/settings"}
+                      or (request.url.path.startswith("/v1/manage/")
+                          and request.url.path.endswith(("/decision", "/role", "/status", "/state")))
                       or request.url.path.endswith(("/turns", "/turns/stream")))
         if request.method in {"POST", "PUT", "PATCH"} and needs_json:
             content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -160,7 +184,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
         try:
             session = portal.register(body.username, body.password, body.invite_code)
             set_session_cookie(response, session["token"])
-            return {"player_id": session["player_id"]} if online_cookie else session
+            info = portal.session_info(session["token"])
+            return info if online_cookie else {**session, **info}
         except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 
@@ -169,13 +194,14 @@ def create_app(portal: PlayerPortal) -> FastAPI:
         try:
             session = portal.login(body.username, body.password)
             set_session_cookie(response, session["token"])
-            return {"player_id": session["player_id"]} if online_cookie else session
+            info = portal.session_info(session["token"])
+            return info if online_cookie else {**session, **info}
         except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 
     @app.get("/v1/sessions/current")
     def current_session(request: Request, auth: str = Depends(token)) -> dict:
-        return {"player_id": request.state.user_id}
+        return portal.session_info(auth)
 
     @app.delete("/v1/sessions/current")
     def logout(response: Response, auth: str = Depends(token)) -> dict:
@@ -215,9 +241,7 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     def my_scenarios(auth: str = Depends(token)) -> dict:
         return {"scenarios": portal.my_scenarios(auth)}
 
-    @app.post("/v1/my-scenarios", status_code=201)
-    async def upload_scenario(title: str = Form(...), summary: str = Form(""),
-                              file: UploadFile = File(...), auth: str = Depends(token)) -> dict:
+    async def read_scenario_archive(file: UploadFile) -> bytes:
         if file.content_type not in {"application/zip", "application/x-zip-compressed",
                                      "application/octet-stream"}:
             raise HTTPException(status_code=415, detail="file must be a ZIP archive")
@@ -229,9 +253,116 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                     raise HTTPException(status_code=413, detail="ZIP file exceeds 4 MiB")
         finally:
             await file.close()
+        return bytes(content)
+
+    @app.post("/v1/my-scenarios", status_code=201)
+    async def upload_scenario(title: str = Form(...), summary: str = Form(""),
+                              file: UploadFile = File(...), auth: str = Depends(token)) -> dict:
+        content = await read_scenario_archive(file)
         try:
-            return portal.upload_scenario(auth, title, summary, bytes(content))
+            return portal.upload_scenario(auth, title, summary, content)
         except ValueError as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/my-scenarios/{scenario_id}/versions", status_code=201)
+    async def upload_scenario_version(scenario_id: str, title: str = Form(...),
+                                      summary: str = Form(""), file: UploadFile = File(...),
+                                      auth: str = Depends(token)) -> dict:
+        content = await read_scenario_archive(file)
+        try:
+            return portal.upload_scenario_version(auth, scenario_id, title, summary, content)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/my-scenarios/{scenario_id}/submit", status_code=201)
+    def submit_scenario(scenario_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.submit_scenario(auth, scenario_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/my-submissions")
+    def my_submissions(auth: str = Depends(token)) -> dict:
+        return {"submissions": portal.my_submissions(auth)}
+
+    @app.delete("/v1/my-submissions/{submission_id}")
+    def withdraw_submission(submission_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.withdraw_submission(auth, submission_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/manage/submissions")
+    def review_queue(status: str = "pending", auth: str = Depends(token)) -> dict:
+        try:
+            return {"submissions": portal.review_queue(auth, status)}
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/manage/submissions/{submission_id}")
+    def review_detail(submission_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.review_detail(auth, submission_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/submissions/{submission_id}/preview")
+    async def review_preview(submission_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.create_review_preview(auth, submission_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/submissions/{submission_id}/decision")
+    def review_decide(submission_id: str, body: ReviewDecisionBody,
+                      auth: str = Depends(token)) -> dict:
+        try:
+            return portal.review_decide(auth, submission_id, body.decision, body.reason)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/manage/users")
+    def admin_users(auth: str = Depends(token)) -> dict:
+        try:
+            return {"users": portal.admin_users(auth)}
+        except PermissionError as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/users/{player_id}/role")
+    def admin_role(player_id: str, body: RoleBody, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.admin_set_role(auth, player_id, body.role, body.enabled)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/users/{player_id}/status")
+    def admin_status(player_id: str, body: AccountStatusBody,
+                     auth: str = Depends(token)) -> dict:
+        try:
+            return portal.admin_set_status(auth, player_id, body.status)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/manage/releases")
+    def admin_releases(auth: str = Depends(token)) -> dict:
+        try:
+            return {"releases": portal.admin_releases(auth)}
+        except PermissionError as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/releases/{scenario_id}/state")
+    def admin_release_state(scenario_id: str, body: ReleaseStateBody,
+                            auth: str = Depends(token)) -> dict:
+        try:
+            return portal.admin_release_state(auth, scenario_id, body.state, body.reason)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/manage/audit")
+    def admin_audit(auth: str = Depends(token)) -> dict:
+        try:
+            return {"events": portal.admin_audit(auth)}
+        except PermissionError as error:
             raise _http_error(error) from error
 
     @app.post("/v1/my-scenarios/{scenario_id}/publish")

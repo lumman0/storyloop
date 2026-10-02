@@ -16,6 +16,8 @@ from story_harness.adapters.telemetry import configured_telemetry, session_id_fo
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.core.billing import collect_usage
 from story_harness.portal.catalog import GameCatalog, GameListing
+from story_harness.portal.access import AccessService
+from story_harness.portal.moderation import ScenarioModerationService
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
 from story_harness.portal.player_memory import Mem0PlayerMemory, PlayerMemory
@@ -60,6 +62,7 @@ class PlayerPortal:
         self.engine = self.config.create_database(db_path)
         self.store = self.config.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
+        self.access = AccessService(self.engine)
         self.memory_jobs = SQLPlayerMemoryJobs(self.engine)
         self.memory_feature_enabled = self.config.player_memory_enabled()
         self.player_memory: PlayerMemory | None = (
@@ -70,6 +73,7 @@ class PlayerPortal:
         self._memory_access = asyncio.Lock()
         self._memory_wakeup = asyncio.Event()
         self.user_scenarios = UserScenarioService(self.engine, upload_dir)
+        self.moderation = ScenarioModerationService(self.engine, self.user_scenarios, self.access)
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
         self.telemetry = configured_telemetry()
@@ -222,15 +226,85 @@ class PlayerPortal:
         self.accounts.resolve_token(token)
         self.accounts.revoke_token(token)
 
+    def session_info(self, token: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        return {"player_id": player_id, "roles": list(self.access.roles(player_id)),
+                "capabilities": list(self.access.capabilities(player_id))}
+
     def games(self, token: str) -> list[dict]:
         player_id = self.accounts.resolve_token(token)
+        listings = {item.game_id: item for item in self.catalog.list_games()}
+        listings.update({item.game_id: item for item in self.user_scenarios.list_playable(player_id)})
+        listings.update({item.game_id: item for item in self.moderation.public_listings()})
         return [{"id": item.game_id, "title": item.title, "mode": item.mode,
                  "summary": item.summary, "genre": item.genre, "theme": item.theme}
-                for item in (*self.catalog.list_games(), *self.user_scenarios.list_playable(player_id))]
+                for item in listings.values()]
 
     def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
         player_id = self.accounts.resolve_token(token)
         return self.user_scenarios.upload(player_id, title, summary, archive)
+
+    def upload_scenario_version(self, token: str, scenario_id: str, title: str,
+                                summary: str, archive: bytes) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        return self.user_scenarios.upload_version(player_id, scenario_id, title, summary, archive)
+
+    def submit_scenario(self, token: str, scenario_id: str) -> dict:
+        return self.moderation.submit(self.accounts.resolve_token(token), scenario_id)
+
+    def my_submissions(self, token: str) -> list[dict]:
+        return self.moderation.list_mine(self.accounts.resolve_token(token))
+
+    def withdraw_submission(self, token: str, submission_id: str) -> dict:
+        return self.moderation.withdraw(self.accounts.resolve_token(token), submission_id)
+
+    def review_queue(self, token: str, status: str = "pending") -> list[dict]:
+        return self.moderation.queue(self.accounts.resolve_token(token), status)
+
+    def review_detail(self, token: str, submission_id: str) -> dict:
+        return self.moderation.detail(self.accounts.resolve_token(token), submission_id)
+
+    def review_decide(self, token: str, submission_id: str, decision: str,
+                      reason: str = "") -> dict:
+        return self.moderation.decide(self.accounts.resolve_token(token), submission_id,
+                                      decision, reason)
+
+    async def create_review_preview(self, token: str, submission_id: str) -> dict:
+        reviewer_id = self.accounts.resolve_token(token)
+        item = self.moderation.preview_listing(reviewer_id, submission_id)
+        package = ScenarioPackage.load(item.package_path)
+        game_id = uuid4().hex
+        package.seed_game(self.store, game_id)
+        self.accounts.create_save(reviewer_id, item.game_id, game_id,
+                                  item.package_id, item.package_version, item.fingerprint)
+        self.moderation.record_preview(game_id, submission_id, reviewer_id)
+        with player_preferences_scope(()):
+            result = await self._open_save(item, package, game_id, opening=package.opening)
+        self.accounts.store_intro(game_id, result)
+        return result
+
+    def admin_users(self, token: str) -> list[dict]:
+        return self.access.list_users(self.accounts.resolve_token(token))
+
+    def admin_set_role(self, token: str, player_id: str, role: str, enabled: bool) -> dict:
+        admin_id = self.accounts.resolve_token(token)
+        self.access.set_role(admin_id, player_id, role, enabled)
+        return {"player_id": player_id, "roles": list(self.access.roles(player_id))}
+
+    def admin_set_status(self, token: str, player_id: str, status: str) -> dict:
+        self.access.set_status(self.accounts.resolve_token(token), player_id, status)
+        return {"player_id": player_id, "status": status}
+
+    def admin_releases(self, token: str) -> list[dict]:
+        return self.moderation.releases(self.accounts.resolve_token(token))
+
+    def admin_release_state(self, token: str, scenario_id: str,
+                            state: str, reason: str) -> dict:
+        return self.moderation.set_release_state(self.accounts.resolve_token(token),
+                                                 scenario_id, state, reason)
+
+    def admin_audit(self, token: str) -> list[dict]:
+        return self.access.list_audit(self.accounts.resolve_token(token))
 
     def my_scenarios(self, token: str) -> list[dict]:
         player_id = self.accounts.resolve_token(token)
@@ -250,7 +324,10 @@ class PlayerPortal:
             return self.catalog.get(catalog_id)
         except KeyError:
             if catalog_id.startswith("usr_"):
-                return self.user_scenarios.get_listing(player_id, catalog_id, package_hash)
+                try:
+                    return self.moderation.public_listing(catalog_id, package_hash)
+                except KeyError:
+                    return self.user_scenarios.get_listing(player_id, catalog_id, package_hash)
             raise
 
     def history(self, token: str, game_id: str) -> dict:
@@ -286,7 +363,11 @@ class PlayerPortal:
         return result
 
     def _verified_listing(self, record: SaveRecord) -> GameListing:
-        item = self._listing_for(record.player_id, record.catalog_id, record.package_hash)
+        preview_submission = self.moderation.preview_for(record.game_id, record.player_id)
+        item = (self.moderation.preview_listing(record.player_id, preview_submission,
+                                                record.package_hash)
+                if preview_submission else
+                self._listing_for(record.player_id, record.catalog_id, record.package_hash))
         if ((item.package_id, item.package_version, item.fingerprint)
                 != (record.package_id, record.package_version, record.package_hash)):
             raise ValueError("scenario package changed; this save needs an explicit migration")
@@ -368,6 +449,7 @@ class PlayerPortal:
     async def _resume_save_for_player(self, player_id: str, game_id: str) -> dict:
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
+        preview = self.moderation.preview_for(game_id, player_id) is not None
         latest = self.accounts.latest_turn_response(game_id)
         snapshot = self.store.load(game_id)
         if (latest is not None and snapshot.version == latest["state_version"]
@@ -375,7 +457,7 @@ class PlayerPortal:
                 and (item.mode != "campaign" or "interaction" in latest)):
             return {**latest, "opening": ""}
         package = ScenarioPackage.load(item.package_path)
-        preferences = await self._preferences_for(player_id)
+        preferences = () if preview else await self._preferences_for(player_id)
         with player_preferences_scope(preferences):
             result = await self._open_save(item, package, game_id,
                                            opening=package.opening if latest is None else "")
@@ -414,6 +496,7 @@ class PlayerPortal:
                                request_id: str | None, progress: TurnProgress | None) -> dict:
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
+        preview = self.moderation.preview_for(game_id, player_id) is not None
         if not isinstance(text, str) or not text.strip():
             raise ValueError("turn text is required")
         if len(text) > 10_000:
@@ -424,12 +507,14 @@ class PlayerPortal:
         cached = self.accounts.get_turn_response(game_id, request_id, text)
         if cached is not None:
             return cached
-        if self.billing is not None:
+        if preview and self.moderation.preview_turn_count(game_id) >= 12:
+            raise ValueError("review preview has reached its 12-turn limit")
+        if self.billing is not None and not preview:
             self.billing.require_credit(player_id)
         package = ScenarioPackage.load(item.package_path)
         turn_id = f"portal-{request_id}"
-        context = collect_usage() if self.billing is not None else nullcontext(None)
-        preferences = await self._preferences_for(player_id)
+        context = collect_usage() if self.billing is not None and not preview else nullcontext(None)
+        preferences = () if preview else await self._preferences_for(player_id)
         with context as meter, player_preferences_scope(preferences):
             recovered = (await self._recover_freeform(item, package, game_id, text, turn_id)
                          if item.mode == "freeform" else None)
@@ -463,7 +548,7 @@ class PlayerPortal:
                 view = self._view(game_id, item.game_id, item.mode, outcome.narration,
                                   outcome.snapshot, guidance, turn_id=turn_id,
                                   segments=outcome.segments)
-        if self.billing is not None:
+        if self.billing is not None and not preview:
             with self.telemetry.span(
                 "billing-settlement",
                 {"game_id": game_id, "request_id": request_id,
@@ -479,7 +564,8 @@ class PlayerPortal:
                 self._queue_memory_input(player_id, game_id, request_id, text)
                 return billed
         self.accounts.store_turn_response(game_id, request_id, text, view)
-        self._queue_memory_input(player_id, game_id, request_id, text)
+        if not preview:
+            self._queue_memory_input(player_id, game_id, request_id, text)
         return view
 
     async def _recover_freeform(self, item: GameListing, package: ScenarioPackage,

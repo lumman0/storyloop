@@ -68,7 +68,9 @@ class LocalPublishedPackageStore:
 
     def publish(self, reference: str, source: Path) -> None:
         target = self.materialize(reference)
-        target.parent.mkdir(parents=True, exist_ok=False)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            raise FileExistsError("published package version already exists")
         source.rename(target)
 
     def remove(self, reference: str) -> None:

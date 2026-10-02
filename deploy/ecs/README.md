@@ -44,6 +44,14 @@ curl -fsS -H 'Host: <ECS 公网 IP>' http://127.0.0.1/health
 docker compose exec api python -m story_harness.cli.signup_invite --count 5
 ```
 
+首个管理员应先注册普通站内账号，再由有服务器权限的运维人员指定该用户名执行引导命令：
+
+```sh
+docker compose exec api python -m story_harness.cli.bootstrap_admin <站内用户名> --config /app/config/online.json
+```
+
+命令只为现有账号授予管理员角色，不创建默认账号或密码。管理员重新加载页面后可打开“管理工作台”，授予审核员角色、审核用户提交的固定剧本版本、调整公开版本状态，并查看操作记录。审核员的隔离试玩最多 12 回合，费用由平台承担。
+
 Nginx 对注册、登录和创建存档入口设置了按来源 IP 的请求速率限制。一个玩家账号的回合在单 API worker 内串行处理，避免多个存档同时通过同一笔余额检查。
 
 网页登录使用 7 天有效的 `Secure`、`HttpOnly`、`SameSite=Lax` 会话 Cookie；后端数据库只保存令牌哈希。登录和写入请求必须来自配置的 HTTPS Origin。部署认证方式切换后，已有浏览器标签页需要重新登录一次，存档不会丢失。本地 CLI 仍支持 Bearer 令牌。

@@ -86,8 +86,11 @@ class UserScenarioService:
     @staticmethod
     def _public_row(row) -> dict:
         return {"id": row["scenario_id"], "title": row["title"], "summary": row["summary"],
-                "mode": row["mode"], "status": "published" if row["published_at"] else "draft",
-                "package_version": row["package_version"], "created_at": row["created_at"]}
+                "mode": row["mode"], "status": "published" if row["published_version_id"] else "draft",
+                "package_version": row["package_version"], "created_at": row["created_at"],
+                "version_id": row["version_id"], "review_status": row["review_status"],
+                "submission_id": row["submission_id"], "review_reason": row["review_reason"],
+                "public_state": row["public_state"]}
 
     def upload(self, owner_id: str, title: str, summary: str, archive: bytes) -> dict:
         title = title.strip() if isinstance(title, str) else ""
@@ -99,6 +102,7 @@ class UserScenarioService:
         reference = f"{scenario_id}/{version_id}"
         staged = self.directory / ".staging" / version_id
         staged.mkdir(parents=True, exist_ok=False)
+        package_written = False
         try:
             _extract_package(archive, staged)
             package = ScenarioPackage.load(staged)
@@ -109,6 +113,7 @@ class UserScenarioService:
                     raise ValueError("campaign does not match scenario")
             fingerprint = _package_fingerprint(staged, mode)
             self.package_store.publish(reference, staged)
+            package_written = True
             now = int(time.time())
             with self.engine.begin() as db:
                 # Lock this author's account row before counting uploads. The no-op update
@@ -133,20 +138,31 @@ class UserScenarioService:
                      "package_version": package.version, "hash": fingerprint,
                      "ref": reference, "created": now})
             return {"id": scenario_id, "title": title, "summary": summary, "mode": mode,
-                    "status": "draft", "package_version": package.version, "created_at": now}
+                    "status": "draft", "package_version": package.version, "created_at": now,
+                    "version_id": version_id, "review_status": None, "submission_id": None,
+                    "review_reason": None, "public_state": None}
         except Exception:
-            self.package_store.remove(reference)
+            if package_written:
+                self.package_store.remove(reference)
             raise
         finally:
             shutil.rmtree(staged, ignore_errors=True)
 
     def list_mine(self, owner_id: str) -> list[dict]:
         with self.engine.connect() as db:
-            rows = db.execute(text("""SELECT s.*,v.package_version,v.published_at
+            rows = db.execute(text("""SELECT s.*,v.version_id,v.package_version,v.published_at,
+                r.status AS review_status,r.submission_id,r.reason AS review_reason,
+                p.state AS public_state
                 FROM user_scenarios s JOIN user_scenario_versions v ON v.scenario_id=s.scenario_id
-                WHERE s.owner_id=:owner ORDER BY s.created_at DESC,s.scenario_id"""),
+                LEFT JOIN scenario_submissions r ON r.version_id=v.version_id
+                LEFT JOIN scenario_public_releases p ON p.scenario_id=s.scenario_id
+                WHERE s.owner_id=:owner ORDER BY s.created_at DESC,s.scenario_id,
+                    v.created_at DESC,v.version_id DESC"""),
                 {"owner": owner_id}).mappings().all()
-        return [self._public_row(row) for row in rows]
+        latest: dict[str, dict] = {}
+        for row in rows:
+            latest.setdefault(row["scenario_id"], self._public_row(row))
+        return list(latest.values())
 
     def publish(self, owner_id: str, scenario_id: str) -> dict:
         with self.engine.begin() as db:
@@ -169,7 +185,60 @@ class UserScenarioService:
                 {"version": version["version_id"], "id": scenario_id})
             return {"id": scenario_id, "title": scenario["title"], "summary": scenario["summary"],
                     "mode": scenario["mode"], "status": "published",
-                    "package_version": version["package_version"], "created_at": scenario["created_at"]}
+                    "package_version": version["package_version"], "created_at": scenario["created_at"],
+                    "version_id": version["version_id"], "review_status": None,
+                    "submission_id": None, "review_reason": None, "public_state": None}
+
+    def upload_version(self, owner_id: str, scenario_id: str, title: str,
+                       summary: str, archive: bytes) -> dict:
+        title = title.strip() if isinstance(title, str) else ""
+        summary = summary.strip() if isinstance(summary, str) else ""
+        if not title or len(title) > 80 or len(summary) > 300:
+            raise ValueError("title must have 1–80 characters and summary at most 300")
+        version_id = uuid4().hex
+        reference = f"{scenario_id}/{version_id}"
+        staged = self.directory / ".staging" / version_id
+        staged.mkdir(parents=True, exist_ok=False)
+        package_written = False
+        try:
+            _extract_package(archive, staged)
+            package = ScenarioPackage.load(staged)
+            mode = "campaign" if (staged / "campaign.json").exists() else "freeform"
+            if mode == "campaign":
+                program = CampaignProgram.load(staged / "campaign.json")
+                if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
+                    raise ValueError("campaign does not match scenario")
+            fingerprint = _package_fingerprint(staged, mode)
+            with self.engine.connect() as db:
+                row = db.execute(text("""SELECT s.owner_id,s.mode,v.package_id
+                    FROM user_scenarios s JOIN user_scenario_versions v
+                    ON v.scenario_id=s.scenario_id WHERE s.scenario_id=:id
+                    ORDER BY v.created_at,v.version_id LIMIT 1"""), {"id": scenario_id}).mappings().first()
+            if row is None:
+                raise KeyError("scenario not found")
+            if row["owner_id"] != owner_id:
+                raise PermissionError("scenario belongs to another author")
+            if row["mode"] != mode or row["package_id"] != package.package_id:
+                raise ValueError("new version must keep scenario mode and package ID")
+            self.package_store.publish(reference, staged)
+            package_written = True
+            with self.engine.begin() as db:
+                db.execute(text("""UPDATE user_scenarios SET title=:title,summary=:summary
+                    WHERE scenario_id=:id AND owner_id=:owner"""),
+                    {"title": title, "summary": summary, "id": scenario_id, "owner": owner_id})
+                db.execute(text("""INSERT INTO user_scenario_versions
+                    (version_id,scenario_id,package_id,package_version,package_hash,package_ref,created_at)
+                    VALUES (:version,:id,:package_id,:package_version,:hash,:ref,:created)"""),
+                    {"version": version_id, "id": scenario_id, "package_id": package.package_id,
+                     "package_version": package.version, "hash": fingerprint,
+                     "ref": reference, "created": time.time_ns()})
+            return next(item for item in self.list_mine(owner_id) if item["id"] == scenario_id)
+        except Exception:
+            if package_written:
+                self.package_store.remove(reference)
+            raise
+        finally:
+            shutil.rmtree(staged, ignore_errors=True)
 
     def delete_draft(self, owner_id: str, scenario_id: str) -> dict:
         with self.engine.begin() as db:
@@ -181,6 +250,9 @@ class UserScenarioService:
                 raise PermissionError("scenario belongs to another author")
             if scenario["published_version_id"] is not None:
                 raise ValueError("published scenario cannot be deleted")
+            if db.execute(text("SELECT 1 FROM scenario_submissions WHERE scenario_id=:id LIMIT 1"),
+                          {"id": scenario_id}).first():
+                raise ValueError("submitted scenario cannot be deleted")
             versions = db.execute(text("""SELECT package_ref FROM user_scenario_versions
                 WHERE scenario_id=:id"""), {"id": scenario_id}).mappings().all()
             db.execute(text("DELETE FROM user_scenario_versions WHERE scenario_id=:id"),
@@ -195,9 +267,10 @@ class UserScenarioService:
                                version["package_ref"], exc_info=True)
         return {"status": "deleted"}
 
-    def _listing(self, scenario, version) -> GameListing:
-        entry = {"id": scenario["scenario_id"], "title": scenario["title"],
-                 "summary": scenario["summary"], "mode": scenario["mode"],
+    def _listing(self, scenario, version, *, title: str | None = None,
+                 summary: str | None = None) -> GameListing:
+        entry = {"id": scenario["scenario_id"], "title": title or scenario["title"],
+                 "summary": summary if summary is not None else scenario["summary"], "mode": scenario["mode"],
                  "genre": "我的剧本", "package": version["package_ref"]}
         listing = GameCatalog.from_sources(_OneScenarioSource(entry), self.package_store).get(entry["id"])
         if (listing.package_id, listing.package_version, listing.fingerprint) != (

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { BookOpen, Coins, Compass, FileUp, LogOut, Menu, UserRound, X } from "lucide-react";
+import { BookOpen, Coins, Compass, FileUp, LogOut, Menu, ShieldCheck, UserRound, X } from "lucide-react";
 import { api, ApiError, type CreditWallet, type Session } from "../lib/api";
 import { Brand } from "./Brand";
 
@@ -71,6 +71,10 @@ export function Shell({
               <Coins size={17} />
               积分明细
             </NavLink>
+            {session.capabilities?.includes("review.submissions") && <NavLink to="/manage" onClick={() => setMenuOpen(false)}>
+              <ShieldCheck size={17} />
+              管理工作台
+            </NavLink>}
             <button type="button" className="mobile-logout" onClick={logout}>
               <LogOut size={17} />
               退出登录

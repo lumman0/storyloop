@@ -15,6 +15,58 @@ export type UserScenario = {
   mode: "campaign" | "freeform";
   status: "draft" | "published";
   package_version: string;
+  version_id: string;
+  review_status: "pending" | "approved" | "rejected" | "withdrawn" | null;
+  submission_id: string | null;
+  review_reason: string | null;
+  public_state: "active" | "retired" | "blocked" | null;
+  created_at: number;
+};
+export type ReviewSubmission = {
+  submission_id: string;
+  scenario_id: string;
+  version_id: string;
+  author_id: string;
+  author_name?: string;
+  title: string;
+  summary: string;
+  mode: "campaign" | "freeform";
+  package_version: string;
+  package_hash: string;
+  status: "pending" | "approved" | "rejected" | "withdrawn";
+  submitted_at: number;
+  decided_at: number | null;
+  reviewer_id: string | null;
+  reason: string | null;
+};
+export type ReviewDetail = ReviewSubmission & {
+  manifest: Record<string, unknown>;
+  worldbook: Record<string, unknown>;
+  campaign: Record<string, unknown> | null;
+};
+export type ManagedUser = {
+  player_id: string;
+  username: string;
+  status: "active" | "suspended";
+  roles: string[];
+  created_at: number;
+};
+export type PublicRelease = {
+  scenario_id: string;
+  version_id: string;
+  submission_id: string;
+  title: string;
+  summary: string;
+  state: "active" | "retired" | "blocked";
+  updated_at: number;
+};
+export type AuditEvent = {
+  event_id: string;
+  actor_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  details: Record<string, unknown>;
   created_at: number;
 };
 export type Save = {
@@ -101,7 +153,7 @@ export type History = {
   intro: View;
   turns: { request_id: string; input: string | null; response: View }[];
 };
-export type Session = { player_id: string };
+export type Session = { player_id: string; roles: string[]; capabilities: string[] };
 export type PlayerMemoryStatus = {
   available: boolean;
   enabled: boolean;
@@ -183,6 +235,25 @@ async function uploadScenario(
   return payload as UserScenario;
 }
 
+async function uploadScenarioVersion(
+  id: string, title: string, summary: string, file: File,
+): Promise<UserScenario> {
+  const form = new FormData();
+  form.append("title", title);
+  form.append("summary", summary);
+  form.append("file", file);
+  const response = await fetch(`${API_BASE}/v1/my-scenarios/${encodeURIComponent(id)}/versions`, {
+    method: "POST", credentials: "same-origin", body: form,
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
+    throw new ApiError(payload && typeof payload.detail === "string"
+      ? payload.detail : "版本上传未能完成。", response.status);
+  }
+  return payload as UserScenario;
+}
+
 async function streamTurn(
   gameId: string,
   text: string,
@@ -255,8 +326,34 @@ export const api = {
   catalog: () => request<{ games: Game[] }>("/v1/catalog"),
   myScenarios: () => request<{ scenarios: UserScenario[] }>("/v1/my-scenarios"),
   uploadScenario,
+  uploadScenarioVersion,
   publishScenario: (id: string) =>
     request<UserScenario>(`/v1/my-scenarios/${encodeURIComponent(id)}/publish`, "POST"),
+  submitScenario: (id: string) =>
+    request<ReviewSubmission>(`/v1/my-scenarios/${encodeURIComponent(id)}/submit`, "POST"),
+  withdrawSubmission: (id: string) =>
+    request<ReviewSubmission>(`/v1/my-submissions/${encodeURIComponent(id)}`, "DELETE"),
+  reviewQueue: (status = "pending") =>
+    request<{ submissions: ReviewSubmission[] }>(`/v1/manage/submissions?status=${encodeURIComponent(status)}`),
+  reviewDetail: (id: string) =>
+    request<ReviewDetail>(`/v1/manage/submissions/${encodeURIComponent(id)}`),
+  reviewPreview: (id: string) =>
+    request<View>(`/v1/manage/submissions/${encodeURIComponent(id)}/preview`, "POST"),
+  reviewDecide: (id: string, decision: "approved" | "rejected", reason: string) =>
+    request<ReviewSubmission>(`/v1/manage/submissions/${encodeURIComponent(id)}/decision`,
+      "POST", { decision, reason }),
+  managedUsers: () => request<{ users: ManagedUser[] }>("/v1/manage/users"),
+  setRole: (id: string, role: "reviewer" | "admin", enabled: boolean) =>
+    request<{ player_id: string; roles: string[] }>(`/v1/manage/users/${encodeURIComponent(id)}/role`,
+      "POST", { role, enabled }),
+  setAccountStatus: (id: string, status: "active" | "suspended") =>
+    request<{ player_id: string; status: string }>(`/v1/manage/users/${encodeURIComponent(id)}/status`,
+      "POST", { status }),
+  publicReleases: () => request<{ releases: PublicRelease[] }>("/v1/manage/releases"),
+  setReleaseState: (id: string, state: "active" | "retired" | "blocked", reason: string) =>
+    request<{ scenario_id: string; state: string }>(`/v1/manage/releases/${encodeURIComponent(id)}/state`,
+      "POST", { state, reason }),
+  managementAudit: () => request<{ events: AuditEvent[] }>("/v1/manage/audit"),
   deleteScenarioDraft: (id: string) =>
     request<{ status: string }>(`/v1/my-scenarios/${encodeURIComponent(id)}`, "DELETE"),
   saves: () => request<{ saves: Save[] }>("/v1/saves"),
