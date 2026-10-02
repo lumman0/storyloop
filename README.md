@@ -1,51 +1,90 @@
-# NPC World Agent Harness
+# StoryLoop Platform
 
 [中文](README.md) · [English](README.en.md)
 
-一个 AI 文游 harness 与浏览器玩家入口。主控与 NPC 使用独立的 AgentScope ReAct 上下文；世界状态以事件为准，角色只接收自己能观察到的信息。React 前端位于 `web/`，通过 FastAPI 接口与游戏服务通信。
+StoryLoop Platform 是面向 AI 互动叙事的多 Agent 运行时与玩家平台。它将自由输入、独立角色、持续变化的世界和有节奏的主线放进同一条可追溯的因果链：玩家的行动先改变权威游戏状态，角色再依据各自能感知到的信息回应，最终生成面向玩家的故事内容。
 
-## 已实现
+## 解决的问题
 
-- 剧本包：角色卡、带可见范围的 JSON 世界书、初始状态和预设行动。
-- 游戏循环：玩家输入、主控决策、NPC 回复、环境事件、主线日程与分支结局；每轮有独立的下一步建议。
-- 玩家入口：注册、登录、选择游戏、保存和继续游戏。相同的存储接口可使用本地 SQLite 或线上 PostgreSQL。
-- 浏览器界面：剧本大厅、个人存档、可恢复的游玩记录，以及独立显示的下一步建议。
-- 回合体验：发送后即时显示玩家行动；服务端通过 SSE 推送阶段进度和已提交的可见片段。
-- 可观测性：可选的 Langfuse trace、session 和指标；模型及回合预算可通过配置文件调整。
-- 积分计费：注册赠送 500 积分，成功回合按实际模型 Token 用量结算；费率和模型倍率可配置，余额与流水可在网页查看。详见[积分计费说明](docs/billing.md)。
+- **多角色认知一致性**：世界事实、角色所知和玩家所见分别建模。世界状态由已提交事件决定；观察和世界书条目按可见范围投递，避免 NPC 凭空知道其他角色的经历。
+- **自由互动与主线节奏并存**：玩家可以交谈、观察和行动；待办任务、剧情事件与故事时间在回合中继续推进。每轮工作量有上限，防止 Agent 之间无限互相触发。
+- **长线游玩的可恢复性**：账号、单人存档、事件、观察、回合结果和积分流水持久化。请求 ID 用于回合重试，模型故障后可以恢复同一条行动。
+- **可替换的基础设施**：模型路由、存储、可观测性及玩家画像通过配置或接口接入，剧本内容与平台运行时分离。
 
-线上部署的注册使用一次性邀请码，本地模式仍可直接注册。登录用户现可上传符合现有剧本包格式的 ZIP，在“我的剧本”中发布为仅自己可见的可玩版本；网页内创作与公开发布的后续规划见[用户剧本设计](docs/user-scenarios.md)。
+## 核心能力
 
-仓库中的 `examples/freeform` 和 `examples/scheduled` 是公开的合成示例。私人剧本和模型密钥不包含在仓库中。
+| 模块 | 职责 |
+| --- | --- |
+| 剧本包与世界书 | 版本化的角色卡、初始状态、行动规则、开场、剧情任务和 JSON 世界书；检索前按玩家或角色的可见权限过滤。 |
+| 叙事运行时 | 主控 ReAct 解释玩家输入并协调行动；每个 NPC 使用独立 AgentScope Agent；有界任务队列处理 NPC 回复、环境变化和剧情事件。 |
+| 状态与时间 | 事件提交后更新快照，并生成各接收者的观察；日程剧本支持剧情节点与按行动时长流逝的故事时间。 |
+| 玩家平台 | React 前端与 FastAPI API 提供注册登录、剧本目录、私有剧本上传、单人存档、续玩和历史记录；SSE 推送回合阶段与可见故事片段。 |
+| 计费与画像 | 根据成功回合的模型 Token 用量结算积分；可选 Mem0 按玩家选择批量提炼游玩偏好，画像与 NPC 记忆、游戏事实隔离。 |
+| 可观测性 | 可选 Langfuse 记录 trace、session 与指标，用于查看一次回合中的模型调用和任务处理链路。 |
+
+## 架构
+
+```mermaid
+flowchart LR
+    UI[React / Vite] --> API[FastAPI 玩家入口]
+    API --> Portal[账号 · 存档 · 计费]
+    Portal --> Runtime[游戏会话]
+    Runtime --> Main[主控 ReAct]
+    Runtime --> Queue[有界任务队列]
+    Queue --> NPC[NPC Agents]
+    Queue --> Cues[剧情与环境任务]
+    Main --> Book[权限过滤的世界书]
+    NPC --> Book
+    Runtime --> Store[事件 · 观察 · 快照]
+    Store --> SQL[(SQLite / PostgreSQL)]
+    Portal -. 玩家授权 .-> Mem0[可选玩家画像]
+    Runtime -. trace / metrics .-> Langfuse[可选 Langfuse]
+```
+
+一次回合从玩家输入开始：主控读取可用的世界知识和当前状态，决定行动与相关角色；运行时提交事件、生成观察，再按因果顺序处理待办工作；叙述层汇总玩家可见的结果，并把下一步建议放在独立区域。调度按任务类型接入处理器，不依赖固定的 Agent 图。剧本包提供故事内容，平台代码负责执行、隔离与持久化。
+
+权威游戏数据与 Agent 上下文分开保存。`GameStore` 管理事件、观察、快照和待办工作；SQLAlchemy 仓储支持本地 SQLite 与线上 PostgreSQL。世界书使用带可见范围的 JSON 条目检索，目前不是向量 RAG。模型调用通过 OpenAI 兼容接口按任务配置；浏览器会话在线上使用 `Secure`、`HttpOnly` Cookie。
+
+## 项目结构
+
+```text
+src/story_harness/
+  core/       事件、状态转换、观察与计费契约
+  world/      剧本包与世界书
+  agents/     主控、NPC、选择器与叙述 Agent
+  runtime/    回合调度、剧情、时间和呈现
+  adapters/   模型配置、SQL 存储与遥测
+  portal/     账号、存档、画像、积分和 HTTP API
+  cli/        本地演示与服务入口
+web/          React 前端
+config/       本地与线上配置示例
+examples/     可公开使用的合成剧本包
+deploy/ecs/   单机 ECS Docker Compose 部署配置
+```
 
 ## 快速开始
 
-需要 Python 3.12 或更新版本。在仓库根目录执行以下命令，适用于 Windows CMD 和 PowerShell：
+需要 Python 3.12+ 和 Node.js 20.19+。以下命令适用于 Windows CMD 与 PowerShell，在仓库根目录执行：
 
 ```cmd
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[agents,portal]"
 ```
 
-先运行不需要模型密钥的离线示例：
+先运行无需模型 Key 的离线示例：
 
 ```cmd
 .\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
 ```
 
-要使用真实模型，在本机创建 `config\application.local.json`：
+使用真实模型时，创建本机配置文件，将 `models.api_key` 填为可用的百炼 Key；该文件被 Git 忽略。`STORY_BAILIAN_API_KEY` 环境变量会覆盖文件中的 Key。
 
 ```cmd
 copy config\application.local.example.json config\application.local.json
-```
-
-用编辑器打开该文件，将 `models.api_key` 的空字符串改为你的百炼 Key。该文件已被 Git 忽略。启动时会自动读取；`STORY_BAILIAN_API_KEY` 环境变量如已设置，会覆盖文件中的 Key。然后启动 API：
-
-```cmd
 .\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
 ```
 
-另开一个终端，启动独立前端：
+另开终端启动前端：
 
 ```cmd
 cd web
@@ -53,10 +92,6 @@ npm install
 npm run dev
 ```
 
-访问 `http://127.0.0.1:5173`，注册账号、创建存档并游玩。前端需要 Node.js 20.19+；本地 Vite 自动将 `/v1` 转发到 `127.0.0.1:8765`。不想使用网页时，仍可运行 `portal_play` 命令行入口；它会在开始游戏时隐藏读取模型 API Key，并在 Windows 本机保存设置。API 文档位于 `http://127.0.0.1:8765/docs`。要接入 Langfuse，安装 `.[agents,portal,observability]` 并配置相应环境变量。
+访问 `http://127.0.0.1:5173` 注册、创建存档并游玩。Vite 将 `/v1` 代理到本机 API `127.0.0.1:8765`；API 文档位于 `http://127.0.0.1:8765/docs`。macOS/Linux 使用 `python3.12` 创建虚拟环境，并将 Python 路径换为 `.venv/bin/python`。
 
-剧本目录可为 campaign 游戏设置可选的 `turns_per_story_tick`（默认 `1`），让多次普通互动才推动一个主线刻度；`/next` 仍可主动推进到下一刻度。该参数不改变剧本包及存档的指纹。
-
-在 macOS/Linux 上，用 `python3.12` 创建虚拟环境，并将上述 Python 路径换成 `.venv/bin/python`、剧本路径分隔符换成 `/`。
-
-线上使用同一套 API 和数据仓储，安装 `.[agents,portal,online]` 后以 `--profile online` 启动，配置见 [线上部署说明](docs/deployment.md)。旧 SQLite 存档在首次启动时由 Alembic 自动迁移。
+本地默认使用 SQLite，玩家画像默认关闭。线上配置使用 PostgreSQL；Mem0 可选用 ECS 云盘上的嵌入式 Qdrant 保存玩家偏好，需平台开关和玩家授权同时开启。私有剧本和密钥不放在仓库中。部署、积分规则和剧本包格式分别见[部署说明](docs/deployment.md)、[计费说明](docs/billing.md)与[用户剧本设计](docs/user-scenarios.md)。
