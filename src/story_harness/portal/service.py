@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from story_harness.adapters.runtime_config import HarnessConfig
-from story_harness.adapters.telemetry import configured_telemetry
+from story_harness.adapters.telemetry import configured_telemetry, session_id_for_game
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.core.billing import collect_usage
 from story_harness.portal.catalog import GameCatalog, GameListing
@@ -283,7 +283,19 @@ class PlayerPortal:
                                   outcome.snapshot, guidance, turn_id=turn_id,
                                   segments=outcome.segments)
         if self.billing is not None:
-            return self.billing.settle_turn(player_id, game_id, request_id, text, view, meter.records)
+            with self.telemetry.span(
+                "billing-settlement",
+                {"game_id": game_id, "request_id": request_id,
+                 "model_calls": len(meter.records),
+                 "pricing_version": self.billing.policy.pricing_version},
+                session_id=session_id_for_game(game_id, item.package_id),
+            ) as span:
+                billed = self.billing.settle_turn(player_id, game_id, request_id,
+                                                  text, view, meter.records)
+                span.metric("story.credits_charged", billed["billing"]["charged_milli_points"] / 1000)
+                span.metric("story.input_tokens", float(billed["billing"]["input_tokens"]))
+                span.metric("story.output_tokens", float(billed["billing"]["output_tokens"]))
+                return billed
         self.accounts.store_turn_response(game_id, request_id, text, view)
         return view
 
