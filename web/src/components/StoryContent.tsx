@@ -1,5 +1,6 @@
 import type { StorySegment, View } from "../lib/api";
 import { playerFacingText } from "../lib/playerText";
+import { parseStoryInline } from "../lib/storyMarkup";
 
 function Prose({ text }: { text: string }) {
   const displayText = playerFacingText(text);
@@ -9,7 +10,13 @@ function Prose({ text }: { text: string }) {
         .split(/\n\s*\n/)
         .filter(Boolean)
         .map((paragraph, index) => (
-          <p key={index}>{paragraph}</p>
+          <p key={index}>
+            {parseStoryInline(paragraph).map((part, partIndex) => {
+              if (part.kind === "emphasis") return <em key={partIndex}>{part.text}</em>;
+              if (part.kind === "strong") return <strong key={partIndex}>{part.text}</strong>;
+              return part.text;
+            })}
+          </p>
         ))}
     </div>
   );

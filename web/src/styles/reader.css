@@ -107,6 +107,13 @@
   margin: 0 0 1.3em;
   max-width: 72ch;
 }
+.story-prose em {
+  color: oklch(0.78 0.025 22);
+  font-style: italic;
+}
+.story-prose strong {
+  font-weight: 700;
+}
 .intro-entry .story-prose:first-of-type p:first-child {
   font-size: 1.05rem;
 }
