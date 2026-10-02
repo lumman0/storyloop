@@ -56,7 +56,7 @@ function GameCard({
   );
 }
 
-export function CatalogPage({ token }: { token: string }) {
+export function CatalogPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [saves, setSaves] = useState<Save[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,7 +68,7 @@ export function CatalogPage({ token }: { token: string }) {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    Promise.all([api.catalog(token), api.saves(token)])
+    Promise.all([api.catalog(), api.saves()])
       .then(([catalog, saveList]) => {
         if (active) {
           setGames(catalog.games);
@@ -85,13 +85,13 @@ export function CatalogPage({ token }: { token: string }) {
     return () => {
       active = false;
     };
-  }, [token, retry]);
+  }, [retry]);
 
   async function start(catalogId: string) {
     setBusyId(catalogId);
     setError("");
     try {
-      const view = await api.createSave(token, catalogId);
+      const view = await api.createSave(catalogId);
       navigate(`/play/${view.game_id}`);
     } catch (cause) {
       setError(errorMessage(cause));

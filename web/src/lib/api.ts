@@ -101,7 +101,7 @@ export type History = {
   intro: View;
   turns: { request_id: string; input: string | null; response: View }[];
 };
-export type Session = { player_id: string; token: string };
+export type Session = { player_id: string };
 export type TurnStreamEvent =
   | { type: "stage"; stage: string }
   | { type: "segment"; segment: StorySegment }
@@ -120,15 +120,14 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  token?: string,
   method = "GET",
   body?: unknown,
 ): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
+    credentials: "same-origin",
     headers: {
       ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -139,6 +138,7 @@ async function request<T>(
     payload = null;
   }
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
     const detail =
       payload && typeof payload === "object" && "detail" in payload
         ? String(payload.detail)
@@ -149,7 +149,6 @@ async function request<T>(
 }
 
 async function uploadScenario(
-  token: string,
   title: string,
   summary: string,
   file: File,
@@ -160,11 +159,12 @@ async function uploadScenario(
   form.append("file", file);
   const response = await fetch(`${API_BASE}/v1/my-scenarios`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: "same-origin",
     body: form,
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
     throw new ApiError(
       payload && typeof payload.detail === "string"
         ? payload.detail : "上传未能完成，请稍后重试。",
@@ -175,7 +175,6 @@ async function uploadScenario(
 }
 
 async function streamTurn(
-  token: string,
   gameId: string,
   text: string,
   requestId: string,
@@ -185,14 +184,15 @@ async function streamTurn(
     `${API_BASE}/v1/saves/${encodeURIComponent(gameId)}/turns/stream`,
     {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ text, request_id: requestId }),
     },
   );
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
     const payload = await response.json().catch(() => null);
     throw new ApiError(
       payload && typeof payload.detail === "string"
@@ -232,37 +232,35 @@ async function streamTurn(
 
 export const api = {
   register: (username: string, password: string, inviteCode: string) =>
-    request<Session>("/v1/accounts", undefined, "POST", {
+    request<Session>("/v1/accounts", "POST", {
       username, password, invite_code: inviteCode || undefined,
     }),
   login: (username: string, password: string) =>
-    request<Session>("/v1/sessions", undefined, "POST", { username, password }),
-  logout: (token: string) =>
-    request<{ status: string }>("/v1/sessions/current", token, "DELETE"),
-  catalog: (token: string) => request<{ games: Game[] }>("/v1/catalog", token),
-  myScenarios: (token: string) => request<{ scenarios: UserScenario[] }>("/v1/my-scenarios", token),
+    request<Session>("/v1/sessions", "POST", { username, password }),
+  currentSession: () => request<Session>("/v1/sessions/current"),
+  logout: () => request<{ status: string }>("/v1/sessions/current", "DELETE"),
+  catalog: () => request<{ games: Game[] }>("/v1/catalog"),
+  myScenarios: () => request<{ scenarios: UserScenario[] }>("/v1/my-scenarios"),
   uploadScenario,
-  publishScenario: (token: string, id: string) =>
-    request<UserScenario>(`/v1/my-scenarios/${encodeURIComponent(id)}/publish`, token, "POST"),
-  deleteScenarioDraft: (token: string, id: string) =>
-    request<{ status: string }>(`/v1/my-scenarios/${encodeURIComponent(id)}`, token, "DELETE"),
-  saves: (token: string) => request<{ saves: Save[] }>("/v1/saves", token),
-  wallet: (token: string) => request<CreditWallet>("/v1/billing/wallet", token),
-  creditLedger: (token: string) => request<{ entries: CreditEntry[] }>("/v1/billing/ledger", token),
-  createSave: (token: string, catalogId: string) =>
-    request<View>("/v1/saves", token, "POST", { catalog_id: catalogId }),
-  resume: (token: string, gameId: string) =>
+  publishScenario: (id: string) =>
+    request<UserScenario>(`/v1/my-scenarios/${encodeURIComponent(id)}/publish`, "POST"),
+  deleteScenarioDraft: (id: string) =>
+    request<{ status: string }>(`/v1/my-scenarios/${encodeURIComponent(id)}`, "DELETE"),
+  saves: () => request<{ saves: Save[] }>("/v1/saves"),
+  wallet: () => request<CreditWallet>("/v1/billing/wallet"),
+  creditLedger: () => request<{ entries: CreditEntry[] }>("/v1/billing/ledger"),
+  createSave: (catalogId: string) =>
+    request<View>("/v1/saves", "POST", { catalog_id: catalogId }),
+  resume: (gameId: string) =>
     request<View>(
       `/v1/saves/${encodeURIComponent(gameId)}/resume`,
-      token,
       "POST",
     ),
-  history: (token: string, gameId: string) =>
-    request<History>(`/v1/saves/${encodeURIComponent(gameId)}/history`, token),
-  turn: (token: string, gameId: string, text: string, requestId: string) =>
+  history: (gameId: string) =>
+    request<History>(`/v1/saves/${encodeURIComponent(gameId)}/history`),
+  turn: (gameId: string, text: string, requestId: string) =>
     request<View>(
       `/v1/saves/${encodeURIComponent(gameId)}/turns`,
-      token,
       "POST",
       { text, request_id: requestId },
     ),

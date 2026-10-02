@@ -49,7 +49,7 @@ const stageLabels: Record<string, string> = {
   guidance: "准备后续建议",
 };
 
-export function PlayPage({ token }: { token: string }) {
+export function PlayPage() {
   const { gameId = "" } = useParams();
   const [history, setHistory] = useState<History | null>(null);
   const [current, setCurrent] = useState<View | null>(null);
@@ -74,9 +74,9 @@ export function PlayPage({ token }: { token: string }) {
     const savedPending = readPendingTurn(gameId);
     setLoading(true);
     setError("");
-    Promise.all([api.saves(token), api.resume(token, gameId)])
+    Promise.all([api.saves(), api.resume(gameId)])
       .then(async ([saveList, view]) => {
-        const transcript = await api.history(token, gameId);
+        const transcript = await api.history(gameId);
         if (!active) return;
         setTitle(
           saveList.saves.find((save) => save.game_id === gameId)?.title ||
@@ -103,7 +103,7 @@ export function PlayPage({ token }: { token: string }) {
     return () => {
       active = false;
     };
-  }, [token, gameId, retry]);
+  }, [gameId, retry]);
 
   useEffect(() => {
     if (history?.turns.length || pending)
@@ -129,7 +129,7 @@ export function PlayPage({ token }: { token: string }) {
     });
     if (!isStoryCommandInput(text)) setDraft("");
     try {
-      const response = await api.turnStream(token, gameId, text, requestId, (event) => {
+      const response = await api.turnStream(gameId, text, requestId, (event) => {
         setPending((previous) => {
           if (!previous || previous.id !== requestId) return previous;
           if (event.type === "stage") return { ...previous, stage: event.stage };

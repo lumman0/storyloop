@@ -30,7 +30,7 @@ STORY_CATALOG=/srv/story/config/games.json
 python -m story_harness.cli.portal_api --profile online --port 8765
 ```
 
-线上配置是 `config/online.json`。服务绑定 `0.0.0.0`，请求 Host 必须匹配 `STORY_ALLOWED_HOSTS`；带 Origin 的请求必须匹配 `STORY_ALLOWED_ORIGINS`。在 `web/` 运行 `npm ci && npm run build`，将 `dist/` 作为静态站点部署。浏览器若与 API 不同域，构建时设置 `VITE_API_BASE_URL=https://game.example.com`，并把前端地址加入 `STORY_ALLOWED_ORIGINS`。同域部署则由反向代理将 `/v1` 路由到 API。外部流量应由 HTTPS 反向代理接入；代理转发原始 Host。服务启动时自动执行 Alembic 迁移，PostgreSQL 迁移通过 advisory lock 串行化。
+线上配置是 `config/online.json`。服务绑定 `0.0.0.0`，请求 Host 必须匹配 `STORY_ALLOWED_HOSTS`；登录与写入请求的 Origin 必须匹配 `STORY_ALLOWED_ORIGINS`。在 `web/` 运行 `npm ci && npm run build`，将 `dist/` 作为静态站点部署。浏览器与 API 使用同一 HTTPS 来源，由反向代理将 `/v1` 路由到 API。网页认证使用 `Secure`、`HttpOnly`、`SameSite=Lax` Cookie，不向 JavaScript 返回会话令牌；本地 CLI 仍可使用 Bearer 令牌。服务启动时自动执行 Alembic 迁移，PostgreSQL 迁移通过 advisory lock 串行化。
 
 当前线上运行建议单个 API worker。单个游戏的并发回合与跨实例调度锁尚未实现；数据库乐观版本校验会拒绝冲突提交。Redis 可以在后续作为活跃会话缓存加入，不承担存档权威数据。
 

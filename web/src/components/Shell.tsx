@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { BookOpen, Coins, Compass, FileUp, LogOut, Menu, UserRound, X } from "lucide-react";
-import { api, type CreditWallet, type Session } from "../lib/api";
+import { api, ApiError, type CreditWallet, type Session } from "../lib/api";
 import { Brand } from "./Brand";
 
 export function Shell({
@@ -15,11 +15,12 @@ export function Shell({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [wallet, setWallet] = useState<CreditWallet | null>(null);
+  const [logoutError, setLogoutError] = useState("");
   const navigate = useNavigate();
   useEffect(() => {
     let active = true;
     const refresh = () => {
-      void api.wallet(session.token).then((value) => {
+      void api.wallet().then((value) => {
         if (active) setWallet(value);
       }).catch(() => {
         if (active) setWallet(null);
@@ -31,12 +32,16 @@ export function Shell({
       active = false;
       window.removeEventListener("story:billing-updated", refresh);
     };
-  }, [session.token]);
+  }, [session.player_id]);
   async function logout() {
+    setLogoutError("");
     try {
-      await api.logout(session.token);
-    } catch {
-      /* clear the local session even when offline */
+      await api.logout();
+    } catch (cause) {
+      if (!(cause instanceof ApiError && cause.status === 401)) {
+        setLogoutError("退出未完成，请检查网络后重试。");
+        return;
+      }
     }
     onLogout();
     navigate("/login", { replace: true });
@@ -99,6 +104,7 @@ export function Shell({
           </div>
         </div>
       </header>
+      {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
       {children}
       <footer className="site-footer">
         <span>storyloop. 让故事继续生长。</span>

@@ -6,7 +6,7 @@ import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
 
-export function SavesPage({ token }: { token: string }) {
+export function SavesPage() {
   const [saves, setSaves] = useState<Save[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -15,7 +15,7 @@ export function SavesPage({ token }: { token: string }) {
     let active = true;
     setLoading(true);
     api
-      .saves(token)
+      .saves()
       .then((value) => {
         if (active) {
           setSaves(value.saves);
@@ -31,7 +31,7 @@ export function SavesPage({ token }: { token: string }) {
     return () => {
       active = false;
     };
-  }, [token, retry]);
+  }, [retry]);
   return (
     <main className="page-container saves-page">
       <div className="page-title">

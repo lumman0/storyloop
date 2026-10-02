@@ -1,21 +1,6 @@
-import { ApiError, type Session } from "./api";
+import { ApiError } from "./api";
 
 export const SESSION_KEY = "storyloop.session";
-
-export function readSession(): Session | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Session;
-    return value &&
-      typeof value.token === "string" &&
-      typeof value.player_id === "string"
-      ? value
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 export function errorMessage(error: unknown) {
   if (error instanceof ApiError) {

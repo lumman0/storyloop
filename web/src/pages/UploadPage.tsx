@@ -8,7 +8,7 @@ import { Loading, Notice } from "../components/Feedback";
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
-export function UploadPage({ token }: { token: string }) {
+export function UploadPage() {
   const [scenarios, setScenarios] = useState<UserScenario[]>([]);
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
@@ -24,12 +24,12 @@ export function UploadPage({ token }: { token: string }) {
 
   useEffect(() => {
     let active = true;
-    api.myScenarios(token)
+    api.myScenarios()
       .then((result) => { if (active) { setScenarios(result.scenarios); setLoadError(""); } })
       .catch((cause) => { if (active) setLoadError(errorMessage(cause)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [token, reload]);
+  }, [reload]);
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,7 +45,7 @@ export function UploadPage({ token }: { token: string }) {
     }
     setBusy(true);
     try {
-      const result = await api.uploadScenario(token, title.trim(), summary.trim(), file);
+      const result = await api.uploadScenario(title.trim(), summary.trim(), file);
       setScenarios((current) => [result, ...current]);
       setTitle("");
       setSummary("");
@@ -65,7 +65,7 @@ export function UploadPage({ token }: { token: string }) {
     setError("");
     setSuccess("");
     try {
-      const result = await api.publishScenario(token, id);
+      const result = await api.publishScenario(id);
       setScenarios((current) => current.map((item) => item.id === id ? result : item));
       setSuccess("已发布为仅自己可见的可玩剧本。");
     } catch (cause) {
@@ -79,7 +79,7 @@ export function UploadPage({ token }: { token: string }) {
     setBusyId(id);
     setError("");
     try {
-      const view = await api.createSave(token, id);
+      const view = await api.createSave(id);
       navigate(`/play/${view.game_id}`);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -93,7 +93,7 @@ export function UploadPage({ token }: { token: string }) {
     setError("");
     setSuccess("");
     try {
-      await api.deleteScenarioDraft(token, id);
+      await api.deleteScenarioDraft(id);
       setScenarios((current) => current.filter((item) => item.id !== id));
       setSuccess("草稿已删除，可以重新上传剧本包。");
     } catch (cause) {

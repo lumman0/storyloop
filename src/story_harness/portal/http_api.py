@@ -7,7 +7,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from story_harness.portal.service import PlayerPortal
+from story_harness.portal.sql_repository import SESSION_TTL_SECONDS
 from story_harness.portal.user_scenarios import MAX_ARCHIVE_BYTES
 
 
@@ -74,6 +75,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
     app.state.active_turn_tasks = set()
+    online_cookie = portal.config.profile == "online"
+    cookie_name = "__Host-storyloop" if online_cookie else "storyloop-session"
 
     async def model_error_response(_request: Request, error: Exception) -> JSONResponse:
         logger.warning("model unavailable during portal request: %s", type(error).__name__)
@@ -102,44 +105,72 @@ def create_app(portal: PlayerPortal) -> FastAPI:
             origins = set(portal.config.allowed_origins())
         if origin and origin not in origins:
             return JSONResponse({"error": "cross-origin requests are not allowed"}, status_code=401)
+        if (online_cookie and request.url.path.startswith("/v1/")
+                and request.method in {"POST", "PUT", "PATCH", "DELETE"} and not origin):
+            return JSONResponse({"error": "Origin required"}, status_code=403)
         needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves"}
                       or request.url.path.endswith(("/turns", "/turns/stream")))
         if request.method in {"POST", "PUT", "PATCH"} and needs_json:
             content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             if content_type != "application/json":
                 return JSONResponse({"error": "Content-Type must be application/json"}, status_code=400)
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/v1/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
-    def token(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
-        if credentials is None:
-            raise HTTPException(status_code=401, detail="Bearer token required")
+    def token(request: Request,
+              credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
+        if online_cookie:
+            if credentials is not None:
+                raise HTTPException(status_code=401, detail="Cookie session required")
+            session_token = request.cookies.get(cookie_name)
+        else:
+            session_token = credentials.credentials if credentials else request.cookies.get(cookie_name)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Login required")
         try:
-            portal.accounts.resolve_token(credentials.credentials)
+            player_id = portal.accounts.resolve_token(session_token)
         except PermissionError as error:
             raise _http_error(error) from error
-        return credentials.credentials
+        request.state.user_id = player_id
+        return session_token
+
+    def set_session_cookie(response: Response, session_token: str) -> None:
+        response.set_cookie(cookie_name, session_token, max_age=SESSION_TTL_SECONDS,
+                            path="/", secure=online_cookie, httponly=True, samesite="lax")
 
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok"}
 
     @app.post("/v1/accounts", status_code=201)
-    def register(body: AccountBody) -> dict:
+    def register(body: AccountBody, response: Response) -> dict:
         try:
-            return portal.register(body.username, body.password, body.invite_code)
+            session = portal.register(body.username, body.password, body.invite_code)
+            set_session_cookie(response, session["token"])
+            return {"player_id": session["player_id"]} if online_cookie else session
         except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 
     @app.post("/v1/sessions")
-    def login(body: AccountBody) -> dict:
+    def login(body: AccountBody, response: Response) -> dict:
         try:
-            return portal.login(body.username, body.password)
+            session = portal.login(body.username, body.password)
+            set_session_cookie(response, session["token"])
+            return {"player_id": session["player_id"]} if online_cookie else session
         except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 
+    @app.get("/v1/sessions/current")
+    def current_session(request: Request, auth: str = Depends(token)) -> dict:
+        return {"player_id": request.state.user_id}
+
     @app.delete("/v1/sessions/current")
-    def logout(auth: str = Depends(token)) -> dict:
+    def logout(response: Response, auth: str = Depends(token)) -> dict:
         portal.logout(auth)
+        response.delete_cookie(cookie_name, path="/", secure=online_cookie,
+                               httponly=True, samesite="lax")
         return {"status": "logged_out"}
 
     @app.get("/v1/catalog")

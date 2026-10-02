@@ -15,6 +15,8 @@ from sqlalchemy.exc import IntegrityError
 
 from story_harness.portal.models import SaveRecord
 
+SESSION_TTL_SECONDS = 7 * 24 * 3600
+
 
 class SQLPlayerRepository:
     def __init__(self, engine: Engine) -> None:
@@ -98,7 +100,7 @@ class SQLPlayerRepository:
             db.execute(text("""INSERT INTO player_sessions (token_hash,player_id,expires_at)
                 VALUES (:token_hash,:player_id,:expires_at)"""),
                 {"token_hash": hashlib.sha256(token.encode()).digest(),
-                 "player_id": player_id, "expires_at": int(time.time()) + 7 * 24 * 3600})
+                 "player_id": player_id, "expires_at": int(time.time()) + SESSION_TTL_SECONDS})
         return token
 
     def resolve_token(self, token: str) -> str:

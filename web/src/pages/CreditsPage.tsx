@@ -10,7 +10,7 @@ function entryTime(value: number) {
   });
 }
 
-export function CreditsPage({ token }: { token: string }) {
+export function CreditsPage() {
   const [wallet, setWallet] = useState<CreditWallet | null>(null);
   const [entries, setEntries] = useState<CreditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ export function CreditsPage({ token }: { token: string }) {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    Promise.all([api.wallet(token), api.creditLedger(token)])
+    Promise.all([api.wallet(), api.creditLedger()])
       .then(([balance, ledger]) => {
         if (!active) return;
         setWallet(balance);
@@ -34,7 +34,7 @@ export function CreditsPage({ token }: { token: string }) {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [token, retry]);
+  }, [retry]);
 
   return (
     <main className="page-container credits-page">
