@@ -32,6 +32,7 @@ WorkSelector = Callable[
     [Snapshot, list[PendingWork]], PendingWork | Awaitable[PendingWork]
 ]
 ObservationProjector = Callable[[Snapshot, WorldEvent], tuple[Observation, ...]]
+WorkCommitted = Callable[[Snapshot, tuple[Observation, ...]], Awaitable[None]]
 
 
 class TurnRunner:
@@ -59,7 +60,8 @@ class TurnRunner:
         """Run from synchronous code. Async callers should use run_async."""
         return asyncio.run(self.run_async(game_id))
 
-    async def run_async(self, game_id: str) -> RunResult:
+    async def run_async(self, game_id: str,
+                        on_work_committed: WorkCommitted | None = None) -> RunResult:
         snapshot = self.store.load(game_id)
         scenario = snapshot.data.get("scenario")
         scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
@@ -70,7 +72,7 @@ class TurnRunner:
                 game_id, scenario_id if isinstance(scenario_id, str) else None
             ),
         ) as turn_span:
-            result = await self._process_ready(game_id, snapshot)
+            result = await self._process_ready(game_id, snapshot, on_work_committed)
             turn_span.update(output={
                 "processed_work_ids": result.processed_work_ids,
                 "state_version": result.snapshot.version,
@@ -80,7 +82,8 @@ class TurnRunner:
             turn_span.metric("story.work_remaining", float(len(result.remaining_work_ids)))
             return result
 
-    async def _process_ready(self, game_id: str, snapshot: Snapshot) -> RunResult:
+    async def _process_ready(self, game_id: str, snapshot: Snapshot,
+                             on_work_committed: WorkCommitted | None = None) -> RunResult:
         processed: list[str] = []
         for _ in range(self.max_steps):
             ready = self.store.ready_work(game_id, snapshot.tick)
@@ -136,6 +139,8 @@ class TurnRunner:
                     raise
                 if result.on_commit is not None:
                     result.on_commit()
+                if on_work_committed is not None:
+                    await on_work_committed(snapshot, result.observations + projected)
                 work_span.update(metadata={
                     "event_id": result.event.event_id if result.event else None,
                     "event_kind": result.event.kind if result.event else None,

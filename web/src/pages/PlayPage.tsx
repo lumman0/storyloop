@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Feather, Plus, Send, Sparkles } from "lucide-react";
-import { api, type History, type View } from "../lib/api";
+import { api, type History, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
@@ -22,6 +22,27 @@ function playerAction(text: string | null, previous: View | null | undefined) {
   return text;
 }
 
+type PendingTurn = {
+  id: string;
+  text: string;
+  stage: string;
+  segments: StorySegment[];
+  body: string;
+  error: string;
+  startedAt: number;
+};
+
+const stageLabels: Record<string, string> = {
+  received: "行动已送达",
+  campaign: "检查当前剧情",
+  thinking: "理解你的行动",
+  committing: "记录世界变化",
+  characters: "角色正在回应",
+  background: "处理背景事件",
+  narrating: "整理本轮故事",
+  guidance: "准备后续建议",
+};
+
 export function PlayPage({ token }: { token: string }) {
   const { gameId = "" } = useParams();
   const [history, setHistory] = useState<History | null>(null);
@@ -32,8 +53,15 @@ export function PlayPage({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [pending, setPending] = useState<PendingTurn | null>(null);
+  const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
-  const pendingRequest = useRef<{ text: string; id: string } | null>(null);
+
+  useEffect(() => {
+    if (!busy) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   useEffect(() => {
     let active = true;
@@ -62,38 +90,49 @@ export function PlayPage({ token }: { token: string }) {
   }, [token, gameId, retry]);
 
   useEffect(() => {
-    if (history?.turns.length)
+    if (history?.turns.length || pending)
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [history?.turns.length]);
+  }, [history?.turns.length, pending?.stage, pending?.segments.length]);
 
   async function submitText(text: string): Promise<boolean> {
     if (!text.trim() || busy || current?.complete) return false;
+    if (pending && (!pending.error || pending.text !== text)) return false;
     setBusy(true);
     setError("");
-    const requestId =
-      pendingRequest.current?.text === text
-        ? pendingRequest.current.id
-        : crypto.randomUUID();
-    pendingRequest.current = { text, id: requestId };
+    const requestId = pending?.id ?? crypto.randomUUID();
+    setPending({
+      id: requestId, text, stage: "received", segments: [], body: "", error: "",
+      startedAt: Date.now(),
+    });
+    setDraft("");
     try {
-      const response = await api.turn(token, gameId, text, requestId);
+      const response = await api.turnStream(token, gameId, text, requestId, (event) => {
+        setPending((previous) => {
+          if (!previous || previous.id !== requestId) return previous;
+          if (event.type === "stage") return { ...previous, stage: event.stage };
+          if (event.type === "segment")
+            return { ...previous, segments: [...previous.segments, event.segment] };
+          if (event.type === "preview")
+            return { ...previous, segments: event.segments, body: event.body };
+          return previous;
+        });
+      });
       setHistory((previous) =>
         previous
           ? {
               ...previous,
-              turns: [
-                ...previous.turns,
-                { request_id: requestId, input: text, response },
-              ],
+              turns: previous.turns.some((turn) => turn.request_id === requestId)
+                ? previous.turns
+                : [...previous.turns, { request_id: requestId, input: text, response }],
             }
           : previous,
       );
       setCurrent(response);
-      setDraft("");
-      pendingRequest.current = null;
+      setPending(null);
       return true;
     } catch (cause) {
-      setError(errorMessage(cause));
+      setPending((previous) => previous?.id === requestId
+        ? { ...previous, error: errorMessage(cause) } : previous);
       return false;
     } finally {
       setBusy(false);
@@ -107,6 +146,13 @@ export function PlayPage({ token }: { token: string }) {
 
   function useSuggestion(text: string) {
     setDraft(text);
+    document.getElementById("turn-input")?.focus();
+  }
+
+  function editPending() {
+    if (!pending || busy) return;
+    setDraft(pending.text);
+    setPending(null);
     document.getElementById("turn-input")?.focus();
   }
   const intro = history?.intro;
@@ -182,6 +228,36 @@ export function PlayPage({ token }: { token: string }) {
                   </article>
                 </div>
               ))}
+              {pending && (
+                <div className="turn-pair pending-turn">
+                  <article className="player-entry">
+                    <span className="player-entry-label">你的行动 · {history.turns.length + 1}</span>
+                    <p>{playerAction(pending.text, current)}</p>
+                  </article>
+                  <article className="story-entry" aria-live="polite">
+                    <div className="entry-marker"><Feather size={17} /></div>
+                    <div className="entry-content">
+                      <span className="entry-label">故事回应</span>
+                      <div className={`turn-status ${pending.error ? "turn-status-error" : ""}`} role="status">
+                        <span className="status-pulse" aria-hidden="true" />
+                        <span>{pending.error || stageLabels[pending.stage] || "故事正在继续"}</span>
+                        {!pending.error && (
+                          <time>{Math.max(0, Math.floor((now - pending.startedAt) / 1000))} 秒</time>
+                        )}
+                      </div>
+                      {(pending.segments.length > 0 || pending.body) && (
+                        <StoryContent view={{ ...current, body: pending.body, segments: pending.segments }} />
+                      )}
+                      {pending.error && (
+                        <div className="pending-actions">
+                          <Button type="button" onClick={() => void submitText(pending.text)}>重试这条行动</Button>
+                          <button type="button" onClick={editPending}>编辑后发送</button>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                </div>
+              )}
               {!intro?.opening && !intro?.body && !history.turns.length && (
                 <div className="empty-story">
                   <p>故事从你的第一句话开始。</p>
@@ -199,7 +275,7 @@ export function PlayPage({ token }: { token: string }) {
               <ChoicePanel
                 key={current.interaction.id}
                 interaction={current.interaction}
-                busy={busy}
+                busy={busy || !!pending}
                 onChoose={submitText}
                 error={error}
               />
@@ -211,18 +287,11 @@ export function PlayPage({ token }: { token: string }) {
                     <textarea
                       id="turn-input"
                       value={draft}
-                      onChange={(event) => {
-                        setDraft(event.target.value);
-                        if (
-                          pendingRequest.current?.text !==
-                          event.target.value.trim()
-                        )
-                          pendingRequest.current = null;
-                      }}
+                      onChange={(event) => setDraft(event.target.value)}
                       placeholder="此刻，你想做什么？"
                       rows={3}
                       maxLength={10000}
-                      disabled={busy || current.complete}
+                      disabled={busy || !!pending || current.complete}
                       onKeyDown={(event) => {
                         if (
                           event.key === "Enter" &&
@@ -238,7 +307,7 @@ export function PlayPage({ token }: { token: string }) {
                       type="submit"
                       size="icon"
                       aria-label="发送行动"
-                      disabled={busy || !draft.trim() || current.complete}
+                      disabled={busy || !!pending || !draft.trim() || current.complete}
                     >
                       <Send size={18} />
                     </Button>

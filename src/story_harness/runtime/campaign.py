@@ -12,6 +12,7 @@ from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 from story_harness.core.contracts import Effect, Observation, Snapshot, WorldEvent
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
+from story_harness.runtime.turn_progress import TurnProgress, emit
 
 
 DisplayPart = str | StorySegment
@@ -120,12 +121,18 @@ class CampaignSession:
     """Advance a flexible milestone list without allowing a required choice to be skipped."""
 
     def __init__(self, store: GameStore, program: CampaignProgram, react: ReactTurn | None = None,
-                 telemetry: Telemetry | None = None) -> None:
+                 telemetry: Telemetry | None = None, turns_per_story_tick: int = 1) -> None:
+        if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
+            raise ValueError("turns_per_story_tick must be positive")
         self.store = store
         self.program = program
         self.react = react
         self.telemetry = telemetry or LangfuseTelemetry()
+        self.turns_per_story_tick = turns_per_story_tick
         self._locks: dict[str, asyncio.Lock] = {}
+
+    def _story_tick(self, snapshot: Snapshot) -> int:
+        return snapshot.tick // self.turns_per_story_tick
 
     async def start(self, game_id: str) -> CampaignOutcome:
         async with self._locks.setdefault(game_id, asyncio.Lock()):
@@ -138,7 +145,8 @@ class CampaignSession:
                 span.update(metadata={"tick": result.snapshot.tick, "gate_id": result.gate_id})
                 return result
 
-    async def submit(self, game_id: str, text: str, turn_id: str) -> CampaignOutcome:
+    async def submit(self, game_id: str, text: str, turn_id: str,
+                     progress: TurnProgress | None = None) -> CampaignOutcome:
         if not text.strip() or not turn_id:
             raise ValueError("campaign turn requires text and ID")
         async with self._locks.setdefault(game_id, asyncio.Lock()):
@@ -147,7 +155,8 @@ class CampaignSession:
                 input=text if self.telemetry.capture_content else None,
                 session_id=session_id_for_game(game_id, self.program.program_id),
             ) as span:
-                result = await self._submit_locked(game_id, text, turn_id)
+                await emit(progress, "stage", stage="campaign")
+                result = await self._submit_locked(game_id, text, turn_id, progress)
                 if not self.store.event_exists(game_id, f"{turn_id}:completed") and any(
                     self.store.event_exists(game_id, f"{turn_id}:{kind}")
                     for kind in ("choice", "advance", "input", "query", "action")
@@ -187,7 +196,8 @@ class CampaignSession:
                 return kind, details
         return None
 
-    async def _submit_locked(self, game_id: str, text: str, turn_id: str) -> CampaignOutcome:
+    async def _submit_locked(self, game_id: str, text: str, turn_id: str,
+                             progress: TurnProgress | None = None) -> CampaignOutcome:
         snapshot = self.store.load(game_id)
         self._validate_snapshot(snapshot)
         committed = self._committed_operation(game_id, turn_id)
@@ -196,7 +206,7 @@ class CampaignSession:
             original = details.get("request_text", details.get("text"))
             if original != text:
                 raise ValueError("turn ID already belongs to a different input")
-            resumed = await self._flush_ready(game_id)
+            resumed = await self._flush_ready(game_id, progress)
             self._reconcile_encounters(game_id)
             replay = [segment_for_observation(self.store, game_id, item)
                       for item in self.store.observations_for(game_id, "player")
@@ -227,21 +237,25 @@ class CampaignSession:
         if text.startswith("/choose "):
             raise ValueError("no campaign choice is due")
         if text == "/next":
+            next_tick = (self._story_tick(snapshot) + 1) * self.turns_per_story_tick
             self.store.commit(game_id, snapshot.version,
                               WorldEvent(f"{turn_id}:advance", "time_advanced", "player", None,
-                                         snapshot.tick + 1, (), {"request_text": text}), (), ())
-            parts = await self._flush_ready(game_id)
+                                         next_tick, (), {"request_text": text}), (), ())
+            await emit(progress, "stage", stage="background")
+            parts = await self._flush_ready(game_id, progress)
         else:
             if self.react is None:
                 raise ValueError("free-form turns require a ReAct session")
-            result = await self.react.run_turn(game_id, text, turn_id)
+            result = (await self.react.run_turn(game_id, text, turn_id, progress=progress)
+                      if progress is not None else await self.react.run_turn(game_id, text, turn_id))
             parts = list(getattr(result, "segments", ())) or [StorySegment("narration", result.narration)]
-            parts.extend(await self._flush_ready(game_id))
+            parts.extend(await self._flush_ready(game_id, progress))
             if result.decision.intent == "speech":
                 self._record_encounters(game_id, result.decision.target_ids, turn_id)
         return self._drain(game_id, parts)
 
-    async def _flush_ready(self, game_id: str) -> list[StorySegment]:
+    async def _flush_ready(self, game_id: str,
+                           progress: TurnProgress | None = None) -> list[StorySegment]:
         if not self.store.ready_work(game_id, self.store.load(game_id).tick):
             return []
         visible_before = {item.observation_id for item in self.store.observations_for(game_id, "player")}
@@ -249,7 +263,11 @@ class CampaignSession:
         if resume is None:
             raise ValueError("ready background work requires a work runner")
         for _ in range(16):
-            await resume(game_id)
+            if progress is not None:
+                await emit(progress, "stage", stage="background")
+                await resume(game_id, progress=progress)
+            else:
+                await resume(game_id)
             if not self.store.ready_work(game_id, self.store.load(game_id).tick):
                 return [segment_for_observation(self.store, game_id, item)
                         for item in self.store.observations_for(game_id, "player")
@@ -294,7 +312,7 @@ class CampaignSession:
         if cursor >= len(self.program.steps):
             return None
         step = self.program.steps[cursor]
-        return step if step["at"] <= snapshot.tick and step["kind"] in {"choice", "message"} else None
+        return step if step["at"] <= self._story_tick(snapshot) and step["kind"] in {"choice", "message"} else None
 
     @staticmethod
     def _prompt(step: dict[str, Any]) -> str:
@@ -370,8 +388,9 @@ class CampaignSession:
         while True:
             before = self.store.load(game_id)
             campaign = before.data["campaign"]
-            day = min(before.tick // self.program.ticks_per_day + 1,
-                      self.program.final_tick // self.program.ticks_per_day + 1)
+            story_tick = self._story_tick(before)
+            day = max(campaign["day"], min(story_tick // self.program.ticks_per_day + 1,
+                                           self.program.final_tick // self.program.ticks_per_day + 1))
             if campaign["day"] != day:
                 event = WorldEvent(f"campaign:day:{day}", "campaign_day", None, None,
                                    before.tick, (Effect(("campaign", "day"), day),))
@@ -381,7 +400,7 @@ class CampaignSession:
             if cursor >= len(self.program.steps):
                 break
             step = self.program.steps[cursor]
-            if step["at"] > before.tick:
+            if step["at"] > story_tick:
                 break
             if step["kind"] in {"choice", "message"}:
                 parts.append(StorySegment("prompt", self._prompt(step)))

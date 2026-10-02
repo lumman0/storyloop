@@ -70,6 +70,35 @@ class CampaignTests(unittest.TestCase):
     def run_async(self, coro):
         return asyncio.run(coro)
 
+    def test_dialogue_pacing_keeps_first_day_open_for_multiple_turns(self):
+        paced = CampaignProgram.from_dict({
+            "id": "paced", "ticks_per_day": 2, "final_tick": 4,
+            "steps": [
+                {"id": "arrival", "at": 0, "kind": "choice", "prompt": "开始",
+                 "options": [{"id": "m1", "label": "甲"}]},
+                {"id": "ending", "at": 4, "kind": "finale", "choice_key": "arrival",
+                 "threshold": 1, "success_text": "结束", "other_text": "结束"},
+            ],
+        })
+        self.store.create_game(Snapshot("paced", 0, 0, {
+            "scenario": {"id": "paced", "version": "1"},
+            "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
+            "campaign": paced.initial_state(["m1"]),
+        }))
+        session = CampaignSession(self.store, paced, FakeReact(self.store), turns_per_story_tick=3)
+        self.run_async(session.start("paced"))
+        self.run_async(session.submit("paced", "/choose m1", "paced-choice"))
+
+        for index in range(2):
+            result = self.run_async(session.submit("paced", "和甲聊天", f"paced-{index}"))
+        self.assertEqual(result.snapshot.tick, 2)
+        self.assertEqual(result.snapshot.data["campaign"]["day"], 1)
+
+        for index in range(2, 6):
+            result = self.run_async(session.submit("paced", "继续交谈", f"paced-{index}"))
+        self.assertEqual(result.snapshot.tick, 6)
+        self.assertEqual(result.snapshot.data["campaign"]["day"], 2)
+
     def test_gate_blocks_react_and_scheduled_scene_advances_once(self):
         start = self.run_async(self.session.start("g"))
         self.assertEqual(start.gate_id, "arrival")

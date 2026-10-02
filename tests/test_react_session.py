@@ -141,7 +141,12 @@ class ReactSessionTests(unittest.IsolatedAsyncioTestCase):
                 max_steps=8,
             )
 
-            result = await session.run_turn("game", "你好，A", "turn-1")
+            events = []
+
+            async def collect(event):
+                events.append(event)
+
+            result = await session.run_turn("game", "你好，A", "turn-1", progress=collect)
 
             self.assertEqual(result.decision.target_ids, ["dockhand"])
             self.assertEqual(result.snapshot.tick, 1)
@@ -149,6 +154,10 @@ class ReactSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("dockhand", json.dumps(speech_model.prompts, ensure_ascii=False))
             self.assertEqual(result.narration, "【码头工】\nA：你好。")
             self.assertEqual(narration_model.prompts, [])
+            self.assertEqual([item["stage"] for item in events if item["type"] == "stage"],
+                             ["thinking", "committing", "characters", "narrating"])
+            self.assertTrue(any(item["type"] == "segment" and item["segment"]["kind"] == "dialogue"
+                                for item in events))
 
 
 if __name__ == "__main__":

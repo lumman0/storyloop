@@ -37,6 +37,7 @@ class GameListing:
     summary: str = ""
     genre: str = ""
     theme: str = "harbor"
+    turns_per_story_tick: int = 1
 
 
 class GameCatalog:
@@ -61,6 +62,9 @@ class GameCatalog:
                 raise ValueError("catalog game requires id, title, mode, and package")
             if item["mode"] not in {"campaign", "freeform"}:
                 raise ValueError("catalog game mode must be campaign or freeform")
+            turns_per_story_tick = item.get("turns_per_story_tick", 1)
+            if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
+                raise ValueError("turns_per_story_tick must be positive")
             for field in ("summary", "genre", "theme"):
                 if field in item and not isinstance(item[field], str):
                     raise ValueError(f"catalog game {field} must be a string")
@@ -74,7 +78,7 @@ class GameCatalog:
                                         package.package_id, package.version,
                                         _package_fingerprint(package_path, item["mode"]),
                                         item.get("summary", ""), item.get("genre", ""),
-                                        item.get("theme", "harbor")))
+                                        item.get("theme", "harbor"), turns_per_story_tick))
         return cls(tuple(listings))
 
     def list_games(self) -> tuple[GameListing, ...]:

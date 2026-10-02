@@ -56,6 +56,12 @@ export type History = {
   turns: { request_id: string; input: string | null; response: View }[];
 };
 export type Session = { player_id: string; token: string };
+export type TurnStreamEvent =
+  | { type: "stage"; stage: string }
+  | { type: "segment"; segment: StorySegment }
+  | { type: "preview"; body: string; segments: StorySegment[] }
+  | { type: "complete"; view: View }
+  | { type: "error"; message: string };
 
 export class ApiError extends Error {
   constructor(
@@ -96,6 +102,62 @@ async function request<T>(
   return payload as T;
 }
 
+async function streamTurn(
+  token: string,
+  gameId: string,
+  text: string,
+  requestId: string,
+  onEvent: (event: TurnStreamEvent) => void,
+): Promise<View> {
+  const response = await fetch(
+    `${API_BASE}/v1/saves/${encodeURIComponent(gameId)}/turns/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ text, request_id: requestId }),
+    },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new ApiError(
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : "请求未能完成，请稍后重试。",
+      response.status,
+    );
+  }
+  if (!response.body) throw new ApiError("浏览器无法读取实时响应。", 0);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completed: View | null = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const data = frame.split("\n").filter((line) => line.startsWith("data: "))
+        .map((line) => line.slice(6)).join("\n");
+      if (data) {
+        const event = JSON.parse(data) as TurnStreamEvent;
+        if (event.type === "error") throw new ApiError(event.message, 400);
+        onEvent(event);
+        if (event.type === "complete") completed = event.view;
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+    if (done) break;
+  }
+  if (!completed) throw new ApiError("连接中断，尚未收到完整结果。可重试这条行动。", 0);
+  return completed;
+}
+
 export const api = {
   register: (username: string, password: string) =>
     request<Session>("/v1/accounts", undefined, "POST", { username, password }),
@@ -122,4 +184,5 @@ export const api = {
       "POST",
       { text, request_id: requestId },
     ),
+  turnStream: streamTurn,
 };

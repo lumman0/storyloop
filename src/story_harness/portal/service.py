@@ -18,6 +18,7 @@ from story_harness.runtime.game_session import GameSession
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
+from story_harness.runtime.turn_progress import TurnProgress, emit
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -118,7 +119,10 @@ class PlayerPortal:
         if key in self._campaign_sessions:
             return self._campaign_sessions[key]
         program = CampaignProgram.load(item.package_path / "campaign.json")
-        result = (program, CampaignSession(self.store, program, self._react(item, package), telemetry=self.telemetry))
+        result = (program, CampaignSession(
+            self.store, program, self._react(item, package), telemetry=self.telemetry,
+            turns_per_story_tick=item.turns_per_story_tick,
+        ))
         self._campaign_sessions[key] = result
         return result
 
@@ -188,7 +192,7 @@ class PlayerPortal:
                           opening=opening)
 
     async def turn(self, token: str, game_id: str, text: str,
-                   request_id: str | None = None) -> dict:
+                   request_id: str | None = None, progress: TurnProgress | None = None) -> dict:
         player_id = self.accounts.resolve_token(token)
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
@@ -211,7 +215,10 @@ class PlayerPortal:
                 return recovered
         if item.mode == "campaign":
             program, session = self._campaign(item, package)
-            outcome = await session.submit(game_id, text, turn_id)
+            outcome = await session.submit(game_id, text, turn_id, progress=progress)
+            await emit(progress, "preview", body=outcome.text,
+                       segments=[part.to_dict() for part in outcome.segments])
+            await emit(progress, "stage", stage="guidance")
             guidance = await GuidanceAdvisor(self.store, package, program,
                                              telemetry=self.telemetry).advise(
                 game_id, outcome.snapshot, gate_id=outcome.gate_id,
@@ -221,7 +228,12 @@ class PlayerPortal:
                               turn_id=turn_id, segments=outcome.segments,
                               program=program, gate_id=outcome.gate_id)
         else:
-            outcome = await self._react(item, package).run_turn(game_id, text, turn_id)
+            outcome = await self._react(item, package).run_turn(
+                game_id, text, turn_id, progress=progress,
+            )
+            await emit(progress, "preview", body=outcome.narration,
+                       segments=[part.to_dict() for part in outcome.segments])
+            await emit(progress, "stage", stage="guidance")
             guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
                 game_id, outcome.snapshot, visible_text=outcome.narration)
             view = self._view(game_id, item.game_id, item.mode, outcome.narration,

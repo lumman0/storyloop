@@ -19,6 +19,7 @@ from story_harness.runtime.schedule import scenario_cue
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan, session_id_for_game
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
+from story_harness.runtime.turn_progress import TurnProgress, emit
 
 
 class MainAgent(Protocol):
@@ -110,7 +111,8 @@ class GameSession:
             telemetry=self.telemetry,
         )
 
-    async def run_ready_work(self, game_id: str) -> RunResult:
+    async def run_ready_work(self, game_id: str,
+                             progress: TurnProgress | None = None) -> RunResult:
         """Resume due work after an external scheduler advances the game clock."""
         lock = self._locks.setdefault(game_id, asyncio.Lock())
         async with lock:
@@ -118,9 +120,15 @@ class GameSession:
             scenario = before.data.get("scenario", {})
             if scenario.get("id") != self.package.package_id or scenario.get("version") != self.package.version:
                 raise ValueError("game belongs to another scenario")
-            return await self._runner().run_async(game_id)
+            async def committed(_snapshot: Snapshot, observations: tuple[Observation, ...]) -> None:
+                await self._emit_visible_segments(game_id, observations, progress)
 
-    async def run_turn(self, game_id: str, player_text: str, turn_id: str) -> TurnOutcome:
+            return await self._runner().run_async(
+                game_id, on_work_committed=committed if progress is not None else None,
+            )
+
+    async def run_turn(self, game_id: str, player_text: str, turn_id: str,
+                       progress: TurnProgress | None = None) -> TurnOutcome:
         if not player_text.strip() or not turn_id:
             raise ValueError("turn requires text and an ID")
         lock = self._locks.setdefault(game_id, asyncio.Lock())
@@ -132,7 +140,8 @@ class GameSession:
                 session_id=session_id_for_game(game_id, self.package.package_id),
             ) as turn_span:
                 try:
-                    outcome = await self._run_locked_turn(game_id, player_text, turn_id, turn_span)
+                    outcome = await self._run_locked_turn(game_id, player_text, turn_id,
+                                                          turn_span, progress)
                 except BaseException:
                     turn_span.metric("story.turn_success", 0.0)
                     raise
@@ -140,7 +149,8 @@ class GameSession:
                 return outcome
 
     async def _run_locked_turn(self, game_id: str, player_text: str,
-                               turn_id: str, turn_span: TraceSpan) -> TurnOutcome:
+                               turn_id: str, turn_span: TraceSpan,
+                               progress: TurnProgress | None = None) -> TurnOutcome:
         before = self.store.load(game_id)
         scenario = before.data.get("scenario", {})
         if (
@@ -154,6 +164,7 @@ class GameSession:
         if game_id not in self._main:
             self._main[game_id] = self.main_factory(game_id)
         main = self._main[game_id]
+        await emit(progress, "stage", stage="thinking")
         with self.telemetry.span(
             "main-decision", {"state_version": before.version, "tick": before.tick},
             kind="agent",
@@ -167,6 +178,7 @@ class GameSession:
                 "audience": decision.audience,
                 "entry_id": decision.entry_id, "action_id": decision.action_id,
             })
+        await emit(progress, "stage", stage="committing")
         if decision.intent == "speech":
             self.store_input(game_id, turn_id, player_text, decision)
         elif decision.intent == "inspect":
@@ -176,9 +188,21 @@ class GameSession:
         else:
             raise ValueError(f"unsupported main intent: {decision.intent}")
 
+        direct_observations = tuple(
+            item for item in self.store.observations_for(game_id, "player")
+            if item.observation_id not in visible_before
+        )
+        await self._emit_visible_segments(game_id, direct_observations, progress)
+
         runner = self._runner()
+        await emit(progress, "stage", stage="characters")
+        async def committed(_snapshot: Snapshot, observations: tuple[Observation, ...]) -> None:
+            await self._emit_visible_segments(game_id, observations, progress)
+
         with self.telemetry.span("work-queue", {"max_steps": self.max_steps}) as queue_span:
-            result = await runner.run_async(game_id)
+            result = await runner.run_async(
+                game_id, on_work_committed=committed if progress is not None else None,
+            )
             queue_span.update(metadata={
                 "processed_work_count": len(result.processed_work_ids),
                 "remaining_work_count": len(result.remaining_work_ids),
@@ -189,6 +213,7 @@ class GameSession:
         )
         scene_results = [item.content for item in new_observations if item.channel != "dialogue"]
         dialogue_results = [item.content for item in new_observations if item.channel == "dialogue"]
+        await emit(progress, "stage", stage="narrating")
         with self.telemetry.span(
             "main-narration", {"visible_observation_count": len(new_observations),
                                "dialogue_count": len(dialogue_results),
@@ -230,6 +255,13 @@ class GameSession:
             decision, narration, new_observations,
             result.processed_work_ids, result.snapshot, narration_fallback, segments,
         )
+
+    async def _emit_visible_segments(self, game_id: str, observations: tuple[Observation, ...],
+                                     progress: TurnProgress | None) -> None:
+        for item in observations:
+            if item.recipient_id == "player":
+                await emit(progress, "segment",
+                           segment=segment_for_observation(self.store, game_id, item).to_dict())
 
     def store_input(
         self, game_id: str, turn_id: str, text: str, decision: MainDecision

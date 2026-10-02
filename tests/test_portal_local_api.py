@@ -21,6 +21,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PortalLocalApiSmokeTest(unittest.TestCase):
+    def test_streamed_turn_reports_progress_and_final_view(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+                         "LANGFUSE_SECRET_KEY": ""},
+        ):
+            portal = PlayerPortal(ROOT / "config" / "games.example.json",
+                                  ROOT / "config" / "local.json", str(Path(temp) / "game.sqlite3"))
+            token = portal.register("stream-user", "stream-pass-123")["token"]
+
+            async def scripted_turn(auth, game_id, text, request_id, progress=None):
+                self.assertEqual((auth, game_id, text, request_id),
+                                 (token, "sample", "你好", "request-1"))
+                await progress({"type": "stage", "stage": "thinking"})
+                await progress({"type": "preview", "segments": [{"kind": "dialogue", "text": "你好！"}]})
+                return {"body": "你好！", "segments": [{"kind": "dialogue", "text": "你好！"}]}
+
+            portal.turn = scripted_turn
+            with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
+                response = client.post("/v1/saves/sample/turns/stream", json={
+                    "text": "你好", "request_id": "request-1",
+                }, headers={"Authorization": f"Bearer {token}"})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("text/event-stream", response.headers["content-type"])
+            events = [json.loads(line[6:]) for line in response.text.splitlines()
+                      if line.startswith("data: ")]
+            self.assertEqual([event["type"] for event in events],
+                             ["stage", "stage", "preview", "complete"])
+            self.assertEqual(events[-1]["view"]["body"], "你好！")
+
     def test_local_secret_file_allows_a_save_without_key_environment_variable(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ, {"STORY_BAILIAN_API_KEY": "", "LANGFUSE_PUBLIC_KEY": "",
