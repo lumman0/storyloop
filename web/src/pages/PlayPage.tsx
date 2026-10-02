@@ -107,7 +107,7 @@ export function PlayPage({ token }: { token: string }) {
       id: requestId, text, stage: "received", segments: [], body: "", error: "",
       startedAt: Date.now(),
     });
-    setDraft("");
+    if (!isStoryCommandInput(text)) setDraft("");
     try {
       const response = await api.turnStream(token, gameId, text, requestId, (event) => {
         setPending((previous) => {
