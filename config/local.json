@@ -35,6 +35,12 @@
   "memory": {
     "driver": "in_memory"
   },
+  "player_memory": {
+    "driver": "none",
+    "llm_model": "qwen3.8-flash",
+    "embedding_model": "text-embedding-v4",
+    "embedding_dims": 1024
+  },
   "billing": {
     "welcome_points": 500,
     "points_per_rmb": 50,

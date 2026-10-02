@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -55,6 +55,10 @@ class TurnBody(BaseModel):
     request_id: str | None = None
 
 
+class PlayerMemorySettingsBody(BaseModel):
+    enabled: bool
+
+
 def _http_error(error: Exception) -> HTTPException:
     if isinstance(error, PermissionError):
         return HTTPException(status_code=401, detail=str(error))
@@ -68,9 +72,15 @@ def _http_error(error: Exception) -> HTTPException:
 def create_app(portal: PlayerPortal) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        worker = (asyncio.create_task(portal.run_memory_worker())
+                  if getattr(portal, "memory_feature_enabled", False) is True else None)
         try:
             yield
         finally:
+            if worker is not None:
+                worker.cancel()
+                with suppress(asyncio.CancelledError):
+                    await worker
             portal.close()
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
@@ -108,7 +118,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
         if (online_cookie and request.url.path.startswith("/v1/")
                 and request.method in {"POST", "PUT", "PATCH", "DELETE"} and not origin):
             return JSONResponse({"error": "Origin required"}, status_code=403)
-        needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves"}
+        needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves",
+                                               "/v1/me/memory/settings"}
                       or request.url.path.endswith(("/turns", "/turns/stream")))
         if request.method in {"POST", "PUT", "PATCH"} and needs_json:
             content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -176,6 +187,29 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.get("/v1/catalog")
     def catalog(auth: str = Depends(token)) -> dict:
         return {"games": portal.games(auth)}
+
+    @app.get("/v1/me/memory")
+    async def player_memory(auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.memory_status(auth)
+        except Exception as error:
+            logger.exception("player memory status failed")
+            raise HTTPException(status_code=503, detail="玩家画像暂时不可用") from error
+
+    @app.post("/v1/me/memory/settings")
+    async def set_player_memory(body: PlayerMemorySettingsBody,
+                                auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.set_memory_enabled(auth, body.enabled)
+        except ValueError as error:
+            raise _http_error(error) from error
+
+    @app.delete("/v1/me/memory")
+    async def clear_player_memory(auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.clear_memory(auth)
+        except ValueError as error:
+            raise _http_error(error) from error
 
     @app.get("/v1/my-scenarios")
     def my_scenarios(auth: str = Depends(token)) -> dict:

@@ -1,0 +1,24 @@
+.player-memory-page { max-width: 920px; padding-top: 60px; padding-bottom: 80px; }
+.memory-settings { margin-top: 38px; padding: 28px; border: 1px solid oklch(0.36 0.03 20); border-radius: 16px; background: oklch(0.2 0.018 13); }
+.memory-heading-row { display: flex; gap: 16px; align-items: center; }
+.memory-icon { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: oklch(0.28 0.04 20); color: oklch(0.82 0.11 30); }
+.memory-heading-row h2 { margin: 0 0 5px; font-size: 1.17rem; }
+.memory-heading-row p, .memory-explainer p { margin: 0; color: oklch(0.76 0.025 20); line-height: 1.75; font-size: 0.88rem; }
+.memory-explainer { display: grid; gap: 12px; margin-top: 25px; padding: 19px 21px; border-radius: 11px; background: oklch(0.245 0.02 16); }
+.memory-explainer strong { color: oklch(0.94 0.018 20); }
+.memory-control-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 26px; }
+.memory-control-row > div { display: grid; gap: 5px; }
+.memory-control-row strong { font-size: 0.95rem; }
+.memory-control-row span { color: oklch(0.72 0.025 20); font-size: 0.82rem; }
+.memory-toggle { border: 1px solid oklch(0.66 0.12 28); border-radius: 10px; background: oklch(0.42 0.09 25); color: white; padding: 11px 20px; white-space: nowrap; }
+.memory-toggle:hover:not(:disabled) { background: oklch(0.48 0.11 26); }
+.memory-records { margin-top: 50px; }
+.memory-records-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; border-bottom: 1px solid oklch(0.35 0.025 18); padding-bottom: 15px; }
+.memory-records-head h2 { margin: 8px 0 0; font-size: 1.2rem; }
+.memory-refresh, .memory-clear { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: oklch(0.8 0.05 25); padding: 8px 0; font-size: 0.83rem; }
+.memory-refresh:hover, .memory-clear:hover { color: oklch(0.94 0.07 25); }
+.memory-list { list-style: none; padding: 0; margin: 16px 0 0; }
+.memory-list li { padding: 16px 3px; border-bottom: 1px solid oklch(0.29 0.02 18); line-height: 1.75; color: oklch(0.91 0.014 20); }
+.memory-empty { color: oklch(0.74 0.025 20); font-size: 0.88rem; padding: 20px 0; }
+.memory-clear { margin-top: 20px; color: oklch(0.79 0.08 26); }
+@media (max-width: 700px) { .player-memory-page { padding-top: 40px; } .memory-settings { padding: 20px; } .memory-control-row { align-items: stretch; flex-direction: column; } .memory-toggle { width: 100%; } }

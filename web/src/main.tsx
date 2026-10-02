@@ -9,6 +9,7 @@ import "./styles/auth.css";
 import "./styles/reader.css";
 import "./styles/credits.css";
 import "./styles/upload.css";
+import "./styles/player-memory.css";
 import "./styles/responsive.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

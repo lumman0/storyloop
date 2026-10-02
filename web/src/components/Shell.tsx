@@ -81,9 +81,9 @@ export function Shell({
               <Coins size={16} />
               <span>{wallet ? `${wallet.balance_points} 积分` : "积分"}</span>
             </NavLink>
-            <span className="user-avatar" title="已登录玩家">
+            <NavLink to="/memory" className="user-avatar" aria-label="玩家画像" title="玩家画像">
               <UserRound size={17} />
-            </span>
+            </NavLink>
             <button
               type="button"
               className="icon-action logout"

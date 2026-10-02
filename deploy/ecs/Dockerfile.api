@@ -7,7 +7,7 @@ WORKDIR /app
 COPY pyproject.toml alembic.ini ./
 COPY src/ ./src/
 COPY config/online.json ./config/online.json
-RUN pip install --no-cache-dir ".[agents,portal,online,observability]"
+RUN pip install --no-cache-dir ".[agents,portal,online,observability,player-memory]"
 
 EXPOSE 8765
 CMD ["python", "-m", "story_harness.cli.portal_api", "--profile", "online", "--config", "/app/config/online.json", "--port", "8765"]

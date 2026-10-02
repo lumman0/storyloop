@@ -75,6 +75,16 @@ class StorageSettings:
 
 
 @dataclass(frozen=True)
+class PlayerMemorySettings:
+    driver: str = "none"
+    enabled_env: str | None = None
+    path_env: str | None = None
+    llm_model: str = "qwen3.8-flash"
+    embedding_model: str = "text-embedding-v4"
+    embedding_dims: int = 1024
+
+
+@dataclass(frozen=True)
 class HarnessConfig:
     base_url: str
     api_key_env: str
@@ -82,6 +92,7 @@ class HarnessConfig:
     runtime: RuntimeSettings = field(repr=True)
     storage: StorageSettings = field(repr=True)
     memory_driver: str = "in_memory"
+    player_memory: PlayerMemorySettings = field(default_factory=PlayerMemorySettings)
     tool_choice_policy: str = "native"
     profile: str = "local"
     allowed_hosts_env: str | None = None
@@ -103,8 +114,11 @@ class HarnessConfig:
         runtime = data.get("runtime")
         storage = data.get("storage")
         memory = data.get("memory")
+        player_memory = data.get("player_memory", {"driver": "none"})
         if not all(isinstance(item, dict) for item in (models, runtime, storage, memory)):
             raise ValueError("models, runtime, storage and memory must be objects")
+        if not isinstance(player_memory, dict):
+            raise ValueError("player_memory must be an object")
         if models.get("provider") != "openai_compatible":
             raise ValueError("unsupported model provider")
         tool_choice_policy = models.get("tool_choice_policy", "native")
@@ -165,6 +179,28 @@ class HarnessConfig:
         memory_driver = _string(memory.get("driver"), "memory.driver")
         if memory_driver != "in_memory":
             raise ValueError(f"memory driver {memory_driver!r} is not installed")
+        player_memory_driver = _string(player_memory.get("driver", "none"), "player_memory.driver")
+        if player_memory_driver not in {"none", "mem0"}:
+            raise ValueError("player_memory.driver must be none or mem0")
+        player_memory_path_env = player_memory.get("path_env")
+        if player_memory_path_env is not None:
+            player_memory_path_env = _string(player_memory_path_env, "player_memory.path_env")
+        player_memory_enabled_env = player_memory.get("enabled_env")
+        if player_memory_enabled_env is not None:
+            player_memory_enabled_env = _string(player_memory_enabled_env, "player_memory.enabled_env")
+        if player_memory_driver == "mem0" and profile == "online" and not player_memory_path_env:
+            raise ValueError("online Mem0 requires player_memory.path_env")
+        player_memory_settings = PlayerMemorySettings(
+            driver=player_memory_driver,
+            enabled_env=player_memory_enabled_env,
+            path_env=player_memory_path_env,
+            llm_model=_string(player_memory.get("llm_model", "qwen3.8-flash"),
+                              "player_memory.llm_model"),
+            embedding_model=_string(player_memory.get("embedding_model", "text-embedding-v4"),
+                                    "player_memory.embedding_model"),
+            embedding_dims=_positive_int(player_memory.get("embedding_dims", 1024),
+                                         "player_memory.embedding_dims"),
+        )
         return cls(
             base_url=_string(models.get("base_url"), "models.base_url"),
             api_key_env=_string(models.get("api_key_env"), "models.api_key_env"),
@@ -172,6 +208,7 @@ class HarnessConfig:
             runtime=runtime_settings,
             storage=StorageSettings(driver, resolved_path, url_env),
             memory_driver=memory_driver,
+            player_memory=player_memory_settings,
             tool_choice_policy=tool_choice_policy,
             profile=profile,
             allowed_hosts_env=hosts_env,
@@ -188,6 +225,28 @@ class HarnessConfig:
     def model_api_key(self, env: Mapping[str, str] | None = None) -> str:
         values = os.environ if env is None else env
         return values.get(self.api_key_env, "").strip() or self.local_api_key or ""
+
+    def player_memory_path(self, env: Mapping[str, str] | None = None) -> Path:
+        if self.player_memory.path_env:
+            values = os.environ if env is None else env
+            raw = values.get(self.player_memory.path_env, "").strip()
+            if not raw:
+                raise ValueError(f"set {self.player_memory.path_env} for player memory storage")
+            return Path(raw).resolve()
+        if self.storage.path is None:
+            raise ValueError("player memory storage path is not configured")
+        return Path(self.storage.path).resolve().parent / "player-memory"
+
+    def player_memory_enabled(self, env: Mapping[str, str] | None = None) -> bool:
+        if self.player_memory.driver == "none":
+            return False
+        if self.player_memory.enabled_env is None:
+            return True
+        values = os.environ if env is None else env
+        raw = values.get(self.player_memory.enabled_env, "0").strip().lower()
+        if raw not in {"0", "1", "false", "true"}:
+            raise ValueError(f"{self.player_memory.enabled_env} must be 0 or 1")
+        return raw in {"1", "true"}
 
     def model_name(self, task: str) -> str:
         try:

@@ -8,6 +8,7 @@ import { SavesPage } from "./pages/SavesPage";
 import { PlayPage } from "./pages/PlayPage";
 import { CreditsPage } from "./pages/CreditsPage";
 import { UploadPage } from "./pages/UploadPage";
+import { PlayerMemoryPage } from "./pages/PlayerMemoryPage";
 import { Shell } from "./components/Shell";
 import { Loading, Notice } from "./components/Feedback";
 
@@ -84,6 +85,7 @@ export default function App() {
                   />
                   <Route path="/credits" element={<CreditsPage />} />
                   <Route path="/my-scenarios" element={<UploadPage />} />
+                  <Route path="/memory" element={<PlayerMemoryPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Shell>

@@ -12,6 +12,7 @@ from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.runtime.campaign import CampaignProgram, SceneContext
 from story_harness.world.scenario import ScenarioPackage
+from story_harness.runtime.player_preferences import current_player_preferences
 
 
 class SceneNarration(BaseModel):
@@ -73,6 +74,7 @@ class CampaignSceneNarrator:
             "selected_choices": self._choice_labels(context) if context.opening else [],
             "known_nearby_people": self._known_nearby(context),
             "player_action": context.player_text[:400] if not context.player_text.startswith("/") else "",
+            "player_preferences": list(current_player_preferences()),
             "committed_visible_results": visible,
         }
 
@@ -95,6 +97,7 @@ class CampaignSceneNarrator:
             "让上一段角色回应自然落在场景中。不要复述角色台词，不要替角色说新台词，"
             "不要替玩家作选择或执行额外行动，不要制造新的事件、物品、天气变化或秘密。"
             "没有依据的感官细节只可作低风险的文学描写，不得写成确定的世界事实。"
+            "玩家画像只用于微调文风和节奏，不是剧情事实，也不能覆盖本轮玩家输入。"
             "若 phase 为 opening_after_choices，需要交代故事的地点与情境，说明玩家现在"
             "可以观察、找在场的人交谈或自由行动；此时不要直接跳到下一时段。"
             "若 phase 为 turn_continuation，在角色回复之后补一段环境与节奏上的承接，"

@@ -102,6 +102,15 @@ export type History = {
   turns: { request_id: string; input: string | null; response: View }[];
 };
 export type Session = { player_id: string };
+export type PlayerMemoryStatus = {
+  available: boolean;
+  enabled: boolean;
+  memories: { id: string; text: string; created_at: string }[];
+  queued_inputs: number;
+  batch_size: number;
+  min_interval_hours: number;
+  charged_points: number;
+};
 export type TurnStreamEvent =
   | { type: "stage"; stage: string }
   | { type: "segment"; segment: StorySegment }
@@ -238,6 +247,10 @@ export const api = {
   login: (username: string, password: string) =>
     request<Session>("/v1/sessions", "POST", { username, password }),
   currentSession: () => request<Session>("/v1/sessions/current"),
+  playerMemory: () => request<PlayerMemoryStatus>("/v1/me/memory"),
+  setPlayerMemory: (enabled: boolean) =>
+    request<PlayerMemoryStatus>("/v1/me/memory/settings", "POST", { enabled }),
+  clearPlayerMemory: () => request<PlayerMemoryStatus>("/v1/me/memory", "DELETE"),
   logout: () => request<{ status: string }>("/v1/sessions/current", "DELETE"),
   catalog: () => request<{ games: Game[] }>("/v1/catalog"),
   myScenarios: () => request<{ scenarios: UserScenario[] }>("/v1/my-scenarios"),

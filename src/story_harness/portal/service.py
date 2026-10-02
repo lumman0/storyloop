@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 from contextlib import nullcontext
@@ -17,6 +18,8 @@ from story_harness.core.billing import collect_usage
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
+from story_harness.portal.player_memory import Mem0PlayerMemory, PlayerMemory
+from story_harness.portal.player_memory_jobs import MemoryBatch, SQLPlayerMemoryJobs
 from story_harness.portal.sql_billing import SQLBillingRepository
 from story_harness.portal.user_scenarios import UserScenarioService
 from story_harness.portal.presentation import campaign_interaction
@@ -27,6 +30,7 @@ from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
 from story_harness.runtime.turn_progress import TurnProgress, emit
 from story_harness.runtime.story_clock import StoryClock
+from story_harness.runtime.player_preferences import player_preferences_scope
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -56,6 +60,15 @@ class PlayerPortal:
         self.engine = self.config.create_database(db_path)
         self.store = self.config.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
+        self.memory_jobs = SQLPlayerMemoryJobs(self.engine)
+        self.memory_feature_enabled = self.config.player_memory_enabled()
+        self.player_memory: PlayerMemory | None = (
+            Mem0PlayerMemory(self.config, self.config.player_memory_path())
+            if self.config.player_memory.driver == "mem0" else None
+        )
+        self._profile_cache: dict[str, tuple[str, ...]] = {}
+        self._memory_access = asyncio.Lock()
+        self._memory_wakeup = asyncio.Event()
         self.user_scenarios = UserScenarioService(self.engine, upload_dir)
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
@@ -66,7 +79,112 @@ class PlayerPortal:
 
     def close(self) -> None:
         self.telemetry.flush()
+        if self.player_memory is not None:
+            self.player_memory.close()
         self.engine.dispose()
+
+    async def memory_status(self, token: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        available = self.memory_feature_enabled and self.player_memory is not None
+        enabled = available and self.memory_jobs.enabled(player_id)
+        memories = (await asyncio.to_thread(self.player_memory.list_memories, player_id)
+                    if self.player_memory is not None else [])
+        return {"available": available, "enabled": enabled, "memories": memories,
+                "queued_inputs": self.memory_jobs.pending_count(player_id),
+                "batch_size": 6, "min_interval_hours": 12,
+                "charged_points": 0}
+
+    async def set_memory_enabled(self, token: str, enabled: bool) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        if enabled and not self.memory_feature_enabled:
+            raise ValueError("玩家画像尚未由平台开放")
+        async with self._memory_access:
+            self.memory_jobs.set_enabled(player_id, enabled)
+            self._profile_cache.pop(player_id, None)
+        return await self.memory_status(token)
+
+    async def clear_memory(self, token: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        if self.player_memory is None:
+            raise ValueError("玩家画像当前不可用")
+        async with self._memory_access:
+            self.memory_jobs.clear(player_id)
+            await asyncio.to_thread(self.player_memory.clear, player_id)
+            self._profile_cache.pop(player_id, None)
+        return await self.memory_status(token)
+
+    async def _preferences_for(self, player_id: str) -> tuple[str, ...]:
+        if not self.memory_feature_enabled or self.player_memory is None or not self.memory_jobs.enabled(player_id):
+            return ()
+        if player_id in self._profile_cache:
+            return self._profile_cache[player_id]
+        try:
+            rows = await asyncio.to_thread(self.player_memory.list_memories, player_id)
+            result = tuple(row["text"][:180] for row in rows[:8])
+            self._profile_cache[player_id] = result
+            return result
+        except Exception:
+            logging.getLogger(__name__).exception("player profile read failed")
+            return ()
+
+    def _queue_memory_input(self, player_id: str, game_id: str,
+                            request_id: str, player_text: str) -> None:
+        if not self.memory_feature_enabled or self.player_memory is None:
+            return
+        try:
+            if self.memory_jobs.enqueue(player_id, game_id, request_id, player_text):
+                self._memory_wakeup.set()
+        except Exception:
+            logging.getLogger(__name__).exception("player profile enqueue failed")
+
+    async def run_memory_worker(self) -> None:
+        if not self.memory_feature_enabled or self.player_memory is None:
+            return
+        while True:
+            task = asyncio.create_task(self._run_memory_batch())
+            try:
+                batch = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Finish the claimed batch before closing its embedded Qdrant store.
+                try:
+                    await task
+                except Exception:
+                    logging.getLogger(__name__).exception("player profile batch failed during shutdown")
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception("player profile worker failed; retrying")
+                batch = None
+            if batch is None:
+                self._memory_wakeup.clear()
+                try:
+                    await asyncio.wait_for(self._memory_wakeup.wait(), timeout=20)
+                except asyncio.TimeoutError:
+                    pass
+
+    async def _run_memory_batch(self) -> MemoryBatch | None:
+        async with self._memory_access:
+            batch = await asyncio.to_thread(self.memory_jobs.claim)
+            if batch is None:
+                return None
+            with self.telemetry.span(
+                "player-memory-batch", {"input_count": len(batch.items),
+                                        "provider": "mem0", "billed_to_player": False},
+                session_id=session_id_for_game(batch.items[0][0]),
+            ) as span:
+                try:
+                    await asyncio.to_thread(
+                        self.player_memory.remember, batch.player_id,
+                        tuple(item[2] for item in batch.items),
+                    )
+                except Exception:
+                    span.metric("story.player_memory_batch_success", 0.0)
+                    logging.getLogger(__name__).exception("player profile extraction failed")
+                    await asyncio.to_thread(self.memory_jobs.fail, batch)
+                else:
+                    await asyncio.to_thread(self.memory_jobs.complete, batch)
+                    self._profile_cache.pop(batch.player_id, None)
+                    span.metric("story.player_memory_batch_success", 1.0)
+            return batch
 
     def _player_lock(self, player_id: str) -> asyncio.Lock:
         lock = self._player_turn_locks.get(player_id)
@@ -236,7 +354,9 @@ class PlayerPortal:
         package.seed_game(self.store, game_id)
         self.accounts.create_save(player_id, item.game_id, game_id,
                                   item.package_id, item.package_version, item.fingerprint)
-        result = await self._open_save(item, package, game_id, opening=package.opening)
+        preferences = await self._preferences_for(player_id)
+        with player_preferences_scope(preferences):
+            result = await self._open_save(item, package, game_id, opening=package.opening)
         self.accounts.store_intro(game_id, result)
         return result
 
@@ -255,8 +375,10 @@ class PlayerPortal:
                 and (item.mode != "campaign" or "interaction" in latest)):
             return {**latest, "opening": ""}
         package = ScenarioPackage.load(item.package_path)
-        result = await self._open_save(item, package, game_id,
-                                       opening=package.opening if latest is None else "")
+        preferences = await self._preferences_for(player_id)
+        with player_preferences_scope(preferences):
+            result = await self._open_save(item, package, game_id,
+                                           opening=package.opening if latest is None else "")
         if latest is None:
             self.accounts.store_intro(game_id, result)
         return result
@@ -307,7 +429,8 @@ class PlayerPortal:
         package = ScenarioPackage.load(item.package_path)
         turn_id = f"portal-{request_id}"
         context = collect_usage() if self.billing is not None else nullcontext(None)
-        with context as meter:
+        preferences = await self._preferences_for(player_id)
+        with context as meter, player_preferences_scope(preferences):
             recovered = (await self._recover_freeform(item, package, game_id, text, turn_id)
                          if item.mode == "freeform" else None)
             if recovered is not None:
@@ -353,8 +476,10 @@ class PlayerPortal:
                 span.metric("story.credits_charged", billed["billing"]["charged_milli_points"] / 1000)
                 span.metric("story.input_tokens", float(billed["billing"]["input_tokens"]))
                 span.metric("story.output_tokens", float(billed["billing"]["output_tokens"]))
+                self._queue_memory_input(player_id, game_id, request_id, text)
                 return billed
         self.accounts.store_turn_response(game_id, request_id, text, view)
+        self._queue_memory_input(player_id, game_id, request_id, text)
         return view
 
     async def _recover_freeform(self, item: GameListing, package: ScenarioPackage,

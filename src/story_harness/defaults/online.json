@@ -34,6 +34,14 @@
   "memory": {
     "driver": "in_memory"
   },
+  "player_memory": {
+    "driver": "mem0",
+    "enabled_env": "STORY_PLAYER_MEMORY_ENABLED",
+    "path_env": "STORY_MEMORY_DIR",
+    "llm_model": "qwen3.8-flash",
+    "embedding_model": "text-embedding-v4",
+    "embedding_dims": 1024
+  },
   "http": {
     "allowed_hosts_env": "STORY_ALLOWED_HOSTS",
     "allowed_origins_env": "STORY_ALLOWED_ORIGINS"

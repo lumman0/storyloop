@@ -34,6 +34,8 @@ python -m story_harness.cli.portal_api --profile online --port 8765
 
 当前线上运行建议单个 API worker。单个游戏的并发回合与跨实例调度锁尚未实现；数据库乐观版本校验会拒绝冲突提交。Redis 可以在后续作为活跃会话缓存加入，不承担存档权威数据。
 
+玩家画像独立于 AgentScope 的回合上下文。`player_memory.driver` 可选 `none` 或 `mem0`；线上还需 `STORY_PLAYER_MEMORY_ENABLED=1` 才采集和提炼画像，默认 `0`。Mem0 开源库使用本机持久化 Qdrant，不需要阿里云对象存储；玩家需在画像页面单独开启。每 6 条有效输入且至少间隔 12 小时批量提炼，模型和向量调用由平台承担，不扣玩家积分；关闭或百炼故障不会阻断故事回合。部署单 API worker；若扩为多副本，需要共享向量存储及分布式任务领取机制。本地配置默认不加载 Mem0；如要试用，安装 `.[player-memory]`、将 `config/local.json` 的驱动改为 `mem0`，并提供支持 `text-embedding-v4` 的百炼按量付费 Key 与对应地域 Base URL。
+
 按量付费 ECS 的单机 Docker Compose 部署清单见 [`deploy/ecs/README.md`](../deploy/ecs/README.md)。该配置使用公开代码镜像、独立挂载的私有剧本目录和 PostgreSQL 数据盘；线上百炼配置使用按量付费接口。
 
 ## 模型连接容错
