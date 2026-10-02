@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import type { Interaction } from "../lib/api";
 import { Button } from "./ui/button";
+import { playerFacingText } from "../lib/playerText";
 
 export function ChoicePanel({
   interaction,
@@ -41,12 +42,12 @@ export function ChoicePanel({
     <form className="choice-panel" onSubmit={submit} aria-label="当前剧情选择">
       <div className="choice-heading">
         <span>剧情选择</span>
-        <h2>{interaction.prompt}</h2>
+        <h2>{playerFacingText(interaction.prompt)}</h2>
       </div>
       <div
         className="choice-options"
         role="group"
-        aria-label={interaction.prompt}
+        aria-label={playerFacingText(interaction.prompt)}
       >
         {interaction.options.map((item) => (
           <button
@@ -62,7 +63,7 @@ export function ChoicePanel({
               setNote("");
             }}
           >
-            <span>{item.label}</span>
+            <span>{playerFacingText(item.label)}</span>
             <span aria-hidden="true">{selected === item.id ? "●" : "○"}</span>
           </button>
         ))}

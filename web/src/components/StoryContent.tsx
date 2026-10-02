@@ -1,9 +1,11 @@
 import type { StorySegment, View } from "../lib/api";
+import { playerFacingText } from "../lib/playerText";
 
 function Prose({ text }: { text: string }) {
+  const displayText = playerFacingText(text);
   return (
     <div className="story-prose">
-      {text
+      {displayText
         .split(/\n\s*\n/)
         .filter(Boolean)
         .map((paragraph, index) => (
@@ -16,7 +18,7 @@ function Prose({ text }: { text: string }) {
 function Segment({ segment }: { segment: StorySegment }) {
   if (segment.kind === "prompt") return null;
   if (segment.kind === "time") {
-    return <div className="time-block" aria-label="时间流逝">{segment.text}</div>;
+    return <div className="time-block" aria-label="时间流逝">{playerFacingText(segment.text)}</div>;
   }
   if (segment.kind === "dialogue") {
     return (

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Feather, Plus, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, Clock3, Feather, Moon, Plus, Send, Sparkles } from "lucide-react";
 import { api, type History, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
 import { StoryContent } from "../components/StoryContent";
 import { ChoicePanel } from "../components/ChoicePanel";
+import { containsStoryCommand, isStoryCommandInput, playerFacingText } from "../lib/playerText";
 
 function playerAction(text: string | null, previous: View | null | undefined) {
   if (!text) return "早期存档的行动记录不可用";
@@ -17,10 +18,11 @@ function playerAction(text: string | null, previous: View | null | undefined) {
     const label = previous?.interaction?.options.find(
       (item) => item.id === id,
     )?.label;
-    if (label)
-      return `选择「${label}」${rest.length ? ` · ${rest.join(" ")}` : ""}`;
+    return label
+      ? `选择「${playerFacingText(label)}」${rest.length ? ` · ${playerFacingText(rest.join(" "))}` : ""}`
+      : "完成剧情选择";
   }
-  return text;
+  return playerFacingText(text);
 }
 
 type PendingTurn = {
@@ -151,12 +153,15 @@ export function PlayPage({ token }: { token: string }) {
   }
 
   function editPending() {
-    if (!pending || busy) return;
+    if (!pending || busy || isStoryCommandInput(pending.text)) return;
     setDraft(pending.text);
     setPending(null);
     document.getElementById("turn-input")?.focus();
   }
   const intro = history?.intro;
+  const visibleSuggestions = current?.suggestions.filter(
+    (suggestion) => !containsStoryCommand(suggestion),
+  ) ?? [];
 
   return (
     <main className="reader-shell">
@@ -196,7 +201,7 @@ export function PlayPage({ token }: { token: string }) {
                     <span className="entry-label">序章</span>
                     {intro.opening && (
                       <div className="story-prose">
-                        <p>{intro.opening}</p>
+                        <p>{playerFacingText(intro.opening)}</p>
                       </div>
                     )}
                     <StoryContent view={intro} />
@@ -252,7 +257,9 @@ export function PlayPage({ token }: { token: string }) {
                       {pending.error && (
                         <div className="pending-actions">
                           <Button type="button" onClick={() => void submitText(pending.text)}>重试这条行动</Button>
-                          <button type="button" onClick={editPending}>编辑后发送</button>
+                          {!isStoryCommandInput(pending.text) && (
+                            <button type="button" onClick={editPending}>编辑后发送</button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -319,6 +326,28 @@ export function PlayPage({ token }: { token: string }) {
                       {busy ? "世界正在回应…" : `${draft.length}/10000`}
                     </span>
                   </div>
+                  {current.mode === "campaign" && (
+                    <div className="time-actions" role="group" aria-label="时间操作">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void submitText("/next")}
+                        disabled={busy || !!pending}
+                      >
+                        <Clock3 size={17} />
+                        推进时段
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void submitText("/rest")}
+                        disabled={busy || !!pending}
+                      >
+                        <Moon size={17} />
+                        休息到次日
+                      </Button>
+                    </div>
+                  )}
                   {error && (
                     <p className="form-error" role="alert">
                       {error}
@@ -343,9 +372,9 @@ export function PlayPage({ token }: { token: string }) {
                 <Sparkles size={18} />
                 <h2>接下来可以试试</h2>
               </div>
-              {!current.interaction && current.suggestions.length ? (
+              {!current.interaction && visibleSuggestions.length ? (
                 <ul>
-                  {current.suggestions.map((suggestion, index) => (
+                  {visibleSuggestions.map((suggestion, index) => (
                     <li key={`${index}-${suggestion}`}>
                       <button
                         type="button"
