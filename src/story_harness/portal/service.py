@@ -85,6 +85,8 @@ class PlayerPortal:
                 item = self._verified_listing(record)
             except (KeyError, ValueError):
                 item = None
+            if item is not None and item.retired:
+                continue
             snapshot = self.store.load(record.game_id)
             campaign = snapshot.data.get("campaign")
             result.append({"game_id": record.game_id, "catalog_id": record.catalog_id,
@@ -156,6 +158,8 @@ class PlayerPortal:
     async def create_save(self, token: str, catalog_id: str) -> dict:
         player_id = self.accounts.resolve_token(token)
         item = self.catalog.get(catalog_id)
+        if item.retired:
+            raise ValueError("this game is no longer available for new saves")
         self._require_model_key()
         package = ScenarioPackage.load(item.package_path)
         game_id = uuid4().hex

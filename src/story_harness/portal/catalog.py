@@ -38,6 +38,7 @@ class GameListing:
     genre: str = ""
     theme: str = "harbor"
     turns_per_story_tick: int = 1
+    retired: bool = False
 
 
 class GameCatalog:
@@ -65,6 +66,9 @@ class GameCatalog:
             turns_per_story_tick = item.get("turns_per_story_tick", 1)
             if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
                 raise ValueError("turns_per_story_tick must be positive")
+            retired = item.get("retired", False)
+            if type(retired) is not bool:
+                raise ValueError("catalog game retired must be a boolean")
             for field in ("summary", "genre", "theme"):
                 if field in item and not isinstance(item[field], str):
                     raise ValueError(f"catalog game {field} must be a string")
@@ -78,11 +82,11 @@ class GameCatalog:
                                         package.package_id, package.version,
                                         _package_fingerprint(package_path, item["mode"]),
                                         item.get("summary", ""), item.get("genre", ""),
-                                        item.get("theme", "harbor"), turns_per_story_tick))
+                                        item.get("theme", "harbor"), turns_per_story_tick, retired))
         return cls(tuple(listings))
 
     def list_games(self) -> tuple[GameListing, ...]:
-        return tuple(self._listings.values())
+        return tuple(item for item in self._listings.values() if not item.retired)
 
     def get(self, game_id: str) -> GameListing:
         try:
