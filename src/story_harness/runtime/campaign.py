@@ -24,6 +24,21 @@ class ReactTurn(Protocol):
 
 
 @dataclass(frozen=True)
+class SceneContext:
+    game_id: str
+    player_text: str
+    snapshot: Snapshot
+    segments: tuple[StorySegment, ...]
+    opening: bool
+    day: int
+    period: str
+
+
+class ScenePresenter(Protocol):
+    async def present(self, context: SceneContext) -> str: ...
+
+
+@dataclass(frozen=True)
 class CampaignOutcome:
     text: str
     snapshot: Snapshot
@@ -123,7 +138,8 @@ class CampaignSession:
     """Advance a flexible milestone list without allowing a required choice to be skipped."""
 
     def __init__(self, store: GameStore, program: CampaignProgram, react: ReactTurn | None = None,
-                 telemetry: Telemetry | None = None, turns_per_story_tick: int = 1) -> None:
+                 telemetry: Telemetry | None = None, turns_per_story_tick: int = 1,
+                 scene_presenter: ScenePresenter | None = None) -> None:
         if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
             raise ValueError("turns_per_story_tick must be positive")
         self.store = store
@@ -132,6 +148,7 @@ class CampaignSession:
         self.telemetry = telemetry or LangfuseTelemetry()
         self.turns_per_story_tick = turns_per_story_tick
         self.clock = StoryClock(program.ticks_per_day * turns_per_story_tick)
+        self.scene_presenter = scene_presenter
         self._locks: dict[str, asyncio.Lock] = {}
 
     def _story_tick(self, snapshot: Snapshot) -> int:
@@ -160,6 +177,7 @@ class CampaignSession:
             ) as span:
                 await emit(progress, "stage", stage="campaign")
                 result = await self._submit_locked(game_id, text, turn_id, progress)
+                result = await self._present_scene(game_id, text, turn_id, result, progress)
                 if not self.store.event_exists(game_id, f"{turn_id}:completed") and any(
                     self.store.event_exists(game_id, f"{turn_id}:{kind}")
                     for kind in ("choice", "advance", "input", "query", "action")
@@ -178,6 +196,55 @@ class CampaignSession:
                 if self.telemetry.capture_content:
                     span.update(output=result.text)
                 return result
+
+    async def _present_scene(self, game_id: str, text: str, turn_id: str,
+                             result: CampaignOutcome,
+                             progress: TurnProgress | None) -> CampaignOutcome:
+        if self.scene_presenter is None or result.complete:
+            return result
+        operation = self._committed_operation(game_id, turn_id)
+        if operation is None:
+            return result
+        kind, _ = operation
+        if kind == "choice" and result.snapshot.tick == 0 and result.gate_id is not None:
+            return result
+        event_id = f"{turn_id}:scene"
+        if self.store.event_exists(game_id, event_id):
+            return result
+        context = SceneContext(
+            game_id, text, result.snapshot, result.segments,
+            kind == "choice" and result.snapshot.tick == 0 and result.gate_id is None,
+            result.snapshot.data["campaign"]["day"], self.clock.period(result.snapshot.tick),
+        )
+        await emit(progress, "stage", stage="scene")
+        with self.telemetry.span(
+            "campaign-scene-presentation",
+            {"game_id": game_id, "turn_id": turn_id, "opening": context.opening,
+             "tick": result.snapshot.tick,
+             "visible_segment_kinds": [part.kind for part in result.segments]},
+            kind="agent",
+        ) as scene_span:
+            prose = (await self.scene_presenter.present(context)).strip()
+            if not prose:
+                raise ValueError("scene presenter returned no player-visible prose")
+            scene_span.metric("story.scene_presented", 1.0)
+            if self.telemetry.capture_content:
+                scene_span.update(output=prose)
+        before = self.store.load(game_id)
+        after = self.store.commit(
+            game_id, before.version,
+            WorldEvent(event_id, "scene_presented", None, turn_id, before.tick, (),
+                       {"opening": context.opening}),
+            (Observation(f"{event_id}:player", event_id, "player", "scene", prose, before.tick),),
+            (),
+        )
+        parts = list(result.segments)
+        insertion = next((index for index, part in enumerate(parts) if part.kind == "prompt"), len(parts))
+        segment = StorySegment("scene", prose)
+        parts.insert(insertion, segment)
+        await emit(progress, "segment", segment=segment.to_dict())
+        return replace(result, text="\n\n".join(part.body_text for part in parts if part.text),
+                       snapshot=after, segments=tuple(parts))
 
     async def recover_turn(self, game_id: str, turn_id: str) -> CampaignOutcome | None:
         """Finish a committed turn before a CLI assigns its ID to new input."""

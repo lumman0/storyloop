@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
+from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
@@ -126,6 +127,10 @@ class PlayerPortal:
         result = (program, CampaignSession(
             self.store, program, self._react(item, package), telemetry=self.telemetry,
             turns_per_story_tick=item.turns_per_story_tick,
+            scene_presenter=CampaignSceneNarrator(
+                package, program, self.config.create_model("narration", dict(os.environ), self.telemetry),
+                self.telemetry,
+            ),
         ))
         self._campaign_sessions[key] = result
         return result

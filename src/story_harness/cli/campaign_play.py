@@ -11,6 +11,7 @@ from pathlib import Path
 
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
+from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.cli.react_play import DEFAULT_CONFIG
 from story_harness.cli.guidance_view import format_turn_output
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
@@ -38,7 +39,12 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
         package.seed_game(store, game_id)
         new_game = True
     react = make_react_session(config, package, store, values, telemetry)
-    session = CampaignSession(store, program, react, telemetry=telemetry)
+    session = CampaignSession(
+        store, program, react, telemetry=telemetry,
+        scene_presenter=CampaignSceneNarrator(
+            package, program, config.create_model("narration", values, telemetry), telemetry,
+        ),
+    )
     advisor = GuidanceAdvisor(store, package, program, telemetry=telemetry)
     print(f"{package.package_id} | game={game_id} | /next 推进时段 | /quit 退出")
     if new_game and package.opening:

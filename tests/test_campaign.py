@@ -71,6 +71,56 @@ class CampaignTests(unittest.TestCase):
     def run_async(self, coro):
         return asyncio.run(coro)
 
+    def test_opening_and_following_turn_receive_durable_scene_response(self):
+        guided = CampaignProgram.from_dict({
+            "id": "guided", "ticks_per_day": 2, "final_tick": 4,
+            "steps": [
+                {"id": "badge", "at": 0, "kind": "choice", "prompt": "选行李牌",
+                 "options": [{"id": "m1", "label": "甲"}]},
+                {"id": "wish", "at": 0, "kind": "choice", "prompt": "选愿望",
+                 "options": [{"id": "friendship", "label": "认识朋友"}]},
+                {"id": "ending", "at": 4, "kind": "finale", "choice_key": "badge",
+                 "threshold": 1, "success_text": "结束", "other_text": "结束"},
+            ],
+        })
+        self.store.create_game(Snapshot("guided", 0, 0, {
+            "scenario": {"id": "guided", "version": "1"},
+            "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
+            "campaign": guided.initial_state(["m1"]),
+        }))
+
+        class Presenter:
+            def __init__(self):
+                self.calls = []
+
+            async def present(self, context):
+                self.calls.append(context)
+                return ("雪见庄的灯亮着。你可以观察客厅，也可以向嘉宾打招呼。"
+                        if context.opening else "窗外的雪仍在落，刚才的交谈让屋里安静了一瞬。")
+
+        presenter = Presenter()
+        session = CampaignSession(self.store, guided, FakeReact(self.store),
+                                  turns_per_story_tick=3, scene_presenter=presenter)
+        self.run_async(session.start("guided"))
+        first = self.run_async(session.submit("guided", "/choose m1", "badge-turn"))
+        self.assertEqual(first.gate_id, "wish")
+        self.assertEqual(presenter.calls, [])
+
+        opening = self.run_async(session.submit("guided", "/choose friendship", "wish-turn"))
+        self.assertTrue(presenter.calls[0].opening)
+        self.assertIn("你可以观察客厅", opening.text)
+        self.assertEqual(opening.segments[-1].kind, "scene")
+        self.assertEqual(self.store.observations_for("guided", "player")[-1].channel, "scene")
+
+        replayed = self.run_async(session.submit("guided", "/choose friendship", "wish-turn"))
+        self.assertIn("你可以观察客厅", replayed.text)
+        self.assertEqual(len(presenter.calls), 1)
+
+        following = self.run_async(session.submit("guided", "你好", "chat-turn"))
+        self.assertFalse(presenter.calls[-1].opening)
+        self.assertIn("窗外的雪", following.text)
+        self.assertEqual(len(presenter.calls), 2)
+
     def test_dialogue_pacing_keeps_first_day_open_for_multiple_turns(self):
         paced = CampaignProgram.from_dict({
             "id": "paced", "ticks_per_day": 2, "final_tick": 4,

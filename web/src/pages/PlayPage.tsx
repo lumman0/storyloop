@@ -43,6 +43,7 @@ const stageLabels: Record<string, string> = {
   characters: "角色正在回应",
   background: "处理背景事件",
   narrating: "整理本轮故事",
+  scene: "铺陈当前场景",
   guidance: "准备后续建议",
 };
 

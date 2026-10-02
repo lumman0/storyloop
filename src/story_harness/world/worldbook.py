@@ -101,3 +101,10 @@ class Worldbook:
             if self._can_read(entry, viewer, grants)
             and needle in entry.text.casefold()
         ][:limit]
+
+    def visible_lore(self, viewer: str, limit: int = 4) -> tuple[WorldbookEntry, ...]:
+        """Return setting material safe to use in player-facing scene prose."""
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        return tuple(entry for entry in self._entries.values()
+                     if entry.kind == "lore" and self._can_read(entry, viewer, frozenset()))[:limit]

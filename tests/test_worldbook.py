@@ -47,6 +47,11 @@ class WorldbookTests(unittest.TestCase):
             ["hall", "truth"],
         )
 
+    def test_visible_lore_for_scene_narration_excludes_private_entries(self) -> None:
+        book = Worldbook.load(self.path)
+
+        self.assertEqual([entry.entry_id for entry in book.visible_lore("player")], ["hall"])
+
     def test_duplicate_entry_ids_are_rejected(self) -> None:
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         payload["entries"].append(payload["entries"][0])
