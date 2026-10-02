@@ -9,6 +9,7 @@ import { StoryContent } from "../components/StoryContent";
 import { ChoicePanel } from "../components/ChoicePanel";
 import { containsStoryCommand, isStoryCommandInput, playerFacingText } from "../lib/playerText";
 import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
+import { createRequestId } from "../lib/requestId";
 
 function playerAction(text: string | null, previous: View | null | undefined) {
   if (!text) return "早期存档的行动记录不可用";
@@ -112,9 +113,15 @@ export function PlayPage({ token }: { token: string }) {
   async function submitText(text: string): Promise<boolean> {
     if (!text.trim() || busy || (current?.complete && !pending?.error)) return false;
     if (pending && (!pending.error || pending.text !== text)) return false;
-    setBusy(true);
     setError("");
-    const requestId = pending?.id ?? crypto.randomUUID();
+    let requestId: string;
+    try {
+      requestId = pending?.id ?? createRequestId();
+    } catch {
+      setError("浏览器无法生成请求标识，请刷新页面后重试。");
+      return false;
+    }
+    setBusy(true);
     savePendingTurn(gameId, { id: requestId, text });
     setPending({
       id: requestId, text, stage: "received", segments: [], body: "", error: "",
