@@ -14,6 +14,7 @@ export function AuthPage({
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
@@ -26,7 +27,7 @@ export function AuthPage({
       const session =
         mode === "login"
           ? await api.login(username, password)
-          : await api.register(username, password);
+          : await api.register(username, password, inviteCode.trim());
       onSession(session);
       navigate("/", { replace: true });
     } catch (cause) {
@@ -123,6 +124,19 @@ export function AuthPage({
               onChange={(event) => setPassword(event.target.value)}
               placeholder="至少 8 位"
             />
+            {mode === "register" && (
+              <>
+                <label htmlFor="invite-code">邀请码（线上内测需要）</label>
+                <input
+                  id="invite-code"
+                  autoComplete="off"
+                  maxLength={128}
+                  value={inviteCode}
+                  onChange={(event) => setInviteCode(event.target.value)}
+                  placeholder="本地试玩可留空"
+                />
+              </>
+            )}
             {error && (
               <p className="form-error" role="alert">
                 {error}

@@ -196,8 +196,10 @@ async function streamTurn(
 }
 
 export const api = {
-  register: (username: string, password: string) =>
-    request<Session>("/v1/accounts", undefined, "POST", { username, password }),
+  register: (username: string, password: string, inviteCode: string) =>
+    request<Session>("/v1/accounts", undefined, "POST", {
+      username, password, invite_code: inviteCode || undefined,
+    }),
   login: (username: string, password: string) =>
     request<Session>("/v1/sessions", undefined, "POST", { username, password }),
   logout: (token: string) =>

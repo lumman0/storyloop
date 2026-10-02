@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from contextlib import nullcontext
 from pathlib import Path
 from uuid import uuid4
+from weakref import WeakValueDictionary
 
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry, session_id_for_game
@@ -47,13 +49,22 @@ class PlayerPortal:
         self.telemetry = configured_telemetry()
         self._react_sessions: dict[Path, GameSession] = {}
         self._campaign_sessions: dict[Path, tuple[CampaignProgram, CampaignSession]] = {}
+        self._player_turn_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def close(self) -> None:
         self.telemetry.flush()
         self.engine.dispose()
 
-    def register(self, username: str, password: str) -> dict:
-        player_id = self.accounts.register(username, password)
+    def _player_lock(self, player_id: str) -> asyncio.Lock:
+        lock = self._player_turn_locks.get(player_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._player_turn_locks[player_id] = lock
+        return lock
+
+    def register(self, username: str, password: str, invite_code: str | None = None) -> dict:
+        player_id = self.accounts.register(username, password, invite_code,
+                                           require_invite=self.config.profile == "online")
         if self.billing is not None:
             self.billing.ensure_wallet(player_id)
         return {"player_id": player_id, "token": self.accounts.issue_token(player_id)}
@@ -193,6 +204,10 @@ class PlayerPortal:
 
     async def resume_save(self, token: str, game_id: str) -> dict:
         player_id = self.accounts.resolve_token(token)
+        async with self._player_lock(player_id):
+            return await self._resume_save_for_player(player_id, game_id)
+
+    async def _resume_save_for_player(self, player_id: str, game_id: str) -> dict:
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
         latest = self.accounts.latest_turn_response(game_id)
@@ -232,6 +247,11 @@ class PlayerPortal:
     async def turn(self, token: str, game_id: str, text: str,
                    request_id: str | None = None, progress: TurnProgress | None = None) -> dict:
         player_id = self.accounts.resolve_token(token)
+        async with self._player_lock(player_id):
+            return await self._turn_for_player(player_id, game_id, text, request_id, progress)
+
+    async def _turn_for_player(self, player_id: str, game_id: str, text: str,
+                               request_id: str | None, progress: TurnProgress | None) -> dict:
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
         if not isinstance(text, str) or not text.strip():

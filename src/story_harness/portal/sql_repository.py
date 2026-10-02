@@ -39,14 +39,37 @@ class SQLPlayerRepository:
                           row["package_id"], row["package_version"], row["package_hash"],
                           row["created_at"])
 
-    def register(self, username: str, password: str) -> str:
+    def issue_signup_invite(self, valid_days: int = 30) -> str:
+        if type(valid_days) is not int or valid_days < 1:
+            raise ValueError("invite validity must be at least one day")
+        code = secrets.token_urlsafe(24)
+        with self.engine.begin() as db:
+            db.execute(text("""INSERT INTO signup_invites (code_hash,expires_at)
+                VALUES (:code_hash,:expires_at)"""),
+                {"code_hash": hashlib.sha256(code.encode()).digest(),
+                 "expires_at": int(time.time()) + valid_days * 24 * 3600})
+        return code
+
+    def register(self, username: str, password: str,
+                 invite_code: str | None = None, *, require_invite: bool = False) -> str:
         name = self._username(username)
         secret = self._password(password)
+        if require_invite and (not isinstance(invite_code, str) or not invite_code.strip()):
+            raise ValueError("invite code required")
         salt = secrets.token_bytes(16)
         digest = hashlib.pbkdf2_hmac("sha256", secret.encode(), salt, 310_000)
         player_id = uuid4().hex
         try:
             with self.engine.begin() as db:
+                if require_invite:
+                    now = int(time.time())
+                    consumed = db.execute(text("""UPDATE signup_invites
+                        SET used_by=:player_id, used_at=:used_at
+                        WHERE code_hash=:code_hash AND used_by IS NULL AND expires_at>:used_at"""),
+                        {"player_id": player_id, "used_at": now,
+                         "code_hash": hashlib.sha256(invite_code.strip().encode()).digest()})
+                    if consumed.rowcount != 1:
+                        raise ValueError("invalid or used invite code")
                 db.execute(text("""INSERT INTO player_accounts
                     (player_id,username,password_salt,password_hash,created_at)
                     VALUES (:player_id,:username,:salt,:digest,:created_at)"""),

@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from story_harness.portal.service import PlayerPortal
@@ -41,6 +41,7 @@ def _model_http_error(error: Exception) -> HTTPException:
 class AccountBody(BaseModel):
     username: str
     password: str
+    invite_code: str | None = Field(default=None, max_length=128)
 
 
 class SaveBody(BaseModel):
@@ -124,7 +125,7 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.post("/v1/accounts", status_code=201)
     def register(body: AccountBody) -> dict:
         try:
-            return portal.register(body.username, body.password)
+            return portal.register(body.username, body.password, body.invite_code)
         except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from sqlalchemy import text
 
 from story_harness.adapters.sql_database import open_database, sqlite_url, upgrade_database
 from story_harness.core.billing import BillingPolicy, ModelUsage, record_model_usage
@@ -14,6 +15,94 @@ from story_harness.portal.sql_repository import SQLPlayerRepository
 
 
 class CreditWalletTests(unittest.TestCase):
+    def test_resume_waits_for_inflight_turn_after_browser_reconnect(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+            "STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            "LANGFUSE_SECRET_KEY": "",
+        }):
+            portal = PlayerPortal(root / "config" / "games.example.json",
+                                  root / "config" / "local.json",
+                                  str(Path(temp) / "portal.sqlite3"))
+            try:
+                token = portal.register("reconnect-user", "password-123")["token"]
+                game_id = asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
+                entered = asyncio.Event()
+                release = asyncio.Event()
+
+                class SlowSession:
+                    async def run_turn(self, game_id, text, turn_id, progress=None):
+                        entered.set()
+                        await release.wait()
+                        return SimpleNamespace(narration="完成", segments=(),
+                                               snapshot=portal.store.load(game_id))
+
+                portal._react = lambda item, package: SlowSession()
+
+                async def reconnect():
+                    turn = asyncio.create_task(portal.turn(token, game_id, "你好", "reconnect-1"))
+                    await entered.wait()
+                    resumed = asyncio.create_task(portal.resume_save(token, game_id))
+                    await asyncio.sleep(0.02)
+                    self.assertFalse(resumed.done())
+                    release.set()
+                    await turn
+                    return await resumed
+
+                result = asyncio.run(reconnect())
+                self.assertEqual(result["body"], "完成")
+            finally:
+                portal.close()
+
+    def test_concurrent_saves_share_one_credit_gate(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+            "STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            "LANGFUSE_SECRET_KEY": "",
+        }):
+            portal = PlayerPortal(root / "config" / "games.example.json",
+                                  root / "config" / "local.json",
+                                  str(Path(temp) / "portal.sqlite3"))
+            try:
+                account = portal.register("parallel-user", "password-123")
+                token = account["token"]
+                game_ids = [asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
+                            for _ in range(2)]
+                with portal.engine.begin() as db:
+                    db.execute(text("UPDATE credit_wallets SET balance_milli_points=100 "
+                                    "WHERE player_id=:player_id"),
+                               {"player_id": account["player_id"]})
+
+                class FakeSession:
+                    calls = 0
+
+                    async def run_turn(self, game_id, text, turn_id, progress=None):
+                        self.calls += 1
+                        await asyncio.sleep(0.02)
+                        record_model_usage("qwen3.8-flash", "npc_selection", SimpleNamespace(
+                            input_tokens=1000, output_tokens=500,
+                            metadata=SimpleNamespace(prompt_tokens_details={"cached_tokens": 200}),
+                        ))
+                        return SimpleNamespace(narration="你好", segments=(),
+                                               snapshot=portal.store.load(game_id))
+
+                session = FakeSession()
+                portal._react = lambda item, package: session
+
+                async def submit_both():
+                    return await asyncio.gather(
+                        *(portal.turn(token, game_id, "你好", f"request-{index}")
+                          for index, game_id in enumerate(game_ids)),
+                        return_exceptions=True,
+                    )
+
+                results = asyncio.run(submit_both())
+                self.assertEqual(session.calls, 1)
+                self.assertEqual(sum(isinstance(result, ValueError) for result in results), 1)
+                self.assertEqual(portal.wallet(token)["balance_points"], "0.000")
+            finally:
+                portal.close()
+
     def test_welcome_grant_actual_usage_and_retry_are_atomic(self):
         with tempfile.TemporaryDirectory() as temp:
             url = sqlite_url(str(Path(temp) / "wallet.sqlite3"))

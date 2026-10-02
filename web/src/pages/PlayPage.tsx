@@ -8,6 +8,7 @@ import { Loading, Notice } from "../components/Feedback";
 import { StoryContent } from "../components/StoryContent";
 import { ChoicePanel } from "../components/ChoicePanel";
 import { containsStoryCommand, isStoryCommandInput, playerFacingText } from "../lib/playerText";
+import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
 
 function playerAction(text: string | null, previous: View | null | undefined) {
   if (!text) return "早期存档的行动记录不可用";
@@ -69,6 +70,7 @@ export function PlayPage({ token }: { token: string }) {
 
   useEffect(() => {
     let active = true;
+    const savedPending = readPendingTurn(gameId);
     setLoading(true);
     setError("");
     Promise.all([api.saves(token), api.resume(token, gameId)])
@@ -81,6 +83,15 @@ export function PlayPage({ token }: { token: string }) {
         );
         setHistory(transcript);
         setCurrent(view);
+        if (savedPending && transcript.turns.some((turn) => turn.request_id === savedPending.id)) {
+          clearPendingTurn(gameId);
+          setPending(null);
+        } else {
+          setPending(savedPending ? {
+            ...savedPending, stage: "received", segments: [], body: "",
+            error: "上次行动的结果尚未确认。请用原请求重试。", startedAt: Date.now(),
+          } : null);
+        }
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause));
@@ -99,11 +110,12 @@ export function PlayPage({ token }: { token: string }) {
   }, [history?.turns.length, pending?.stage, pending?.segments.length]);
 
   async function submitText(text: string): Promise<boolean> {
-    if (!text.trim() || busy || current?.complete) return false;
+    if (!text.trim() || busy || (current?.complete && !pending?.error)) return false;
     if (pending && (!pending.error || pending.text !== text)) return false;
     setBusy(true);
     setError("");
     const requestId = pending?.id ?? crypto.randomUUID();
+    savePendingTurn(gameId, { id: requestId, text });
     setPending({
       id: requestId, text, stage: "received", segments: [], body: "", error: "",
       startedAt: Date.now(),
@@ -133,6 +145,7 @@ export function PlayPage({ token }: { token: string }) {
       );
       setCurrent(response);
       window.dispatchEvent(new Event("story:billing-updated"));
+      clearPendingTurn(gameId);
       setPending(null);
       return true;
     } catch (cause) {
@@ -154,12 +167,6 @@ export function PlayPage({ token }: { token: string }) {
     document.getElementById("turn-input")?.focus();
   }
 
-  function editPending() {
-    if (!pending || busy || isStoryCommandInput(pending.text)) return;
-    setDraft(pending.text);
-    setPending(null);
-    document.getElementById("turn-input")?.focus();
-  }
   const intro = history?.intro;
   const visibleSuggestions = current?.suggestions.filter(
     (suggestion) => !containsStoryCommand(suggestion),
@@ -266,9 +273,6 @@ export function PlayPage({ token }: { token: string }) {
                       {pending.error && (
                         <div className="pending-actions">
                           <Button type="button" onClick={() => void submitText(pending.text)}>重试这条行动</Button>
-                          {!isStoryCommandInput(pending.text) && (
-                            <button type="button" onClick={editPending}>编辑后发送</button>
-                          )}
                         </div>
                       )}
                     </div>

@@ -6,8 +6,8 @@
 
 1. 在安全组入方向放通 TCP 80、443；SSH 22 只允许管理员公网 IP。应用无需对公网开放 8765、5432、5173。
 2. 安装 Docker Engine 和 Compose 插件。确认 `docker compose version` 可运行。
-3. 将数据盘挂载在 `/srv/storyloop-data`，并设置为开机自动挂载。**先用 `lsblk -f` 核对磁盘设备，再初始化空盘；不要假定设备名。**确认 `mountpoint /srv/storyloop-data` 成功后再启动数据库。
-4. 将私有剧本放在 `/srv/storyloop-private`。目录内需要 `catalog.json` 和其中引用的剧本包，例如 `winter-show/`。剧本包路径相对于 `catalog.json`，不需要复制进公开仓库。
+3. 创建 `/srv/storyloop-data`。只有系统盘时，该目录可暂时放在系统盘上；应定期将数据库备份复制到 ECS 以外。以后增加数据盘时，先用 `lsblk -f` 核对设备，再将数据迁移到挂载点并设置开机自动挂载；不要假定设备名。
+4. 将私有剧本放在 `/srv/storyloop-private`。目录内需要 `catalog.json` 和其中引用的剧本包，例如 `winter-show/`。剧本包路径相对于 `catalog.json`，不需要复制进公开仓库。当前本地可使用 `D:\ai\romance-validation-private\catalog.json` 与同目录的 `winter-show/`；旧版 `portal-catalog.json` 含指向本机其他目录的条目，不能直接用于容器。
 
 ## 配置与启动
 
@@ -25,16 +25,24 @@ chmod 600 .env
 - `STORY_ALLOWED_HOSTS` 填玩家访问的 IP 或域名，不含协议和端口；`STORY_ALLOWED_ORIGINS` 填浏览器完整来源，例如 `http://<ECS 公网 IP>`。切换 HTTPS 域名时同步修改两项。
 - `STORY_DATA_DIR` 和 `STORY_PRIVATE_DIR` 填前面准备的绝对路径。
 
-先检查私有剧本与数据盘，再启动：
+先检查私有剧本与数据目录，再启动：
 
 ```sh
 test -f /srv/storyloop-private/catalog.json
-mountpoint /srv/storyloop-data
+test -d /srv/storyloop-data
 docker compose config -q
 docker compose up -d --build
 docker compose ps
 curl -fsS http://127.0.0.1/health
 ```
+
+线上注册需要一次性邀请码。首次启动后，在 `deploy/ecs` 目录执行下面的命令生成邀请码，再通过安全渠道交给内测玩家。每个邀请码只能注册一个账号，默认 30 天有效；登录不需要邀请码。
+
+```sh
+docker compose exec api python -m story_harness.cli.signup_invite --count 5
+```
+
+Nginx 对注册、登录和创建存档入口设置了按来源 IP 的请求速率限制。一个玩家账号的回合在单 API worker 内串行处理，避免多个存档同时通过同一笔余额检查。
 
 浏览器测试地址为 `http://<ECS 公网 IP>/`。当前公网 IP 的 HTTP 入口仅供部署验证；开放真实玩家登录前，应配置域名和 HTTPS，并将 Nginx 公网入口改成 HTTPS。`/v1` 由 Nginx 转发到 API；SSE 流式响应禁用代理缓冲。API 和 PostgreSQL 不发布公网端口。
 

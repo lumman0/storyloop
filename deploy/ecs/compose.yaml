@@ -14,7 +14,7 @@ services:
       POSTGRES_USER: story
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
-      - ${STORY_DATA_DIR:?Mount the data disk and set STORY_DATA_DIR}/postgres:/var/lib/postgresql/data
+      - ${STORY_DATA_DIR:?Set STORY_DATA_DIR to a persistent data directory}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U story -d story"]
       interval: 5s
