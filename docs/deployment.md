@@ -34,6 +34,8 @@ python -m story_harness.cli.portal_api --profile online --port 8765
 
 当前线上运行建议单个 API worker。单个游戏的并发回合与跨实例调度锁尚未实现；数据库乐观版本校验会拒绝冲突提交。Redis 可以在后续作为活跃会话缓存加入，不承担存档权威数据。
 
+按量付费 ECS 的单机 Docker Compose 部署清单见 [`deploy/ecs/README.md`](../deploy/ecs/README.md)。该配置使用公开代码镜像、独立挂载的私有剧本目录和 PostgreSQL 数据盘；线上百炼配置使用按量付费接口。
+
 ## 模型连接容错
 
 部署环境必须能通过 HTTPS 访问配置中 `models.base_url` 的主机，并正确注入模型密钥。`/health` 只检查 API 进程是否存活，不代表外部模型可用；发布后应从部署环境发起一次实际的短模型请求验证连通性。

@@ -8,7 +8,9 @@ build/
 dist/
 .env
 .env.*
+!deploy/ecs/.env.example
 config/application.local.json
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo
+deploy/ecs/private/
