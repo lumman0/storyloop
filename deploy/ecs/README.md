@@ -46,7 +46,17 @@ docker compose exec api python -m story_harness.cli.signup_invite --count 5
 
 Nginx 对注册、登录和创建存档入口设置了按来源 IP 的请求速率限制。一个玩家账号的回合在单 API worker 内串行处理，避免多个存档同时通过同一笔余额检查。
 
-浏览器测试地址为 `http://<ECS 公网 IP>/`。当前公网 IP 的 HTTP 入口仅供部署验证；开放真实玩家登录前，应配置域名和 HTTPS，并将 Nginx 公网入口改成 HTTPS。`/v1` 由 Nginx 转发到 API；SSE 流式响应禁用代理缓冲。API 和 PostgreSQL 不发布公网端口。
+浏览器入口为 `https://47.76.236.125/`，HTTP 自动跳转 HTTPS。Nginx 使用 Let's Encrypt 的公网 IP 证书，证书约 6 天到期，必须保持自动续期。首次部署前，先使用仅含 ACME 挑战路径的 HTTP 配置签发证书，再启用 443 配置；证书目录为 `/srv/storyloop-data/letsencrypt`。服务器安装并启用续期计时器：
+
+```sh
+cp storyloop-cert-renew.service /etc/systemd/system/
+cp storyloop-cert-renew.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now storyloop-cert-renew.timer
+systemctl start storyloop-cert-renew.service
+```
+
+续期服务使用 Certbot 容器与 ACME webroot，成功检查后重新加载 Nginx。`/v1` 由 Nginx 转发到 API；SSE 流式响应禁用代理缓冲。API 和 PostgreSQL 不发布公网端口。后续换域名时需更新证书路径、Allowed Hosts 与 Allowed Origins。
 
 ## 数据与停机
 

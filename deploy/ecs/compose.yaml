@@ -61,8 +61,10 @@ services:
     logging: *json-logging
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ${STORY_DATA_DIR:?Set STORY_DATA_DIR to a persistent data directory}/acme-challenge:/var/www/acme:ro
+      - ${STORY_DATA_DIR:?Set STORY_DATA_DIR to a persistent data directory}/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       api:
         condition: service_healthy
