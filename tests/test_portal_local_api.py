@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from httpx2 import Request
+from openai import APIConnectionError
 
 from story_harness.portal.http_api import create_app
 from story_harness.portal.local_config import LocalPreferences
@@ -21,6 +23,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PortalLocalApiSmokeTest(unittest.TestCase):
+    def test_model_connection_failure_is_reported_as_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+                         "LANGFUSE_SECRET_KEY": ""},
+        ):
+            portal = PlayerPortal(ROOT / "config" / "games.example.json",
+                                  ROOT / "config" / "local.json", str(Path(temp) / "game.sqlite3"))
+            token = portal.register("offline-user", "stream-pass-123")["token"]
+
+            async def unavailable(*_args, **_kwargs):
+                raise APIConnectionError(request=Request("POST", "https://example.invalid/v1"))
+
+            portal.turn = unavailable
+            with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
+                headers = {"Authorization": f"Bearer {token}"}
+                streamed = client.post("/v1/saves/sample/turns/stream", json={
+                    "text": "hi", "request_id": "request-1",
+                }, headers=headers)
+                regular = client.post("/v1/saves/sample/turns", json={
+                    "text": "hi", "request_id": "request-1",
+                }, headers=headers)
+            events = [json.loads(line[6:]) for line in streamed.text.splitlines()
+                      if line.startswith("data: ")]
+            self.assertEqual(events[-1]["type"], "error")
+            self.assertIn("模型服务", events[-1]["message"])
+            self.assertIn("重试", events[-1]["message"])
+            self.assertEqual(regular.status_code, 503)
+            self.assertIn("模型服务", regular.json()["detail"])
+
     def test_streamed_turn_reports_progress_and_final_view(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",

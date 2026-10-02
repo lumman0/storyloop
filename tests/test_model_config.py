@@ -15,6 +15,15 @@ from story_harness.world.scenario import ScenarioPackage
 
 
 class NpcModelConfigTests(unittest.TestCase):
+    def test_configured_model_has_bounded_connect_and_response_timeouts(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        config = HarnessConfig.load(root / "config" / "bailian-token-plan.json")
+        model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-token"})
+
+        self.assertEqual(model.client.timeout.connect, 10)
+        self.assertEqual(model.client.timeout.read, 90)
+        self.assertEqual(model.client.max_retries, 2)
+
     def test_bailian_token_plan_routes_light_and_deep_tasks(self) -> None:
         router = BailianModelRouter.from_environment({"STORY_BAILIAN_API_KEY": "test-token"})
 

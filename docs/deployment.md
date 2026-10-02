@@ -34,6 +34,14 @@ python -m story_harness.cli.portal_api --profile online --port 8765
 
 当前线上运行建议单个 API worker。单个游戏的并发回合与跨实例调度锁尚未实现；数据库乐观版本校验会拒绝冲突提交。Redis 可以在后续作为活跃会话缓存加入，不承担存档权威数据。
 
+## 模型连接容错
+
+部署环境必须能通过 HTTPS 访问配置中 `models.base_url` 的主机，并正确注入模型密钥。`/health` 只检查 API 进程是否存活，不代表外部模型可用；发布后应从部署环境发起一次实际的短模型请求验证连通性。
+
+`models.connect_timeout_seconds`、`models.timeout_seconds`、`models.max_retries` 分别控制连接超时、响应超时和 SDK 对临时故障的重试次数。示例配置为 10 秒、90 秒、2 次重试。连接失败、响应超时、限流和上游 5xx 会返回可重试提示；前端的“重试这条行动”复用原 `request_id`。只有成功完成的回合会结算积分，同一请求不会重复扣费。持续断网或上游长期不可用仍需恢复网络或切换已配置的模型服务，不能靠重试消除。
+
 ## English summary
 
 Install `.[agents,portal,online]`, provide `DATABASE_URL`, `STORY_BAILIAN_API_KEY`, `STORY_ALLOWED_HOSTS`, and `STORY_CATALOG` as deployment environment variables, then run `python -m story_harness.cli.portal_api --profile online`. `STORY_ALLOWED_ORIGINS` is needed for browser clients. The online API uses PostgreSQL, automatic Alembic migrations, and the same repository implementations as local SQLite. Run one API worker until distributed turn coordination is added.
+
+The deployment needs outbound HTTPS access to `models.base_url`. `/health` is a process liveness check, so verify model connectivity with a short real request after deployment. Model connection/response timeouts and retry count are configurable in the `models` section. Retrying a failed turn with its original request ID does not duplicate the game action or credit charge.

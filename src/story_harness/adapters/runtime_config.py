@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -30,6 +31,12 @@ def _positive_int(value: object, name: str) -> int:
     if type(value) is not int or value < 1:
         raise ValueError(f"{name} must be positive")
     return value
+
+
+def _positive_seconds(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive number of seconds")
+    return float(value)
 
 
 def _local_model_key(source: Path, models: dict, profile: str) -> str | None:
@@ -81,6 +88,9 @@ class HarnessConfig:
     allowed_origins_env: str | None = None
     local_api_key: str | None = field(default=None, repr=False)
     billing_policy: BillingPolicy | None = None
+    model_timeout_seconds: float = 90
+    model_connect_timeout_seconds: float = 10
+    model_max_retries: int = 2
 
     @classmethod
     def load(cls, path: str | Path) -> HarnessConfig:
@@ -99,6 +109,14 @@ class HarnessConfig:
         tool_choice_policy = models.get("tool_choice_policy", "native")
         if tool_choice_policy not in ("native", "auto_only"):
             raise ValueError("models.tool_choice_policy must be native or auto_only")
+        timeout_seconds = _positive_seconds(models.get("timeout_seconds", 90), "models.timeout_seconds")
+        connect_timeout_seconds = _positive_seconds(
+            models.get("connect_timeout_seconds", 10), "models.connect_timeout_seconds")
+        if connect_timeout_seconds > timeout_seconds:
+            raise ValueError("models.connect_timeout_seconds cannot exceed models.timeout_seconds")
+        max_retries = models.get("max_retries", 2)
+        if type(max_retries) is not int or not 0 <= max_retries <= 5:
+            raise ValueError("models.max_retries must be an integer from 0 to 5")
         routes = models.get("tasks")
         if not isinstance(routes, dict) or not routes:
             raise ValueError("models.tasks must be a nonempty object")
@@ -159,6 +177,9 @@ class HarnessConfig:
             allowed_origins_env=origins_env,
             local_api_key=local_api_key,
             billing_policy=BillingPolicy.from_dict(data.get("billing"), task_models),
+            model_timeout_seconds=timeout_seconds,
+            model_connect_timeout_seconds=connect_timeout_seconds,
+            model_max_retries=max_retries,
         )
 
     def model_api_key(self, env: Mapping[str, str] | None = None) -> str:
@@ -183,6 +204,9 @@ class HarnessConfig:
             self.tool_choice_policy,
             telemetry,
             task,
+            self.model_timeout_seconds,
+            self.model_connect_timeout_seconds,
+            self.model_max_retries,
         ).create_model()
 
     def database_url(self, path_override: str | None = None,

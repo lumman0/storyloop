@@ -5,6 +5,9 @@
     "tool_choice_policy": "auto_only",
     "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "STORY_BAILIAN_API_KEY",
+    "timeout_seconds": 90,
+    "connect_timeout_seconds": 10,
+    "max_retries": 2,
     "api_key_file": "application.local.json",
     "tasks": {
       "npc_selection": "qwen3.8-flash",

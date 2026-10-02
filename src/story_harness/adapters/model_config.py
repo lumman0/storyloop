@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from agentscope.model import OpenAIChatModel
+from httpx2 import Timeout
 
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
 from story_harness.core.billing import record_model_usage
@@ -72,6 +73,9 @@ class NpcModelConfig:
     tool_choice_policy: ToolChoicePolicy = "native"
     telemetry: Telemetry | None = field(default=None, repr=False)
     task: str = "model"
+    timeout_seconds: float = 90
+    connect_timeout_seconds: float = 10
+    max_retries: int = 2
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str] | None = None) -> NpcModelConfig:
@@ -88,7 +92,12 @@ class NpcModelConfig:
     def create_model(self) -> OpenAIChatModel:
         if self.tool_choice_policy not in ("native", "auto_only"):
             raise ValueError(f"unsupported tool_choice_policy: {self.tool_choice_policy}")
-        client_kwargs = {"base_url": self.base_url} if self.base_url else None
+        client_kwargs = {
+            "timeout": Timeout(self.timeout_seconds, connect=self.connect_timeout_seconds),
+            "max_retries": self.max_retries,
+        }
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
         return CompatibleOpenAIChatModel(
             model_name=self.model_name,
             api_key=self.api_key,

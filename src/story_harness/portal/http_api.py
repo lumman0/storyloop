@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
@@ -17,6 +18,24 @@ from story_harness.portal.service import PlayerPortal
 
 
 logger = logging.getLogger(__name__)
+TRANSIENT_MODEL_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
+
+
+def _model_failure_message(error: Exception) -> str:
+    if isinstance(error, APITimeoutError):
+        cause = "模型服务响应超时"
+    elif isinstance(error, RateLimitError):
+        cause = "模型服务暂时繁忙（请求限流）"
+    elif isinstance(error, APIConnectionError):
+        cause = "模型服务暂时无法连接"
+    else:
+        cause = "模型服务暂时不可用"
+    return f"{cause}。请稍后重试这条行动；使用原请求重试不会重复扣费。"
+
+
+def _model_http_error(error: Exception) -> HTTPException:
+    status = 504 if isinstance(error, APITimeoutError) else 429 if isinstance(error, RateLimitError) else 503
+    return HTTPException(status_code=status, detail=_model_failure_message(error))
 
 
 class AccountBody(BaseModel):
@@ -53,6 +72,15 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
     app.state.active_turn_tasks = set()
+
+    async def model_error_response(_request: Request, error: Exception) -> JSONResponse:
+        logger.warning("model unavailable during portal request: %s", type(error).__name__)
+        mapped = _model_http_error(error)
+        return JSONResponse({"detail": mapped.detail}, status_code=mapped.status_code)
+
+    for error_type in TRANSIENT_MODEL_ERRORS:
+        app.add_exception_handler(error_type, model_error_response)
+
     bearer = HTTPBearer(auto_error=False)
     if portal.config.profile == "online":
         app.add_middleware(CORSMiddleware, allow_origins=list(portal.config.allowed_origins()),
@@ -176,6 +204,9 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                     await report({"type": "complete", "view": view})
                 except (ValueError, KeyError, PermissionError) as error:
                     await report({"type": "error", "message": str(error)})
+                except TRANSIENT_MODEL_ERRORS as error:
+                    logger.warning("model unavailable during streamed turn: %s", type(error).__name__)
+                    await report({"type": "error", "message": _model_failure_message(error)})
                 except Exception:
                     logger.exception("streamed turn failed")
                     await report({"type": "error", "message": "请求未能完成，请稍后重试。"})
