@@ -110,8 +110,8 @@ class PlayerPortal:
         return session
 
     def _require_model_key(self, values: dict[str, str] | None = None) -> None:
-        if not (values or os.environ).get(self.config.api_key_env):
-            raise ValueError(f"set {self.config.api_key_env} before starting a game")
+        if not self.config.model_api_key(values):
+            raise ValueError(f"set {self.config.api_key_env} or configure a local model key file before starting a game")
 
     def _campaign(self, item: GameListing, package: ScenarioPackage) -> tuple[CampaignProgram, CampaignSession]:
         key = item.package_path

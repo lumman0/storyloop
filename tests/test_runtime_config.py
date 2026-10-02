@@ -54,6 +54,25 @@ class HarnessConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "STORY_BAILIAN_API_KEY"):
             HarnessConfig.load(DEFAULT).create_model("npc_reply", {})
 
+    def test_local_secret_file_is_loaded_at_startup_with_environment_override(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            raw = json.loads(DEFAULT.read_text(encoding="utf-8"))
+            raw["models"]["api_key_file"] = "application.local.json"
+            config_path = folder / "harness.json"
+            config_path.write_text(json.dumps(raw), encoding="utf-8")
+            (folder / "application.local.json").write_text(json.dumps({
+                "schema_version": 1, "models": {"api_key": "file-test-key"},
+            }), encoding="utf-8")
+
+            config = HarnessConfig.load(config_path)
+
+            self.assertEqual(config.model_api_key({}), "file-test-key")
+            self.assertEqual(config.model_api_key({"STORY_BAILIAN_API_KEY": "env-test-key"}),
+                             "env-test-key")
+            self.assertNotIn("file-test-key", repr(config))
+            self.assertEqual(config.create_model("main_react", {}).model_name, "qwen3.8-max")
+
 
 if __name__ == "__main__":
     unittest.main()

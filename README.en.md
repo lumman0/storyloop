@@ -29,10 +29,16 @@ Run the offline example first; it does not need a model API key:
 .\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
 ```
 
-To play in a browser with a live model, start the API. Supply `STORY_BAILIAN_API_KEY` as an environment variable or store it through the local command-line portal first:
+To play with a live model, create a local credentials file:
 
 ```cmd
-.\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --db game.sqlite3
+copy config\application.local.example.json config\application.local.json
+```
+
+Edit `models.api_key` in that file and paste your Bailian key. Git ignores the file. Local startup reads it automatically; `STORY_BAILIAN_API_KEY`, when set, takes precedence. Then start the API:
+
+```cmd
+.\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
 ```
 
 In another terminal, start the separate frontend:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -19,6 +21,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PortalLocalApiSmokeTest(unittest.TestCase):
+    def test_local_secret_file_allows_a_save_without_key_environment_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"STORY_BAILIAN_API_KEY": "", "LANGFUSE_PUBLIC_KEY": "",
+                         "LANGFUSE_SECRET_KEY": ""},
+        ):
+            root = Path(temp)
+            config = json.loads((ROOT / "config" / "local.json").read_text(encoding="utf-8"))
+            (root / "local.json").write_text(json.dumps(config), encoding="utf-8")
+            (root / "application.local.json").write_text(json.dumps({
+                "schema_version": 1, "models": {"api_key": "file-test-key"},
+            }), encoding="utf-8")
+            portal = PlayerPortal(ROOT / "config" / "games.example.json",
+                                  root / "local.json", str(root / "game.sqlite3"))
+            try:
+                token = portal.register("file-user", "file-pass-123")["token"]
+                view = asyncio.run(portal.create_save(token, "npc-chat"))
+                self.assertEqual(view["catalog_id"], "npc-chat")
+            finally:
+                portal.close()
+
     def test_local_settings_login_and_api_save(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ,

@@ -1,4 +1,4 @@
-"""Versioned harness configuration; secrets stay in the process environment."""
+"""Versioned harness configuration with optional local model credentials."""
 
 from __future__ import annotations
 
@@ -31,6 +31,26 @@ def _positive_int(value: object, name: str) -> int:
     return value
 
 
+def _local_model_key(source: Path, models: dict, profile: str) -> str | None:
+    filename = models.get("api_key_file")
+    if filename is None:
+        return None
+    if profile != "local":
+        raise ValueError("models.api_key_file is available only in local mode")
+    target = Path(_string(filename, "models.api_key_file"))
+    if not target.is_absolute():
+        target = source.parent / target
+    if not target.is_file():
+        return None
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise ValueError("local model key file requires schema_version 1")
+    credentials = payload.get("models")
+    if not isinstance(credentials, dict) or not isinstance(credentials.get("api_key"), str):
+        raise ValueError("local model key file requires models.api_key")
+    return credentials["api_key"].strip() or None
+
+
 @dataclass(frozen=True)
 class RuntimeSettings:
     max_steps: int
@@ -58,6 +78,7 @@ class HarnessConfig:
     profile: str = "local"
     allowed_hosts_env: str | None = None
     allowed_origins_env: str | None = None
+    local_api_key: str | None = field(default=None, repr=False)
 
     @classmethod
     def load(cls, path: str | Path) -> HarnessConfig:
@@ -95,6 +116,7 @@ class HarnessConfig:
         profile = data.get("environment", "local")
         if profile not in {"local", "online"}:
             raise ValueError("environment must be local or online")
+        local_api_key = _local_model_key(source, models, profile)
         driver = _string(storage.get("driver"), "storage.driver")
         raw_path = storage.get("path")
         path_base = storage.get("path_base", "config")
@@ -133,7 +155,12 @@ class HarnessConfig:
             profile=profile,
             allowed_hosts_env=hosts_env,
             allowed_origins_env=origins_env,
+            local_api_key=local_api_key,
         )
+
+    def model_api_key(self, env: Mapping[str, str] | None = None) -> str:
+        values = os.environ if env is None else env
+        return values.get(self.api_key_env, "").strip() or self.local_api_key or ""
 
     def model_name(self, task: str) -> str:
         try:
@@ -145,10 +172,9 @@ class HarnessConfig:
         self, task: str, env: Mapping[str, str] | None = None,
         telemetry: Telemetry | None = None,
     ) -> OpenAIChatModel:
-        values = os.environ if env is None else env
-        api_key = values.get(self.api_key_env, "")
+        api_key = self.model_api_key(env)
         if not api_key:
-            raise ValueError(f"set {self.api_key_env} before model use")
+            raise ValueError(f"set {self.api_key_env} or configure a local model key file before model use")
         return NpcModelConfig(
             self.model_name(task), api_key, self.base_url,
             self.tool_choice_policy,

@@ -27,7 +27,7 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
         raise ValueError("campaign schedule does not match scenario")
     config = HarnessConfig.load(config_path)
     values = dict(os.environ)
-    if not values.get(config.api_key_env):
+    if not config.model_api_key(values):
         values[config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
     telemetry = configured_telemetry()
     store = config.create_store(db_path)

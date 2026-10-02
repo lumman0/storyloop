@@ -34,7 +34,8 @@ def main() -> None:
     portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
     if preferences:
         preferences.save_settings(catalog, config, portal.db_path)
-        preferences.activate_model_key(portal.config.api_key_env, prompt=sys.stdin.isatty())
+        if not portal.config.model_api_key():
+            preferences.activate_model_key(portal.config.api_key_env, prompt=sys.stdin.isatty())
     serve(portal, args.host or ("0.0.0.0" if args.profile == "online" else "127.0.0.1"), args.port)
 
 

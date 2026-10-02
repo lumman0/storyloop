@@ -94,9 +94,9 @@ async def play(portal: PlayerPortal, preferences: LocalPreferences | None = None
                         raise ValueError("游戏编号无效")
                     catalog_id = games[index]["id"]
                     operation = portal.create_save(token, catalog_id)
-                if preferences:
+                if preferences and not portal.config.model_api_key():
                     preferences.activate_model_key(portal.config.api_key_env, prompt=True)
-                elif not os.environ.get(portal.config.api_key_env):
+                elif not preferences and not portal.config.model_api_key():
                     os.environ[portal.config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
                 view = await operation
             except (ValueError, IndexError, KeyError) as error:
@@ -145,7 +145,8 @@ def main() -> None:
     portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
     if preferences:
         preferences.save_settings(catalog, config, portal.db_path)
-        preferences.activate_model_key(portal.config.api_key_env)
+        if not portal.config.model_api_key():
+            preferences.activate_model_key(portal.config.api_key_env)
     sys.stdout.reconfigure(encoding="utf-8")
     asyncio.run(play(portal, preferences))
 

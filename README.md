@@ -29,10 +29,16 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
 ```
 
-要使用真实模型在浏览器里游玩，先启动 API。模型密钥须已保存在本机玩家入口设置中，或设置 `STORY_BAILIAN_API_KEY` 环境变量：
+要使用真实模型，在本机创建 `config\application.local.json`：
 
 ```cmd
-.\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --db game.sqlite3
+copy config\application.local.example.json config\application.local.json
+```
+
+用编辑器打开该文件，将 `models.api_key` 的空字符串改为你的百炼 Key。该文件已被 Git 忽略。启动时会自动读取；`STORY_BAILIAN_API_KEY` 环境变量如已设置，会覆盖文件中的 Key。然后启动 API：
+
+```cmd
+.\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
 ```
 
 另开一个终端，启动独立前端：
