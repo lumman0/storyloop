@@ -24,7 +24,7 @@ chmod 600 .env
 
 - `POSTGRES_PASSWORD` 使用 URL 安全的随机字符串，例如 `openssl rand -hex 32` 的输出。数据库首次初始化后，不能只修改此值来轮换已有数据库密码。
 - `STORY_BAILIAN_API_KEY` 使用百炼**按量付费** API Key。`STORY_BAILIAN_BASE_URL` 必须与 Key 所属地域一致；当前 ECS 示例使用中国香港的 `https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1`。Token Plan 个人版 Key 不用于公开应用后端。
-- `STORY_ALLOWED_HOSTS` 填玩家访问的 IP 或域名，不含协议和端口；`STORY_ALLOWED_ORIGINS` 填浏览器完整来源，例如 `https://47.76.236.125`。切换域名时同步修改两项。
+- `STORY_ALLOWED_HOSTS` 填玩家访问的 IP 或域名，不含协议和端口；`STORY_ALLOWED_ORIGINS` 填浏览器完整来源，例如 `https://<当前公网 IP>`。公网 IP 或域名变化时同步修改两项。
 - `STORY_DATA_DIR` 和 `STORY_PRIVATE_DIR` 填前面准备的绝对路径。
 
 先检查私有剧本与数据目录，再启动：
@@ -64,7 +64,7 @@ Mem0 OSS 是开源 Python 库，**不是阿里云对象存储 OSS**。本部署�
 
 开启的玩家每累计 6 条至少 12 字的非命令输入，且距上次提炼至少 12 小时，才触发一次后台提炼。Mem0 使用当前百炼香港端点上的 `qwen3.8-flash` 与 `text-embedding-v4`；调用会产生平台百炼费用，内测期间**不扣玩家积分**。提炼失败会重试，不中断游戏回合。画像仅供主控和叙述层参考，不写入 NPC 上下文或权威游戏状态。`config/online.json` 的 `player_memory` 可更换模型与向量维度；更换维度时应迁移向量集合，不要直接复用旧集合。
 
-浏览器入口为 `https://47.76.236.125/`，HTTP 自动跳转 HTTPS。Nginx 使用 Let's Encrypt 的公网 IP 证书，证书约 6 天到期，必须保持自动续期。首次部署前，先使用仅含 ACME 挑战路径的 HTTP 配置签发证书，再启用 443 配置；证书目录为 `/srv/storyloop-data/letsencrypt`。服务器安装并启用续期计时器：
+浏览器入口为 `https://<当前公网 IP>/`，HTTP 自动跳转 HTTPS。Nginx 使用 Let's Encrypt 的公网 IP 证书，证书约 6 天到期，必须保持自动续期。证书 lineage 固定命名为 `storyloop`；首次部署前，先使用仅含 ACME 挑战路径的 HTTP 配置签发证书，再启用 443 配置；证书目录为 `/srv/storyloop-data/letsencrypt`。公网 IP 改变时必须重新签发该 lineage，并同步修改 `.env` 的允许主机与来源。服务器安装并启用续期计时器：
 
 ```sh
 cp storyloop-cert-renew.service /etc/systemd/system/
