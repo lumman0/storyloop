@@ -4,6 +4,7 @@ export type Game = {
   id: string;
   title: string;
   mode: "campaign" | "freeform";
+  play_modes?: ("campaign" | "freeform")[];
   summary: string;
   genre: string;
   theme: string;
@@ -90,6 +91,13 @@ export type Save = {
   day: number | null;
   complete: boolean;
 };
+export type SaveSettings = {
+  temperature: number;
+  context_window_tokens: number;
+  default_temperature: number;
+  default_context_window_tokens: number;
+  max_context_window_tokens: number;
+};
 export type StorySegment = {
   kind: "narration" | "scene" | "dialogue" | "message" | "prompt" | "time";
   text: string;
@@ -123,6 +131,7 @@ export type View = {
   state_version: number;
   day: number | null;
   time_of_day?: string | null;
+  status_fields?: { id: string; label: string; value: string | number | boolean; min?: number; max?: number }[];
   complete: boolean;
   turn_id: string | null;
   billing?: TurnBilling;
@@ -379,8 +388,8 @@ export const api = {
   saves: () => request<{ saves: Save[] }>("/v1/saves"),
   wallet: () => request<CreditWallet>("/v1/billing/wallet"),
   creditLedger: () => request<{ entries: CreditEntry[] }>("/v1/billing/ledger"),
-  createSave: (catalogId: string) =>
-    request<View>("/v1/saves", "POST", { catalog_id: catalogId }),
+  createSave: (catalogId: string, playMode?: "campaign" | "freeform") =>
+    request<View>("/v1/saves", "POST", { catalog_id: catalogId, play_mode: playMode }),
   resume: (gameId: string) =>
     request<View>(
       `/v1/saves/${encodeURIComponent(gameId)}/resume`,
@@ -388,6 +397,11 @@ export const api = {
     ),
   history: (gameId: string) =>
     request<History>(`/v1/saves/${encodeURIComponent(gameId)}/history`),
+  saveSettings: (gameId: string) =>
+    request<SaveSettings>(`/v1/saves/${encodeURIComponent(gameId)}/settings`),
+  updateSaveSettings: (gameId: string, temperature: number, contextWindowTokens: number) =>
+    request<SaveSettings>(`/v1/saves/${encodeURIComponent(gameId)}/settings`,
+      "PUT", { temperature, context_window_tokens: contextWindowTokens }),
   turn: (gameId: string, text: string, requestId: string) =>
     request<View>(
       `/v1/saves/${encodeURIComponent(gameId)}/turns`,

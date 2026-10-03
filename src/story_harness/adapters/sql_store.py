@@ -9,7 +9,8 @@ from dataclasses import asdict
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
-from story_harness.core.contracts import Observation, PendingWork, PlayerInput, Snapshot, WorldEvent
+from story_harness.core.contracts import (AgentContextCheckpoint, AgentContextEntry,
+                                          Observation, PendingWork, PlayerInput, Snapshot, WorldEvent)
 from story_harness.core.state import apply_event
 
 
@@ -171,6 +172,87 @@ class SQLGameStore:
                                       details.get("channel", channel),
                                       tuple(details.get("target_ids", []))))
         return result
+
+    def agent_context_entries(self, game_id: str, actor_id: str,
+                              after_version: int = -1) -> list[AgentContextEntry]:
+        """Read committed input/dialogue and only this actor's observations."""
+        with self.engine.connect() as db:
+            if actor_id == "player":
+                events = db.execute(text("""SELECT event_id,kind,tick,details,state_version,cause_id
+                    FROM events WHERE game_id=:game_id AND actor_id='player'
+                    AND kind IN ('player_input','player_query','player_action','action_rejected')
+                    AND state_version>:after_version
+                    ORDER BY state_version"""),
+                    {"game_id": game_id, "after_version": after_version}).mappings().all()
+            else:
+                events = db.execute(text("""SELECT event_id,kind,tick,details,state_version,cause_id
+                    FROM events WHERE game_id=:game_id AND actor_id=:actor_id
+                    AND kind='npc_spoke' AND state_version>:after_version
+                    ORDER BY state_version"""),
+                    {"game_id": game_id, "actor_id": actor_id,
+                     "after_version": after_version}).mappings().all()
+            observations = db.execute(text("""SELECT o.observation_id,o.event_id,o.channel,o.content,o.tick,
+                    o.created_order,e.state_version
+                    FROM observations AS o JOIN events AS e
+                    ON e.game_id=o.game_id AND e.event_id=o.event_id
+                    WHERE o.game_id=:game_id AND o.recipient_id=:actor_id
+                    AND e.state_version>:after_version
+                    ORDER BY e.state_version,o.created_order,o.observation_id"""),
+                    {"game_id": game_id, "actor_id": actor_id,
+                     "after_version": after_version}).mappings().all()
+        ordered: list[tuple[tuple[int, int, int, str], AgentContextEntry]] = []
+        observed_messages = {(row["event_id"], row["content"]) for row in observations}
+        for row in events:
+            details = json.loads(row["details"])
+            if row["kind"] == "npc_spoke":
+                message = str(details.get("player_message", ""))
+                prefix = ("" if (row["cause_id"], message) in observed_messages
+                          else f"玩家曾说：{message}\n")
+                content = f"{prefix}你当时回答：{details.get('speech', '')}"
+            else:
+                content = str(details.get("text", ""))
+            entry = AgentContextEntry(row["state_version"], row["event_id"],
+                                      row["kind"], content, row["tick"])
+            ordered.append(((entry.state_version, 0, 0, entry.entry_id), entry))
+        for row in observations:
+            entry = AgentContextEntry(row["state_version"], row["observation_id"],
+                                      row["channel"], row["content"], row["tick"])
+            ordered.append(((entry.state_version, 1, row["created_order"] or 0,
+                             entry.entry_id), entry))
+        ordered.sort(key=lambda item: item[0])
+        return [entry for _, entry in ordered]
+
+    def agent_context_checkpoint(self, game_id: str, actor_id: str) -> AgentContextCheckpoint:
+        with self.engine.connect() as db:
+            row = db.execute(text("""SELECT through_version,summary FROM agent_contexts
+                WHERE game_id=:game_id AND actor_id=:actor_id"""),
+                {"game_id": game_id, "actor_id": actor_id}).mappings().first()
+        return (AgentContextCheckpoint(row["through_version"], row["summary"])
+                if row is not None else AgentContextCheckpoint())
+
+    def save_agent_context_checkpoint(self, game_id: str, actor_id: str,
+                                      expected_version: int,
+                                      checkpoint: AgentContextCheckpoint) -> None:
+        if checkpoint.through_version <= expected_version or not checkpoint.summary.strip():
+            raise ValueError("context checkpoint must advance with a nonempty summary")
+        with self.engine.begin() as db:
+            updated = db.execute(text("""UPDATE agent_contexts
+                SET through_version=:through_version,summary=:summary
+                WHERE game_id=:game_id AND actor_id=:actor_id AND through_version=:expected"""),
+                {"game_id": game_id, "actor_id": actor_id, "expected": expected_version,
+                 "through_version": checkpoint.through_version, "summary": checkpoint.summary})
+            if updated.rowcount == 1:
+                return
+            if expected_version != -1:
+                raise ValueError("agent context checkpoint changed")
+            try:
+                db.execute(text("""INSERT INTO agent_contexts
+                    (game_id,actor_id,through_version,summary)
+                    VALUES (:game_id,:actor_id,:through_version,:summary)"""),
+                    {"game_id": game_id, "actor_id": actor_id,
+                     "through_version": checkpoint.through_version, "summary": checkpoint.summary})
+            except IntegrityError as error:
+                raise ValueError("agent context checkpoint changed") from error
 
     def ready_work(self, game_id: str, tick: int) -> list[PendingWork]:
         with self.engine.connect() as db:

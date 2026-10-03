@@ -28,9 +28,11 @@ function GameCard({
   busy,
 }: {
   game: Game;
-  onStart: (id: string) => void;
+  onStart: (id: string, mode: "campaign" | "freeform") => void;
   busy: boolean;
 }) {
+  const [selectedMode, setSelectedMode] = useState<"campaign" | "freeform">(game.mode);
+  const availableModes = game.play_modes?.length ? game.play_modes : [game.mode];
   return (
     <article className="game-card">
       <GameArtwork theme={game.theme} />
@@ -41,11 +43,23 @@ function GameCard({
         <div>
           <h3>{game.title}</h3>
           <p>{game.summary || "走进这个世界，写下你的故事。"}</p>
+          {availableModes.length > 1 && (
+            <div className="game-mode-picker" role="radiogroup" aria-label={`${game.title}游玩模式`}>
+              {availableModes.map((mode) => (
+                <button type="button" role="radio" aria-checked={selectedMode === mode}
+                  className={`game-mode-option ${selectedMode === mode ? "selected" : ""}`}
+                  key={mode} disabled={busy} onClick={() => setSelectedMode(mode)}>
+                  <strong>{mode === "campaign" ? "剧本模式" : "自由模式"}</strong>
+                  <span>{mode === "campaign" ? "跟随日程与关键事件" : "在同一世界自由探索"}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <Button
             type="button"
             variant="secondary"
             size="small"
-            onClick={() => onStart(game.id)}
+            onClick={() => onStart(game.id, selectedMode)}
             disabled={busy}
           >
             开始旅程 <ArrowRight size={16} />
@@ -87,11 +101,11 @@ export function CatalogPage() {
     };
   }, [retry]);
 
-  async function start(catalogId: string) {
+  async function start(catalogId: string, playMode: "campaign" | "freeform") {
     setBusyId(catalogId);
     setError("");
     try {
-      const view = await api.createSave(catalogId);
+      const view = await api.createSave(catalogId, playMode);
       navigate(`/play/${view.game_id}`);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -193,6 +207,7 @@ export function CatalogPage() {
                     <strong>{save.title}</strong>
                     <small>
                       {save.day ? `第 ${save.day} 天` : `第 ${save.tick} 回合`}{" "}
+                      · {save.mode === "freeform" ? "自由模式" : "剧本模式"}
                       · {save.complete ? "已完结" : "故事进行中"}
                     </small>
                   </span>

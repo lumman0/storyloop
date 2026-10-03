@@ -48,6 +48,25 @@ class PlayerInput:
 
 
 @dataclass(frozen=True)
+class AgentContextEntry:
+    """One committed fact visible to exactly one agent."""
+
+    state_version: int
+    entry_id: str
+    channel: str
+    content: str
+    tick: int
+
+
+@dataclass(frozen=True)
+class AgentContextCheckpoint:
+    """Persisted compression cursor; source events remain authoritative."""
+
+    through_version: int = -1
+    summary: str = ""
+
+
+@dataclass(frozen=True)
 class PendingWork:
     work_id: str
     kind: str

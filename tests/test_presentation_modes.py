@@ -146,7 +146,7 @@ class PresentationModeTests(unittest.TestCase):
             presenter = FakeNovelPresenter()
             portal = PlayerPortal.__new__(PlayerPortal)
             portal.store = store
-            portal._novel_presenter = lambda _package: presenter
+            portal._novel_presenter = lambda _package, _game_id: presenter
             beats = (StorySegment("dialogue", "早上好", "dockhand", "码头工"),)
 
             first = asyncio.run(portal._freeform_novel(package, "game", "你好", "turn-1", beats))

@@ -13,6 +13,7 @@ from story_harness.core.open_actions import MutableField, parse_mutable_fields
 from story_harness.runtime.schedule import validate_scenario_cue
 from story_harness.adapters.store import GameStore
 from story_harness.world.worldbook import Worldbook
+from story_harness.world.status_fields import StatusField, parse_status_fields
 
 
 def _required_string(raw: dict[str, object], key: str) -> str:
@@ -37,6 +38,7 @@ class ScenarioPackage:
     opening: str
     mutable_fields: tuple[MutableField, ...] = ()
     presentation_mode: str = "interactive"
+    status_fields: tuple[StatusField, ...] = ()
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -126,12 +128,15 @@ class ScenarioPackage:
 
         action_rules = parse_action_rules(raw.get("actions", []), state)
         mutable_fields = parse_mutable_fields(raw.get("mutable_state", []), state)
+        status_fields = parse_status_fields(raw.get("status_fields", []), state)
         return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
                    state, tuple(work), worldbook, action_rules, opening, mutable_fields,
-                   presentation_mode)
+                   presentation_mode, status_fields)
 
-    def seed_game(self, store: GameStore, game_id: str) -> None:
+    def seed_game(self, store: GameStore, game_id: str, *, include_campaign: bool = True) -> None:
         state = deepcopy(self.initial_state)
+        if not include_campaign:
+            state.pop("campaign", None)
         state["scenario"] = {
             "id": self.package_id,
             "version": self.version,

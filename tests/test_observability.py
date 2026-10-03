@@ -187,7 +187,8 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             starts = [value for kind, value in client.calls if kind == "start"]
             context = next(item for item in starts if item["name"] == "main-context")
             self.assertEqual(context["metadata"]["sources"], [
-                "current_state", "recent_player_inputs", "recent_player_observations",
+                "current_state", "current_status", "prior_context_summary", "recent_player_inputs",
+                "recent_player_observations",
             ])
             tool = next(item for item in starts if item["name"] == "tool:get_scene")
             self.assertEqual(tool["as_type"], "tool")

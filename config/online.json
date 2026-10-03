@@ -16,6 +16,9 @@
         "enable_thinking": false
       }
     },
+    "context_windows": {
+      "deepseek-v4.1-flash": 1000000
+    },
     "tasks": {
       "npc_selection": "deepseek-v4.1-flash",
       "entity_extraction": "deepseek-v4.1-flash",
@@ -25,6 +28,7 @@
       "npc_reply": "deepseek-v4.1-flash",
       "adjudication": "deepseek-v4.1-flash",
       "narration": "deepseek-v4.1-flash",
+      "context_compression": "deepseek-v4.1-flash",
       "followup_actions": "deepseek-v4.1-flash"
     }
   },
@@ -32,7 +36,8 @@
     "max_steps": 8,
     "max_npc_replies": 3,
     "main_max_iters": 4,
-    "npc_max_iters": 3
+    "npc_max_iters": 3,
+    "context_window_tokens": 65536
   },
   "storage": {
     "driver": "postgresql",

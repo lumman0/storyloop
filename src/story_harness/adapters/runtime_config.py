@@ -66,6 +66,7 @@ class RuntimeSettings:
     npc_max_iters: int
     max_npc_replies: int = 3
     followup_timeout_seconds: float = 12
+    context_window_tokens: int = 65536
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ class HarnessConfig:
     runtime: RuntimeSettings = field(repr=True)
     storage: StorageSettings = field(repr=True)
     model_generate_kwargs: Mapping[str, object] = field(default_factory=dict, repr=False)
+    context_windows: Mapping[str, int] = field(default_factory=dict, repr=False)
     structured_output_transport: str = "auto"
     memory_driver: str = "in_memory"
     player_memory: PlayerMemorySettings = field(default_factory=PlayerMemorySettings)
@@ -145,6 +147,13 @@ class HarnessConfig:
             _string(task, "task name"): _string(name, f"model for {task}")
             for task, name in routes.items()
         }
+        windows = models.get("context_windows", {})
+        if not isinstance(windows, dict) or any(
+            not isinstance(model, str) or not model.strip()
+            or type(tokens) is not int or tokens < 1024
+            for model, tokens in windows.items()
+        ):
+            raise ValueError("models.context_windows must map model names to token limits >= 1024")
         generate_kwargs = models.get("generate_kwargs", {})
         if not isinstance(generate_kwargs, dict) or any(
             not isinstance(key, str) for key in generate_kwargs
@@ -160,7 +169,11 @@ class HarnessConfig:
             _positive_int(runtime.get("max_npc_replies", 3), "max_npc_replies"),
             _positive_seconds(runtime.get("followup_timeout_seconds", 12),
                               "runtime.followup_timeout_seconds"),
+            _positive_int(runtime.get("context_window_tokens", 65536),
+                          "runtime.context_window_tokens"),
         )
+        if runtime_settings.context_window_tokens < 1024:
+            raise ValueError("runtime.context_window_tokens must be at least 1024")
         profile = data.get("environment", "local")
         if profile not in {"local", "online"}:
             raise ValueError("environment must be local or online")
@@ -220,6 +233,7 @@ class HarnessConfig:
             task_models=task_models,
             runtime=runtime_settings,
             model_generate_kwargs=generate_kwargs,
+            context_windows=windows,
             structured_output_transport=structured_output_transport,
             storage=StorageSettings(driver, resolved_path, url_env),
             memory_driver=memory_driver,
@@ -269,6 +283,9 @@ class HarnessConfig:
         except KeyError as error:
             raise ValueError(f"unconfigured model task: {task}") from error
 
+    def context_window_for(self, task: str) -> int:
+        return self.context_windows.get(self.model_name(task), self.runtime.context_window_tokens)
+
     def model_base_url(self, env: Mapping[str, str] | None = None) -> str:
         if not self.base_url_env:
             return self.base_url
@@ -278,6 +295,7 @@ class HarnessConfig:
     def create_model(
         self, task: str, env: Mapping[str, str] | None = None,
         telemetry: Telemetry | None = None,
+        *, temperature: float | None = None,
     ) -> OpenAIChatModel:
         api_key = self.model_api_key(env)
         if not api_key:
@@ -290,7 +308,8 @@ class HarnessConfig:
             self.model_timeout_seconds,
             self.model_connect_timeout_seconds,
             self.model_max_retries,
-            self.model_generate_kwargs,
+            ({**self.model_generate_kwargs, "temperature": temperature}
+             if temperature is not None else self.model_generate_kwargs),
             self.structured_output_transport,
         ).create_model()
 

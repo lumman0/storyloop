@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager, suppress
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -49,6 +50,12 @@ class AccountBody(BaseModel):
 
 class SaveBody(BaseModel):
     catalog_id: str
+    play_mode: Literal["campaign", "freeform"] | None = None
+
+
+class SaveSettingsBody(BaseModel):
+    temperature: float
+    context_window_tokens: int
 
 
 class TurnBody(BaseModel):
@@ -125,7 +132,7 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     bearer = HTTPBearer(auto_error=False)
     if portal.config.profile == "online":
         app.add_middleware(CORSMiddleware, allow_origins=list(portal.config.allowed_origins()),
-                           allow_methods=["GET", "POST", "DELETE"],
+                           allow_methods=["GET", "POST", "PUT", "DELETE"],
                            allow_headers=["Authorization", "Content-Type"])
 
     @app.middleware("http")
@@ -148,6 +155,7 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                                                "/v1/me/memory/settings", "/v1/manage/invites"}
                       or (request.url.path.startswith("/v1/manage/")
                           and request.url.path.endswith(("/decision", "/role", "/status", "/state")))
+                      or request.url.path.endswith("/settings")
                       or request.url.path.endswith(("/turns", "/turns/stream")))
         if request.method in {"POST", "PUT", "PATCH"} and needs_json:
             content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -434,7 +442,7 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.post("/v1/saves", status_code=201)
     async def create_save(body: SaveBody, auth: str = Depends(token)) -> dict:
         try:
-            return await portal.create_save(auth, body.catalog_id)
+            return await portal.create_save(auth, body.catalog_id, body.play_mode)
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
@@ -442,6 +450,22 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     async def resume(game_id: str, auth: str = Depends(token)) -> dict:
         try:
             return await portal.resume_save(auth, game_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/saves/{game_id}/settings")
+    def save_settings(game_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.get_save_settings(auth, game_id)
+        except (ValueError, KeyError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.put("/v1/saves/{game_id}/settings")
+    async def update_save_settings(game_id: str, body: SaveSettingsBody,
+                                   auth: str = Depends(token)) -> dict:
+        try:
+            return await portal.set_save_settings(auth, game_id,
+                                                  body.temperature, body.context_window_tokens)
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 

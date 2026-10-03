@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, Clock3, Feather, Moon, Plus, Send, Sparkles } from "lucide-react";
-import { api, type History, type StorySegment, type View } from "../lib/api";
+import { ArrowLeft, ArrowUpRight, Clock3, Feather, Moon, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
+import { api, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
@@ -47,6 +47,7 @@ const stageLabels: Record<string, string> = {
   characters: "角色正在回应",
   background: "处理背景事件",
   narrating: "整理本轮故事",
+  status: "结算当前数值",
   scene: "铺陈当前场景",
   guidance: "准备后续建议",
 };
@@ -63,7 +64,32 @@ export function PlayPage() {
   const [retry, setRetry] = useState(0);
   const [pending, setPending] = useState<PendingTurn | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [settings, setSettings] = useState<SaveSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [temperature, setTemperature] = useState(1);
+  const [contextWindow, setContextWindow] = useState(65536);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    setSettingsLoading(true);
+    api.saveSettings(gameId).then((value) => {
+      if (!active) return;
+      setSettings(value);
+      setTemperature(value.temperature);
+      setContextWindow(value.context_window_tokens);
+      setSettingsError("");
+    }).catch((cause) => {
+      if (active) setSettingsError(errorMessage(cause));
+    }).finally(() => {
+      if (active) setSettingsLoading(false);
+    });
+    return () => { active = false; };
+  }, [gameId]);
 
   useEffect(() => {
     if (!busy) return;
@@ -176,6 +202,25 @@ export function PlayPage() {
     document.getElementById("turn-input")?.focus();
   }
 
+  async function saveSettings(event: FormEvent) {
+    event.preventDefault();
+    if (!settings || settingsSaving || busy || pending) return;
+    setSettingsSaving(true);
+    setSettingsError("");
+    setSettingsSaved(false);
+    try {
+      const updated = await api.updateSaveSettings(gameId, temperature, contextWindow);
+      setSettings(updated);
+      setTemperature(updated.temperature);
+      setContextWindow(updated.context_window_tokens);
+      setSettingsSaved(true);
+    } catch (cause) {
+      setSettingsError(errorMessage(cause));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
   const intro = history?.intro;
   const visibleSuggestions = current?.suggestions.filter(
     (suggestion) => !containsStoryCommand(suggestion),
@@ -189,12 +234,61 @@ export function PlayPage() {
           <ArrowLeft size={17} />
           返回存档
         </Link>
-        <span className="reader-top-meta">
-          {current?.day
-            ? `第 ${current.day} 天${current.time_of_day ? ` · ${current.time_of_day}` : ""}`
-            : `第 ${current?.tick ?? 0} 回合`}
-        </span>
+        <div className="reader-top-actions">
+          <span className="reader-top-meta">
+            {current?.day
+              ? `第 ${current.day} 天${current.time_of_day ? ` · ${current.time_of_day}` : ""}`
+              : `第 ${current?.tick ?? 0} 回合`}
+          </span>
+          <button type="button" className="reader-settings-toggle"
+            aria-expanded={settingsOpen} aria-controls="reader-settings"
+            onClick={() => setSettingsOpen((open) => !open)}>
+            <SlidersHorizontal size={16} aria-hidden="true" /> 游玩设置
+          </button>
+        </div>
       </div>
+      {settingsOpen && (
+        <section className="reader-settings" id="reader-settings" aria-label="游玩设置">
+          <div className="reader-settings-heading">
+            <h2>生成设置</h2>
+            <p>只影响这个存档，从下一次行动开始生效。</p>
+          </div>
+          {settingsLoading ? <p>正在读取设置…</p> : settings ? (
+            <form onSubmit={saveSettings}>
+              <div className="reader-settings-fields">
+                <label>
+                  <span>模型热度 <strong>{temperature.toFixed(1)}</strong></span>
+                  <input type="range" min="0" max="1.9" step="0.1" value={temperature}
+                    onChange={(event) => { setTemperature(Number(event.target.value)); setSettingsSaved(false); }}
+                    disabled={settingsSaving || busy || !!pending} />
+                  <small>越低越稳定，越高越有变化；较高热度可能降低行动判断的一致性。</small>
+                </label>
+                <label>
+                  <span>上下文窗口</span>
+                  <select value={contextWindow}
+                    onChange={(event) => { setContextWindow(Number(event.target.value)); setSettingsSaved(false); }}
+                    disabled={settingsSaving || busy || !!pending}>
+                    {[...new Set([8192, 16384, 32768, 65536, 131072, 262144, 524288,
+                      1000000, settings.max_context_window_tokens, settings.context_window_tokens])]
+                      .filter((value) => value <= settings.max_context_window_tokens)
+                      .sort((a, b) => a - b)
+                      .map((value) => <option value={value} key={value}>{value.toLocaleString()} Token</option>)}
+                  </select>
+                  <small>这是故事上下文预算，系统会预留回复空间。越大越晚压缩历史，也可能增加每轮输入 Token、等待时间和积分消耗。</small>
+                </label>
+              </div>
+              <div className="reader-settings-footer">
+                <Button type="submit" disabled={settingsSaving || busy || !!pending ||
+                  (temperature === settings.temperature && contextWindow === settings.context_window_tokens)}>
+                  {settingsSaving ? "正在保存…" : "保存设置"}
+                </Button>
+                {settingsSaved && <span role="status">已保存，下回合生效</span>}
+                {settingsError && <span className="form-error" role="alert">{settingsError}</span>}
+              </div>
+            </form>
+          ) : <p className="form-error" role="alert">{settingsError || "无法读取设置"}</p>}
+        </section>
+      )}
       {loading ? (
         <Loading label="正在恢复你的故事…" />
       ) : !history || !current ? (
@@ -391,6 +485,19 @@ export function PlayPage() {
                   : `第 ${current.tick} 回合`}
               </div>
               <p>世界仍在继续运转。</p>
+              {!!current.status_fields?.length && (
+                <div className="story-status" aria-label="当前数值">
+                  <span className="story-status-heading">当前数值</span>
+                  <dl>
+                    {current.status_fields.map((field) => (
+                      <div className="story-status-row" key={field.id}>
+                        <dt>{field.label}</dt>
+                        <dd>{typeof field.value === "boolean" ? (field.value ? "是" : "否") : field.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
             </div>
             <div className="aside-panel suggestion-panel">
               <div className="aside-heading">

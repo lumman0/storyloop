@@ -4,7 +4,8 @@ from typing import Protocol
 
 from story_harness.adapters.sql_database import open_database, sqlite_url, upgrade_database
 from story_harness.adapters.sql_store import SQLGameStore
-from story_harness.core.contracts import Observation, PendingWork, PlayerInput, Snapshot, WorldEvent
+from story_harness.core.contracts import (AgentContextCheckpoint, AgentContextEntry,
+                                          Observation, PendingWork, PlayerInput, Snapshot, WorldEvent)
 
 
 class GameStore(Protocol):
@@ -37,6 +38,15 @@ class GameStore(Protocol):
     def dialogue_history_for_actor(self, game_id: str, actor_id: str) -> list[tuple[str, str]]: ...
 
     def player_inputs_for(self, game_id: str) -> list[PlayerInput]: ...
+
+    def agent_context_entries(self, game_id: str, actor_id: str,
+                              after_version: int = -1) -> list[AgentContextEntry]: ...
+
+    def agent_context_checkpoint(self, game_id: str, actor_id: str) -> AgentContextCheckpoint: ...
+
+    def save_agent_context_checkpoint(self, game_id: str, actor_id: str,
+                                      expected_version: int,
+                                      checkpoint: AgentContextCheckpoint) -> None: ...
 
     def ready_work(self, game_id: str, tick: int) -> list[PendingWork]: ...
 

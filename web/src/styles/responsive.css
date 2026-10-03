@@ -99,7 +99,7 @@
     grid-template-columns: 1fr;
   }
   .game-card {
-    height: 325px;
+    min-height: 325px;
   }
   .continue-section {
     padding-top: 65px;
@@ -151,6 +151,9 @@
   .reader-top {
     height: 59px;
   }
+  .reader-settings-fields {
+    grid-template-columns: 1fr;
+  }
   .story-heading {
     padding: 47px 0 43px;
   }
@@ -159,6 +162,12 @@
   }
 }
 @media (max-width: 520px) {
+  .reader-top-meta {
+    display: none;
+  }
+  .reader-settings {
+    padding: 18px;
+  }
   .page-container,
   .reader-shell,
   .header-inner {
@@ -179,7 +188,7 @@
     display: none;
   }
   .game-card {
-    height: 335px;
+    min-height: 335px;
   }
   .game-card-content {
     padding: 23px;

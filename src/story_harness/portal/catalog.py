@@ -43,6 +43,13 @@ class GameListing:
     theme: str = "harbor"
     turns_per_story_tick: int = 1
     retired: bool = False
+    play_modes: tuple[str, ...] = ()
+
+    @property
+    def supported_play_modes(self) -> tuple[str, ...]:
+        if self.play_modes:
+            return self.play_modes
+        return (self.mode,)
 
 
 class GameCatalog:
@@ -77,6 +84,16 @@ class GameCatalog:
                 raise ValueError("catalog game requires id, title, mode, and package")
             if item["mode"] not in {"campaign", "freeform"}:
                 raise ValueError("catalog game mode must be campaign or freeform")
+            play_modes = item.get("play_modes")
+            if play_modes is not None and (
+                not isinstance(play_modes, list) or not play_modes
+                or any(not isinstance(mode, str) or mode not in {"campaign", "freeform"}
+                       for mode in play_modes)
+                or len(set(play_modes)) != len(play_modes)
+                or item["mode"] not in play_modes
+                or (item["mode"] == "freeform" and "campaign" in play_modes)
+            ):
+                raise ValueError("catalog play_modes must include its authored mode")
             turns_per_story_tick = item.get("turns_per_story_tick", 1)
             if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
                 raise ValueError("turns_per_story_tick must be positive")
@@ -96,7 +113,8 @@ class GameCatalog:
                                         package.package_id, package.version,
                                         _package_fingerprint(package_path, item["mode"]),
                                         item.get("summary", ""), item.get("genre", ""),
-                                        item.get("theme", "harbor"), turns_per_story_tick, retired))
+                                        item.get("theme", "harbor"), turns_per_story_tick, retired,
+                                        tuple(play_modes) if play_modes is not None else ()))
             package_refs[item["id"]] = item["package"]
         return cls(tuple(listings), package_store, package_refs)
 

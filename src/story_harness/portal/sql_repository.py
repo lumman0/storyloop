@@ -39,7 +39,7 @@ class SQLPlayerRepository:
     def _save(row) -> SaveRecord:
         return SaveRecord(row["game_id"], row["player_id"], row["catalog_id"],
                           row["package_id"], row["package_version"], row["package_hash"],
-                          row["created_at"])
+                          row["created_at"], row["play_mode"])
 
     def issue_signup_invite(self, valid_days: int = 30) -> str:
         if type(valid_days) is not int or valid_days < 1:
@@ -125,13 +125,14 @@ class SQLPlayerRepository:
                        {"token_hash": hashlib.sha256(token.encode()).digest()})
 
     def create_save(self, player_id: str, catalog_id: str, game_id: str,
-                    package_id: str, package_version: str, package_hash: str) -> SaveRecord:
+                    package_id: str, package_version: str, package_hash: str,
+                    play_mode: str | None = None) -> SaveRecord:
         record = SaveRecord(game_id, player_id, catalog_id, package_id, package_version,
-                            package_hash, int(time.time()))
+                            package_hash, int(time.time()), play_mode)
         with self.engine.begin() as db:
             db.execute(text("""INSERT INTO player_saves
-                (game_id,player_id,catalog_id,package_id,package_version,package_hash,created_at)
-                VALUES (:game_id,:player_id,:catalog_id,:package_id,:package_version,:package_hash,:created_at)"""),
+                (game_id,player_id,catalog_id,package_id,package_version,package_hash,created_at,play_mode)
+                VALUES (:game_id,:player_id,:catalog_id,:package_id,:package_version,:package_hash,:created_at,:play_mode)"""),
                 record.__dict__)
         return record
 

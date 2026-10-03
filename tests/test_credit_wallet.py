@@ -37,7 +37,7 @@ class CreditWalletTests(unittest.TestCase):
                         return SimpleNamespace(narration="完成", segments=(),
                                                snapshot=portal.store.load(game_id))
 
-                portal._react = lambda item, package: SlowSession()
+                portal._react = lambda item, package, game_id: SlowSession()
 
                 async def reconnect():
                     turn = asyncio.create_task(portal.turn(token, game_id, "你好", "reconnect-1"))
@@ -87,7 +87,7 @@ class CreditWalletTests(unittest.TestCase):
                                                snapshot=portal.store.load(game_id))
 
                 session = FakeSession()
-                portal._react = lambda item, package: session
+                portal._react = lambda item, package, game_id: session
 
                 async def submit_both():
                     return await asyncio.gather(
@@ -165,7 +165,7 @@ class CreditWalletTests(unittest.TestCase):
                                                snapshot=portal.store.load(game_id))
 
                 session = FakeSession()
-                portal._react = lambda item, package: session
+                portal._react = lambda item, package, game_id: session
                 first = asyncio.run(portal.turn(token, game_id, "你好", "one"))
                 self.assertEqual(first["billing"]["charged_points"], "0.101")
                 self.assertEqual(portal.wallet(token)["balance_points"], "499.899")
