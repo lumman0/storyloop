@@ -223,6 +223,8 @@
 }
 .game-art {
   inset: 0;
+  z-index: 0;
+  pointer-events: none;
   overflow: hidden;
   background: linear-gradient(
     130deg,
