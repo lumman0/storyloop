@@ -51,6 +51,17 @@ export type ManagedUser = {
   roles: string[];
   created_at: number;
 };
+export type ManagedInvitation = {
+  id: string;
+  issuer_name: string | null;
+  issued_by: string | null;
+  used_name: string | null;
+  created_at: number | null;
+  expires_at: number;
+  used_at: number | null;
+  revoked_at: number | null;
+  status: "available" | "used" | "expired" | "revoked";
+};
 export type PublicRelease = {
   scenario_id: string;
   version_id: string;
@@ -343,6 +354,12 @@ export const api = {
     request<ReviewSubmission>(`/v1/manage/submissions/${encodeURIComponent(id)}/decision`,
       "POST", { decision, reason }),
   managedUsers: () => request<{ users: ManagedUser[] }>("/v1/manage/users"),
+  managedInvitations: () => request<{ invites: ManagedInvitation[] }>("/v1/manage/invites"),
+  issueInvitations: (count: number) =>
+    request<{ codes: string[]; expires_at: number }>("/v1/manage/invites", "POST", { count }),
+  revokeInvitation: (id: string) =>
+    request<{ id: string; status: "revoked"; revoked_at: number }>(
+      `/v1/manage/invites/${encodeURIComponent(id)}/revoke`, "POST"),
   setRole: (id: string, role: "reviewer" | "admin", enabled: boolean) =>
     request<{ player_id: string; roles: string[] }>(`/v1/manage/users/${encodeURIComponent(id)}/role`,
       "POST", { role, enabled }),

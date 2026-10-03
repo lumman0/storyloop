@@ -45,11 +45,12 @@ class SQLPlayerRepository:
         if type(valid_days) is not int or valid_days < 1:
             raise ValueError("invite validity must be at least one day")
         code = secrets.token_urlsafe(24)
+        now = int(time.time())
         with self.engine.begin() as db:
-            db.execute(text("""INSERT INTO signup_invites (code_hash,expires_at)
-                VALUES (:code_hash,:expires_at)"""),
+            db.execute(text("""INSERT INTO signup_invites (code_hash,expires_at,created_at)
+                VALUES (:code_hash,:expires_at,:created_at)"""),
                 {"code_hash": hashlib.sha256(code.encode()).digest(),
-                 "expires_at": int(time.time()) + valid_days * 24 * 3600})
+                 "expires_at": now + valid_days * 24 * 3600, "created_at": now})
         return code
 
     def register(self, username: str, password: str,
@@ -67,7 +68,8 @@ class SQLPlayerRepository:
                     now = int(time.time())
                     consumed = db.execute(text("""UPDATE signup_invites
                         SET used_by=:player_id, used_at=:used_at
-                        WHERE code_hash=:code_hash AND used_by IS NULL AND expires_at>:used_at"""),
+                        WHERE code_hash=:code_hash AND used_by IS NULL
+                        AND revoked_at IS NULL AND expires_at>:used_at"""),
                         {"player_id": player_id, "used_at": now,
                          "code_hash": hashlib.sha256(invite_code.strip().encode()).digest()})
                     if consumed.rowcount != 1:

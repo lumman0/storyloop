@@ -12,7 +12,8 @@ from sqlalchemy import Engine, text
 ROLE_CAPABILITIES = {
     "reviewer": frozenset({"review.submissions", "review.decide"}),
     "admin": frozenset({"review.submissions", "review.decide", "users.read",
-                        "users.manage", "releases.manage", "audit.read"}),
+                        "users.manage", "releases.manage", "audit.read",
+                        "invites.issue", "invites.read", "invites.revoke"}),
 }
 
 

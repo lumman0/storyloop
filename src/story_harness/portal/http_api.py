@@ -79,6 +79,10 @@ class ReleaseStateBody(BaseModel):
     reason: str = ""
 
 
+class InvitationIssueBody(BaseModel):
+    count: int = Field(default=1, ge=1, le=20)
+
+
 def _http_error(error: Exception) -> HTTPException:
     if isinstance(error, AccessDenied):
         return HTTPException(status_code=403, detail=str(error))
@@ -141,7 +145,7 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                 and request.method in {"POST", "PUT", "PATCH", "DELETE"} and not origin):
             return JSONResponse({"error": "Origin required"}, status_code=403)
         needs_json = (request.url.path in {"/v1/accounts", "/v1/sessions", "/v1/saves",
-                                               "/v1/me/memory/settings"}
+                                               "/v1/me/memory/settings", "/v1/manage/invites"}
                       or (request.url.path.startswith("/v1/manage/")
                           and request.url.path.endswith(("/decision", "/role", "/status", "/state")))
                       or request.url.path.endswith(("/turns", "/turns/stream")))
@@ -326,6 +330,29 @@ def create_app(portal: PlayerPortal) -> FastAPI:
         try:
             return {"users": portal.admin_users(auth)}
         except PermissionError as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/manage/invites")
+    def admin_invitations(auth: str = Depends(token)) -> dict:
+        try:
+            return {"invites": portal.admin_invitations(auth)}
+        except PermissionError as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/invites", status_code=201)
+    def admin_issue_invitations(body: InvitationIssueBody,
+                                auth: str = Depends(token)) -> dict:
+        try:
+            return portal.admin_issue_invitations(auth, body.count)
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
+
+    @app.post("/v1/manage/invites/{invitation_id}/revoke")
+    def admin_revoke_invitation(invitation_id: str,
+                                auth: str = Depends(token)) -> dict:
+        try:
+            return portal.admin_revoke_invitation(auth, invitation_id)
+        except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 
     @app.post("/v1/manage/users/{player_id}/role")

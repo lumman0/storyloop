@@ -5,8 +5,9 @@ import { api, type AuditEvent, type ManagedUser, type PublicRelease,
 import { errorMessage } from "../lib/session";
 import { Loading, Notice } from "../components/Feedback";
 import { Button } from "../components/ui/button";
+import { InvitationPanel } from "./InvitationPanel";
 
-type Tab = "reviews" | "users" | "releases" | "audit";
+type Tab = "reviews" | "users" | "invites" | "releases" | "audit";
 
 export function ManagePage({ session }: { session: Session }) {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ export function ManagePage({ session }: { session: Session }) {
     let active = true;
     setLoading(true);
     setError("");
+    if (tab === "invites") { setLoading(false); return; }
     const request = tab === "reviews" ? api.reviewQueue().then((data) => { if (active) setReviews(data.submissions); })
       : tab === "users" ? api.managedUsers().then((data) => { if (active) setUsers(data.users); })
       : tab === "releases" ? api.publicReleases().then((data) => { if (active) setReleases(data.releases); })
@@ -102,12 +104,14 @@ export function ManagePage({ session }: { session: Session }) {
     <div className="manage-tabs" role="tablist" aria-label="管理功能">
       <button type="button" role="tab" aria-selected={tab === "reviews"} onClick={() => { setTab("reviews"); setDetail(null); }}>审核队列</button>
       {admin && <button type="button" role="tab" aria-selected={tab === "users"} onClick={() => setTab("users")}>用户权限</button>}
+      {admin && <button type="button" role="tab" aria-selected={tab === "invites"} onClick={() => setTab("invites")}>邀请码</button>}
       {admin && <button type="button" role="tab" aria-selected={tab === "releases"} onClick={() => setTab("releases")}>公开剧本</button>}
       {admin && <button type="button" role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}>操作记录</button>}
     </div>
     {error && <Notice message={error} />}
     {message && <p className="upload-success" role="status">{message}</p>}
     {loading ? <Loading label="正在读取管理数据…" /> : <>
+      {tab === "invites" && <InvitationPanel />}
       {tab === "reviews" && <div className="manage-review-layout">
         <section className="manage-panel"><h2>待审核 · {reviews.length}</h2>
           {reviews.length ? reviews.map((item) => <button className="manage-row-button" type="button" key={item.submission_id}

@@ -17,6 +17,7 @@ from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.core.billing import collect_usage
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.access import AccessService
+from story_harness.portal.invitations import InvitationService
 from story_harness.portal.moderation import ScenarioModerationService
 from story_harness.portal.repository import PlayerRepository, SaveRecord
 from story_harness.portal.sql_repository import SQLPlayerRepository
@@ -63,6 +64,7 @@ class PlayerPortal:
         self.store = self.config.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
         self.access = AccessService(self.engine)
+        self.invitations = InvitationService(self.engine, self.access)
         self.memory_jobs = SQLPlayerMemoryJobs(self.engine)
         self.memory_feature_enabled = self.config.player_memory_enabled()
         self.player_memory: PlayerMemory | None = (
@@ -285,6 +287,15 @@ class PlayerPortal:
 
     def admin_users(self, token: str) -> list[dict]:
         return self.access.list_users(self.accounts.resolve_token(token))
+
+    def admin_issue_invitations(self, token: str, count: int = 1) -> dict:
+        return self.invitations.issue(self.accounts.resolve_token(token), count)
+
+    def admin_invitations(self, token: str) -> list[dict]:
+        return self.invitations.list_invitations(self.accounts.resolve_token(token))
+
+    def admin_revoke_invitation(self, token: str, invitation_id: str) -> dict:
+        return self.invitations.revoke(self.accounts.resolve_token(token), invitation_id)
 
     def admin_set_role(self, token: str, player_id: str, role: str, enabled: bool) -> dict:
         admin_id = self.accounts.resolve_token(token)
