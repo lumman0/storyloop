@@ -408,6 +408,47 @@ export function PlayPage() {
               />
             ) : (
               !current.complete && (
+                <>
+                {(actionOptions.length > 0 || visibleSuggestions.length > 0) && (
+                  <section className="next-actions" aria-label="接下来的行动">
+                    <div className="next-actions-heading">
+                      <span className="section-label">接下来</span>
+                      <p>沿着眼前的故事继续，也可以自己决定怎么做。</p>
+                    </div>
+                    <div className="next-actions-list">
+                      {actionOptions.length > 0
+                        ? actionOptions.map((option, index) => (
+                            <button
+                              type="button"
+                              className="next-action"
+                              key={`${index}-${option.label}`}
+                              onClick={() => void submitText(option.input)}
+                              disabled={busy || !!pending}
+                            >
+                              <span className="next-action-number">{String.fromCharCode(65 + index)}</span>
+                              <span className="next-action-copy">
+                                <strong>{option.label}</strong>
+                                <small>{option.input}</small>
+                              </span>
+                              <ArrowUpRight size={16} aria-hidden="true" />
+                            </button>
+                          ))
+                        : visibleSuggestions.map((suggestion, index) => (
+                            <button
+                              type="button"
+                              className="next-action"
+                              key={`${index}-${suggestion}`}
+                              onClick={() => useSuggestion(suggestion)}
+                              disabled={busy || !!pending}
+                            >
+                              <span className="next-action-number">{String.fromCharCode(65 + index)}</span>
+                              <span className="next-action-copy"><strong>{suggestion}</strong></span>
+                              <Plus size={16} aria-hidden="true" />
+                            </button>
+                          ))}
+                    </div>
+                  </section>
+                )}
                 <form className="composer" onSubmit={submit}>
                   <label htmlFor="turn-input">写下你的行动或想说的话</label>
                   <div className="composer-field">
@@ -473,6 +514,7 @@ export function PlayPage() {
                     </p>
                   )}
                 </form>
+                </>
               )
             )}
           </section>
@@ -498,56 +540,6 @@ export function PlayPage() {
                   </dl>
                 </div>
               )}
-            </div>
-            <div className="aside-panel suggestion-panel">
-              <div className="aside-heading">
-                <Sparkles size={18} />
-                <h2>接下来可以试试</h2>
-              </div>
-              {!current.interaction && actionOptions.length ? (
-                <ul aria-label="推荐行动">
-                  {actionOptions.map((option, index) => (
-                    <li key={`${index}-${option.label}`}>
-                      <button
-                        type="button"
-                        className="action-option"
-                        title={option.input}
-                        onClick={() => void submitText(option.input)}
-                        disabled={busy || !!pending || current.complete}
-                      >
-                        <span>{option.label}</span>
-                        <ArrowUpRight size={15} aria-hidden="true" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : !current.interaction && visibleSuggestions.length ? (
-                <ul>
-                  {visibleSuggestions.map((suggestion, index) => (
-                    <li key={`${index}-${suggestion}`}>
-                      <button
-                        type="button"
-                        onClick={() => useSuggestion(suggestion)}
-                        disabled={current.complete}
-                      >
-                        <span>{suggestion}</span>
-                        <Plus size={15} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>
-                  {current.interaction
-                    ? current.interaction.kind === "continue"
-                      ? "读完这一幕，再继续往下看。"
-                      : "先完成当前剧情选择，故事就会继续。"
-                    : "自由说出你的想法，故事会回应你。"}
-                </p>
-              )}
-              <small>{actionOptions.length && !current.interaction
-                ? "点击即提交行动，也可以自己输入。"
-                : "建议只是灵感，行动由你决定。"}</small>
             </div>
           </aside>
         </div>

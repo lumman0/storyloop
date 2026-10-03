@@ -74,6 +74,21 @@ class PresentationModeTests(unittest.TestCase):
         self.assertEqual(len(options), 3)
         self.assertTrue(all(option.label.strip() and option.input.strip() for option in options))
 
+    def test_campaign_leads_replace_actions_unrelated_to_visible_story(self):
+        model = FakeOptionModel()
+        leads = [
+            {"label": "交还行李牌", "input": "我把行李牌交给刚认识的嘉宾。"},
+            {"label": "问节目安排", "input": "我问节目组今晚有什么共同环节。"},
+            {"label": "加入晚餐准备", "input": "我到客厅帮大家准备晚餐。"},
+        ]
+        options = asyncio.run(ActionOptionAdvisor(model).suggest(
+            "嘉宾们在客厅等着。", "interactive",
+            story_context={"goal": "认识嘉宾", "anchors": ["行李牌", "节目组", "晚餐"],
+                           "leads": leads},
+        ))
+        self.assertEqual(model.calls, 1)
+        self.assertEqual([option.label for option in options], [lead["label"] for lead in leads])
+
     def test_novel_campaign_stores_single_prose_and_reuses_it_on_retry(self):
         program = CampaignProgram.from_dict({
             "id": "test-novel", "ticks_per_day": 2, "final_tick": 2,

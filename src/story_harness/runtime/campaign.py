@@ -101,6 +101,27 @@ class CampaignProgram:
                         raise ValueError("invalid incoming message rule")
             if kind == "scene" and not isinstance(step.get("text"), str):
                 raise ValueError("scene requires text")
+            if kind == "scene":
+                goal = step.get("action_goal")
+                leads = step.get("action_leads")
+                anchors = step.get("action_anchors")
+                if goal is not None and (not isinstance(goal, str) or not goal.strip()):
+                    raise ValueError("scene action_goal must be nonempty text")
+                if anchors is not None and (
+                    not isinstance(anchors, list) or not anchors
+                    or any(not isinstance(anchor, str) or not anchor.strip() for anchor in anchors)
+                ):
+                    raise ValueError("scene action_anchors must be nonempty text")
+                if leads is not None and (
+                    not isinstance(leads, list) or len(leads) != 3
+                    or any(not isinstance(lead, dict)
+                           or not isinstance(lead.get("label"), str)
+                           or not 2 <= len(lead["label"].strip()) <= 50
+                           or not isinstance(lead.get("input"), str)
+                           or not 2 <= len(lead["input"].strip()) <= 500
+                           for lead in leads)
+                ):
+                    raise ValueError("scene action_leads must contain three labeled actions")
             if kind == "finale" and (not isinstance(step.get("choice_key"), str)
                                       or type(step.get("threshold")) is not int):
                 raise ValueError("finale requires choice_key and threshold")
@@ -114,6 +135,20 @@ class CampaignProgram:
         if finales[0]["choice_key"] not in gates:
             raise ValueError("finale must reference an earlier choice")
         return cls(program_id, ticks_per_day, final_tick, tuple(steps))
+
+    def current_action_context(self, snapshot: Snapshot) -> dict[str, Any]:
+        """Expose only the latest scene already consumed by this save."""
+        campaign = snapshot.data.get("campaign")
+        cursor = campaign.get("cursor", 0) if isinstance(campaign, dict) else 0
+        if type(cursor) is not int or cursor < 0:
+            return {}
+        for step in reversed(self.steps[:cursor]):
+            if step["kind"] == "scene":
+                return {"scene": step["text"][-1200:],
+                        "goal": step.get("action_goal", ""),
+                        "anchors": step.get("action_anchors", []),
+                        "leads": step.get("action_leads", [])}
+        return {}
 
     def initial_state(self, actor_ids: list[str]) -> dict[str, Any]:
         return {

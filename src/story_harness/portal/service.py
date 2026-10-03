@@ -494,7 +494,9 @@ class PlayerPortal:
     async def _action_options(self, body: str, presentation_mode: str, *,
                               game_id: str = "", scenario_id: str = "",
                               gate_id: str | None = None,
-                              complete: bool = False) -> tuple[ActionOption, ...]:
+                              complete: bool = False,
+                              program: CampaignProgram | None = None,
+                              snapshot=None) -> tuple[ActionOption, ...]:
         if gate_id is not None or complete or not body.strip():
             return ()
         task = ("followup_actions" if "followup_actions" in self.config.task_models
@@ -504,7 +506,11 @@ class PlayerPortal:
                                      temperature=self._generation_settings(game_id).temperature), self.telemetry,
             timeout_seconds=self.config.runtime.followup_timeout_seconds,
         )
-        return await advisor.suggest(body, presentation_mode, game_id, scenario_id)
+        context = program.current_action_context(snapshot) if program and snapshot else {}
+        recent = tuple(item.text for item in self.store.player_inputs_for(game_id)[-4:]
+                       if not item.text.startswith("/")) if game_id else ()
+        return await advisor.suggest(body, presentation_mode, game_id, scenario_id,
+                                     story_context=context, recent_actions=recent)
 
     async def _freeform_novel(self, package: ScenarioPackage, game_id: str, text: str, turn_id: str,
                               segments: tuple[StorySegment, ...], progress: TurnProgress | None = None
@@ -629,6 +635,7 @@ class PlayerPortal:
                 outcome.text or opening, package.presentation_mode,
                 game_id=game_id, scenario_id=package.package_id,
                 gate_id=outcome.gate_id, complete=outcome.complete,
+                program=program, snapshot=outcome.snapshot,
             )
             return self._view(game_id, item.game_id, mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
@@ -715,6 +722,7 @@ class PlayerPortal:
                     outcome.text, package.presentation_mode,
                     game_id=game_id, scenario_id=package.package_id,
                     gate_id=outcome.gate_id, complete=outcome.complete,
+                    program=program, snapshot=snapshot,
                 )
                 view = self._view(game_id, item.game_id, mode, outcome.text,
                                   snapshot, guidance, complete=outcome.complete,

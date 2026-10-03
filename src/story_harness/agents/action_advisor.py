@@ -34,13 +34,27 @@ class ActionOptionAdvisor:
         self.timeout_seconds = timeout_seconds
 
     async def suggest(self, visible_text: str, presentation_mode: str,
-                      game_id: str = "", scenario_id: str = "") -> tuple[ActionOption, ...]:
+                      game_id: str = "", scenario_id: str = "",
+                      story_context: dict | None = None,
+                      recent_actions: tuple[str, ...] = ()) -> tuple[ActionOption, ...]:
+        story_context = story_context or {}
+        authored_leads = tuple(ActionOption.model_validate(item)
+                               for item in story_context.get("leads", []))
+        anchors = tuple(str(item).strip() for item in story_context.get("anchors", [])
+                        if isinstance(item, str) and item.strip())
         request = {"presentation_mode": presentation_mode,
-                   "visible_story": visible_text[-3500:]}
+                   "visible_story": visible_text[-3500:],
+                   "current_scene": story_context.get("scene", ""),
+                   "current_goal": story_context.get("goal", ""),
+                   "story_anchors": anchors,
+                   "authored_leads": [lead.model_dump() for lead in authored_leads],
+                   "recent_player_actions": list(recent_actions[-4:])}
         system = (
             "你为文游玩家提供恰好三个可直接执行的下一步行动。只依据玩家已经看见的故事，"
-            "不要使用隐藏设定、猜测幕后真相、编造NPC或物品。三个行动方向应不同，"
-            "例如观察、交谈、实际行动；每个 label 是简短按钮文字，input 是点击后原样提交的"
+            "不要使用隐藏设定、猜测幕后真相、编造NPC或物品。优先围绕 current_goal 与"
+            "authored_leads，让每条行动触及当前已出现的人物或事件，并能带来新对话、"
+            "新信息或关系变化；不能只是坐下、观察、继续探索，也不能重复 recent_player_actions。"
+            "三个行动方向应不同；每个 label 是具体的简短按钮文字，input 是点击后原样提交的"
             "玩家行动句子。input 用第一人称“我”表达玩家意图，不代替 NPC 发言，"
             "不得包含 /choose、/next、/rest 等系统命令，不要跳过玩家决策。"
             "选项只是建议，玩家仍可自由输入。仅输出 ThreeActions 结构化结果。"
@@ -68,7 +82,13 @@ class ActionOptionAdvisor:
                     re.search(r"/(?:choose|next|rest)\b", option.input + option.label, re.I)
                     for option in options
                 )
-                if len(options) != 3 or len(labels) != 3 or len(actions) != 3 or blank or command:
+                ungrounded = bool(anchors) and any(
+                    not any(anchor in option.label + option.input for anchor in anchors)
+                    for option in options
+                )
+                repeated = any(option.input.strip() in recent_actions for option in options)
+                if (len(options) != 3 or len(labels) != 3 or len(actions) != 3
+                        or blank or command or ungrounded or repeated):
                     raise ValueError("invalid or duplicate follow-up actions")
                 span.metric("story.followup_actions", 3.0)
                 if self.telemetry.capture_content:
@@ -80,6 +100,8 @@ class ActionOptionAdvisor:
                                      session_id=session_id_for_game(game_id, scenario_id)
                                      if game_id else None) as span:
                 span.metric("story.followup_action_fallback", 1.0)
+            if len(authored_leads) == 3:
+                return authored_leads
             return (
                 ActionOption(label="观察周围", input="我观察一下周围的环境和在场的人。"),
                 ActionOption(label="整理线索", input="我整理一下刚才亲眼看到和亲耳听到的事。"),
