@@ -438,6 +438,8 @@ class CampaignSession:
                 if len(parts) < 3 or not parts[2].strip():
                     return self._outcome(game_id, ["请在选项后写留言内容。", StorySegment("prompt", self._prompt(gate))])
             content = parts[2].strip() if len(parts) > 2 else ""
+            if gate["kind"] == "message" and self.message_writer is not None:
+                await emit(progress, "stage", stage="characters")
             incoming = await self._commit_choice(snapshot, gate, selected, content, turn_id, text)
             visible = [StorySegment("narration", selected.get("text", f"已选择：{selected['label']}"))]
             if gate["kind"] == "message":
