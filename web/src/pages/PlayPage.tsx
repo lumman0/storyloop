@@ -403,7 +403,7 @@ export function PlayPage() {
                 <span>这一段故事已经写完。你可以返回目录，开始新的旅程。</span>
               </div>
             )}
-            {!current.complete && current.interaction ? (
+            {!current.complete && !pending && current.interaction ? (
               <ChoicePanel
                 key={current.interaction.id}
                 interaction={current.interaction}
@@ -412,7 +412,7 @@ export function PlayPage() {
                 error={error}
               />
             ) : (
-              !current.complete && (
+              !current.complete && !pending && (
                 <>
                 {(actionOptions.length > 0 || visibleSuggestions.length > 0) && (
                   <section className="next-actions" aria-label="接下来的行动">
