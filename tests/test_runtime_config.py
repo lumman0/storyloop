@@ -10,6 +10,17 @@ DEFAULT = Path(__file__).resolve().parents[1] / "config" / "bailian-token-plan.j
 
 
 class HarnessConfigTests(unittest.TestCase):
+    def test_standard_profiles_default_to_deepseek_and_keep_task_routing_replaceable(self) -> None:
+        root = DEFAULT.parents[1]
+        for name in ("local", "online"):
+            config = HarnessConfig.load(root / "config" / f"{name}.json")
+            self.assertEqual(set(config.task_models.values()), {"deepseek-v4.1-flash"})
+            self.assertEqual(config.model_base_url({}),
+                             "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
+            self.assertIn("deepseek-v4.1-flash", config.billing_policy.rates)
+            model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-key"})
+            self.assertEqual(model.generate_kwargs, {"extra_body": {"enable_thinking": False}})
+
     def test_default_routes_are_loaded_without_a_secret(self) -> None:
         config = HarnessConfig.load(DEFAULT)
 

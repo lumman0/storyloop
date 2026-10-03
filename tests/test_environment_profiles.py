@@ -74,10 +74,10 @@ class EnvironmentProfileSmokeTest(unittest.TestCase):
             )
         config = HarnessConfig.load(ROOT / "config" / "online.json")
         self.assertEqual(config.model_base_url(env={}),
-                         "https://dashscope.aliyuncs.com/compatible-mode/v1")
+                         "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
         self.assertEqual(config.model_base_url(env={
-            "STORY_BAILIAN_BASE_URL": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1"
-        }), "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
+            "STORY_BAILIAN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        }), "https://dashscope.aliyuncs.com/compatible-mode/v1")
         with self.assertRaisesRegex(ValueError, "DATABASE_URL"):
             config.database_url(env={})
         with self.assertRaisesRegex(ValueError, "postgresql\\+psycopg"):

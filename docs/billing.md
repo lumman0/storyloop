@@ -13,6 +13,6 @@
 - `pricing_version`：本次费率版本，随每条流水保存。
 - `models.<模型名>`：每百万输入、输出、缓存输入 Token 的人民币参考单价和 `multiplier`。更换 GLM、OpenAI 等模型时，先在模型任务路由配置中改模型，再为新模型配置费率；缺失费率时启动失败，避免漏计费。
 
-当前示例费率取自阿里云百炼华北 2（北京）的公开原价：[Qwen3.8-Flash](https://help.aliyun.com/zh/model-studio/qwen3-8-flash)、[Qwen3.8-Max](https://help.aliyun.com/zh/model-studio/qwen3-8-max)。促销、Token Plan 套餐和实际账单可能不同，站内费率应由运营自行调整。费率调整时更新 `pricing_version`；历史流水使用结算时记录的版本与 Token 用量，不随新配置重算。
+本地与线上默认将故事任务路由到 `deepseek-v4.1-flash`，并在 `models.generate_kwargs` 中关闭思考模式。积分示例使用[百炼公开的该模型忙时价格](https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash)：每百万输入 Token ¥2、输出 Token ¥8、缓存命中输入 Token ¥0.2；这是一套可调整的站内参考费率，并非对香港账单价格的保证。原有 Qwen 费率保留，方便切换模型。专用的 `bailian-token-plan.json` 仍使用其支持清单中的 Qwen 模型。促销、地域和实际账单可能不同；调整费率时更新 `pricing_version`，历史流水不重新计价。
 
 接口：`GET /v1/billing/wallet` 查询余额，`GET /v1/billing/ledger` 查询最近流水；两者均需要玩家登录。前端在导航栏和回合回应中显示余额与本轮扣费，在积分页展示流水和模型用量。

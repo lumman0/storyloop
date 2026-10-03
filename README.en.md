@@ -78,7 +78,7 @@ Run an offline example without a model key:
 .\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
 ```
 
-For live models, create a local credentials file and set `models.api_key` to a valid Bailian key. Git ignores the file. `STORY_BAILIAN_API_KEY` overrides the file when present.
+For live models, create a local credentials file and set `models.api_key` to a pay-as-you-go Bailian key. Git ignores the file. `config/local.json` defaults to `deepseek-v4.1-flash` on the Hong Kong endpoint; use `config/bailian-token-plan.json` for the separate Token Plan profile. `STORY_BAILIAN_API_KEY` overrides the file when present.
 
 ```cmd
 copy config\application.local.example.json config\application.local.json

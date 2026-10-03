@@ -76,6 +76,7 @@ class NpcModelConfig:
     timeout_seconds: float = 90
     connect_timeout_seconds: float = 10
     max_retries: int = 2
+    generate_kwargs: Mapping[str, object] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str] | None = None) -> NpcModelConfig:
@@ -103,6 +104,7 @@ class NpcModelConfig:
             api_key=self.api_key,
             stream=False,
             client_kwargs=client_kwargs,
+            generate_kwargs=dict(self.generate_kwargs),
             tool_choice_policy=self.tool_choice_policy,
             telemetry=self.telemetry,
             task=self.task,

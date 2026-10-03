@@ -92,6 +92,7 @@ class HarnessConfig:
     task_models: Mapping[str, str] = field(repr=False)
     runtime: RuntimeSettings = field(repr=True)
     storage: StorageSettings = field(repr=True)
+    model_generate_kwargs: Mapping[str, object] = field(default_factory=dict, repr=False)
     memory_driver: str = "in_memory"
     player_memory: PlayerMemorySettings = field(default_factory=PlayerMemorySettings)
     tool_choice_policy: str = "native"
@@ -140,6 +141,11 @@ class HarnessConfig:
             _string(task, "task name"): _string(name, f"model for {task}")
             for task, name in routes.items()
         }
+        generate_kwargs = models.get("generate_kwargs", {})
+        if not isinstance(generate_kwargs, dict) or any(
+            not isinstance(key, str) for key in generate_kwargs
+        ):
+            raise ValueError("models.generate_kwargs must be an object")
         for required in ("main_react", "npc_reply", "npc_selection", "work_selection", "narration"):
             if required not in task_models:
                 raise ValueError(f"models.tasks requires {required}")
@@ -209,6 +215,7 @@ class HarnessConfig:
             api_key_env=_string(models.get("api_key_env"), "models.api_key_env"),
             task_models=task_models,
             runtime=runtime_settings,
+            model_generate_kwargs=generate_kwargs,
             storage=StorageSettings(driver, resolved_path, url_env),
             memory_driver=memory_driver,
             player_memory=player_memory_settings,
@@ -278,6 +285,7 @@ class HarnessConfig:
             self.model_timeout_seconds,
             self.model_connect_timeout_seconds,
             self.model_max_retries,
+            self.model_generate_kwargs,
         ).create_model()
 
     def database_url(self, path_override: str | None = None,

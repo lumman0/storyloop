@@ -4,22 +4,27 @@
   "models": {
     "provider": "openai_compatible",
     "tool_choice_policy": "auto_only",
-    "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "base_url": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "STORY_BAILIAN_API_KEY",
     "timeout_seconds": 90,
     "connect_timeout_seconds": 10,
     "max_retries": 2,
+    "generate_kwargs": {
+      "extra_body": {
+        "enable_thinking": false
+      }
+    },
     "api_key_file": "application.local.json",
     "tasks": {
-      "npc_selection": "qwen3.8-flash",
-      "entity_extraction": "qwen3.8-flash",
-      "intent_classification": "qwen3.8-flash",
-      "work_selection": "qwen3.8-flash",
-      "main_react": "qwen3.8-max",
-      "npc_reply": "qwen3.8-max",
-      "adjudication": "qwen3.8-max",
-      "narration": "qwen3.8-max",
-      "followup_actions": "qwen3.8-flash"
+      "npc_selection": "deepseek-v4.1-flash",
+      "entity_extraction": "deepseek-v4.1-flash",
+      "intent_classification": "deepseek-v4.1-flash",
+      "work_selection": "deepseek-v4.1-flash",
+      "main_react": "deepseek-v4.1-flash",
+      "npc_reply": "deepseek-v4.1-flash",
+      "adjudication": "deepseek-v4.1-flash",
+      "narration": "deepseek-v4.1-flash",
+      "followup_actions": "deepseek-v4.1-flash"
     }
   },
   "runtime": {
@@ -45,8 +50,14 @@
   "billing": {
     "welcome_points": 500,
     "points_per_rmb": 50,
-    "pricing_version": "2026-10-02-cn-beijing-list",
+    "pricing_version": "2026-10-03-deepseek-v4.1-peak-reference",
     "models": {
+      "deepseek-v4.1-flash": {
+        "input_rmb_per_million": "2",
+        "output_rmb_per_million": "8",
+        "cached_input_rmb_per_million": "0.2",
+        "multiplier": "1"
+      },
       "qwen3.8-flash": {
         "input_rmb_per_million": "0.8",
         "output_rmb_per_million": "2.7",

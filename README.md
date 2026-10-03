@@ -78,7 +78,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
 ```
 
-使用真实模型时，创建本机配置文件，将 `models.api_key` 填为可用的百炼 Key；该文件被 Git 忽略。`STORY_BAILIAN_API_KEY` 环境变量会覆盖文件中的 Key。
+使用真实模型时，创建本机配置文件，将 `models.api_key` 填为可用的百炼按量付费 Key；该文件被 Git 忽略。`config/local.json` 默认使用香港端点的 `deepseek-v4.1-flash`，Token Plan 个人版请改用专用的 `config/bailian-token-plan.json`。`STORY_BAILIAN_API_KEY` 环境变量会覆盖文件中的 Key。
 
 ```cmd
 copy config\application.local.example.json config\application.local.json
