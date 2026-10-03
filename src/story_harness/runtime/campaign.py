@@ -258,6 +258,7 @@ class CampaignSession:
                 opening or (operation is not None and operation[0] == "choice"
                             and result.snapshot.tick == 0),
                 result.snapshot.data["campaign"]["day"], self.clock.period(result.snapshot.tick),
+                self.program.current_action_context(result.snapshot).get("goal", ""),
             )
             await emit(progress, "stage", stage="narrating")
             saved = (await self.novel_presenter.present(context)).strip()

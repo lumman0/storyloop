@@ -49,8 +49,8 @@ function GameCard({
                 <button type="button" role="radio" aria-checked={selectedMode === mode}
                   className={`game-mode-option ${selectedMode === mode ? "selected" : ""}`}
                   key={mode} disabled={busy} onClick={() => setSelectedMode(mode)}>
-                  <strong>{mode === "campaign" ? "剧本模式" : "自由模式"}</strong>
-                  <span>{mode === "campaign" ? "跟随日程与关键事件" : "在同一世界自由探索"}</span>
+                  <strong>{mode === "campaign" ? "小说模式" : "剧本模式"}</strong>
+                  <span>{mode === "campaign" ? "以第一人称阅读与选择，主控整合角色回应" : "直接与角色对话，在世界中自由行动"}</span>
                 </button>
               ))}
             </div>
@@ -207,7 +207,7 @@ export function CatalogPage() {
                     <strong>{save.title}</strong>
                     <small>
                       {save.day ? `第 ${save.day} 天` : `第 ${save.tick} 回合`}{" "}
-                      · {save.mode === "freeform" ? "自由模式" : "剧本模式"}
+                      · {save.mode === "freeform" ? "剧本模式" : "小说模式"}
                       · {save.complete ? "已完结" : "故事进行中"}
                     </small>
                   </span>

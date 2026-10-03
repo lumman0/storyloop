@@ -40,6 +40,7 @@ class ActionOptionAdvisor:
         story_context = story_context or {}
         authored_leads = tuple(ActionOption.model_validate(item)
                                for item in story_context.get("leads", []))
+        used_actions = {action.strip() for action in recent_actions}
         anchors = tuple(str(item).strip() for item in story_context.get("anchors", [])
                         if isinstance(item, str) and item.strip())
         request = {"presentation_mode": presentation_mode,
@@ -59,6 +60,7 @@ class ActionOptionAdvisor:
             "不得包含 /choose、/next、/rest 等系统命令，不要跳过玩家决策。"
             "选项只是建议，玩家仍可自由输入。仅输出 ThreeActions 结构化结果。"
         )
+        candidates: tuple[ActionOption, ...] = ()
         try:
             prompt = await self.formatter.format(msgs=[
                 Msg("system", system, "system"),
@@ -74,6 +76,7 @@ class ActionOptionAdvisor:
                     self.model(prompt, structured_model=ThreeActions), self.timeout_seconds,
                 )
                 options = tuple(ThreeActions.model_validate(response.metadata).options)
+                candidates = options
                 labels = {option.label.strip() for option in options}
                 actions = {option.input.strip() for option in options}
                 blank = any(not option.label.strip() or not option.input.strip()
@@ -86,7 +89,7 @@ class ActionOptionAdvisor:
                     not any(anchor in option.label + option.input for anchor in anchors)
                     for option in options
                 )
-                repeated = any(option.input.strip() in recent_actions for option in options)
+                repeated = any(option.input.strip() in used_actions for option in options)
                 if (len(options) != 3 or len(labels) != 3 or len(actions) != 3
                         or blank or command or ungrounded or repeated):
                     raise ValueError("invalid or duplicate follow-up actions")
@@ -100,10 +103,23 @@ class ActionOptionAdvisor:
                                      session_id=session_id_for_game(game_id, scenario_id)
                                      if game_id else None) as span:
                 span.metric("story.followup_action_fallback", 1.0)
-            if len(authored_leads) == 3:
-                return authored_leads
-            return (
+            fallback = authored_leads or (
                 ActionOption(label="观察周围", input="我观察一下周围的环境和在场的人。"),
                 ActionOption(label="整理线索", input="我整理一下刚才亲眼看到和亲耳听到的事。"),
                 ActionOption(label="继续探索", input="我在当前所在的地方继续探索。"),
             )
+            # A scene can last several turns. Its authored leads are a pool of
+            # suggestions, not a menu to replay after a failed model call.
+            selected: list[ActionOption] = []
+            for option in (*candidates, *fallback):
+                if (not option.input.strip() or not option.label.strip()
+                    or option.input.strip() in used_actions
+                    or any(existing.input == option.input or existing.label == option.label
+                           for existing in selected)
+                    or re.search(r"/(?:choose|next|rest)\b", option.input + option.label, re.I)
+                    or (anchors and not any(anchor in option.input + option.label for anchor in anchors))):
+                    continue
+                selected.append(option)
+                if len(selected) == 3:
+                    break
+            return tuple(selected)

@@ -41,6 +41,7 @@ class SceneContext:
     opening: bool
     day: int
     period: str
+    current_goal: str = ""
 
 
 def segment_for_observation(store: GameStore, game_id: str, item: Observation) -> StorySegment:

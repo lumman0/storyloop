@@ -57,7 +57,7 @@ export function SavesPage() {
                 <h2>{save.title}</h2>
                 <p>
                   {save.day ? `第 ${save.day} 天` : `第 ${save.tick} 回合`}{" "}
-                  <span>·</span> {save.mode === "freeform" ? "自由模式" : "剧本模式"}{" "}
+                  <span>·</span> {save.mode === "freeform" ? "剧本模式" : "小说模式"}{" "}
                   <span>·</span> {save.complete ? "故事已完结" : "故事进行中"}
                 </p>
               </div>

@@ -8,6 +8,7 @@ import math
 import os
 import re
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 from weakref import WeakValueDictionary
@@ -48,6 +49,12 @@ from story_harness.world.status_fields import StatusField, project_status_fields
 
 class PlayerPortal:
     """Identity and save ownership stay outside scenario and agent contexts."""
+
+    @staticmethod
+    def _package_for_mode(package: ScenarioPackage, play_mode: str) -> ScenarioPackage:
+        # Delivery belongs to the save, while scenario data remains reusable.
+        presentation = "novel" if play_mode == "campaign" else "interactive"
+        return replace(package, presentation_mode=presentation)
 
     def __init__(self, catalog_path: str | Path | None, config_path: str | Path,
                  db_path: str | None = None,
@@ -287,7 +294,7 @@ class PlayerPortal:
     async def create_review_preview(self, token: str, submission_id: str) -> dict:
         reviewer_id = self.accounts.resolve_token(token)
         item = self.moderation.preview_listing(reviewer_id, submission_id)
-        package = ScenarioPackage.load(item.package_path)
+        package = self._package_for_mode(ScenarioPackage.load(item.package_path), item.mode)
         game_id = uuid4().hex
         package.seed_game(self.store, game_id)
         self.accounts.create_save(reviewer_id, item.game_id, game_id,
@@ -575,7 +582,7 @@ class PlayerPortal:
         if selected_mode not in item.supported_play_modes:
             raise ValueError("this game does not support the selected play mode")
         self._require_model_key()
-        package = ScenarioPackage.load(item.package_path)
+        package = self._package_for_mode(ScenarioPackage.load(item.package_path), selected_mode)
         game_id = uuid4().hex
         package.seed_game(self.store, game_id, include_campaign=selected_mode == "campaign")
         self.accounts.create_save(player_id, item.game_id, game_id,
@@ -609,7 +616,8 @@ class PlayerPortal:
                 and not self.store.ready_work(game_id, snapshot.tick)
                 and ((record.play_mode or item.mode) != "campaign" or "interaction" in latest)):
             return {**latest, "opening": ""}
-        package = ScenarioPackage.load(item.package_path)
+        package = self._package_for_mode(ScenarioPackage.load(item.package_path),
+                                         record.play_mode or item.mode)
         preferences = () if preview else await self._preferences_for(player_id)
         with player_preferences_scope(preferences):
             result = await self._open_save(item, package, game_id,
@@ -639,7 +647,9 @@ class PlayerPortal:
             )
             return self._view(game_id, item.game_id, mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
-                              opening=opening, segments=outcome.segments,
+                              opening=(opening if package.presentation_mode != "novel"
+                                       or not outcome.text else ""),
+                              segments=outcome.segments,
                               program=program, gate_id=outcome.gate_id,
                               time_of_day=outcome.time_of_day,
                               presentation_mode=package.presentation_mode,
@@ -685,7 +695,7 @@ class PlayerPortal:
             raise ValueError("review preview has reached its 12-turn limit")
         if self.billing is not None and not preview:
             self.billing.require_credit(player_id)
-        package = ScenarioPackage.load(item.package_path)
+        package = self._package_for_mode(ScenarioPackage.load(item.package_path), mode)
         turn_id = f"portal-{request_id}"
         context = collect_usage() if self.billing is not None and not preview else nullcontext(None)
         preferences = () if preview else await self._preferences_for(player_id)

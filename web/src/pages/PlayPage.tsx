@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, Clock3, Feather, Moon, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Feather, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
 import { api, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
@@ -133,10 +133,16 @@ export function PlayPage() {
     };
   }, [gameId, retry]);
 
-  useEffect(() => {
-    if (history?.turns.length || pending)
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [history?.turns.length, pending?.stage, pending?.segments.length]);
+  useLayoutEffect(() => {
+    if (!history?.turns.length && !pending) return;
+    // Keep the true end of the reader in view. Smooth scrolling on every SSE
+    // stage raced with newly inserted prose, options and the composer.
+    const scrollToEnd = () => bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    scrollToEnd();
+    const frame = window.requestAnimationFrame(scrollToEnd);
+    return () => window.cancelAnimationFrame(frame);
+  }, [history?.turns.length, pending?.stage, pending?.segments.length,
+      pending?.body, current?.interaction?.id, current?.action_options]);
 
   async function submitText(text: string): Promise<boolean> {
     if (!text.trim() || busy || (current?.complete && !pending?.error)) return false;
@@ -391,7 +397,6 @@ export function PlayPage() {
                 </div>
               )}
             </div>
-            <div ref={bottomRef} />
             {current.complete && (
               <div className="end-note">
                 <Sparkles size={20} />
@@ -486,28 +491,6 @@ export function PlayPage() {
                       {busy ? "世界正在回应…" : `${draft.length}/10000`}
                     </span>
                   </div>
-                  {current.mode === "campaign" && (
-                    <div className="time-actions" role="group" aria-label="时间操作">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => void submitText("/next")}
-                        disabled={busy || !!pending}
-                      >
-                        <Clock3 size={17} />
-                        推进时段
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => void submitText("/rest")}
-                        disabled={busy || !!pending}
-                      >
-                        <Moon size={17} />
-                        休息到次日
-                      </Button>
-                    </div>
-                  )}
                   {error && (
                     <p className="form-error" role="alert">
                       {error}
@@ -517,6 +500,7 @@ export function PlayPage() {
                 </>
               )
             )}
+            <div ref={bottomRef} aria-hidden="true" />
           </section>
           <aside className="reader-aside" aria-label="进度与建议">
             <div className="aside-panel">

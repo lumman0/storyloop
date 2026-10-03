@@ -89,6 +89,20 @@ class PresentationModeTests(unittest.TestCase):
         self.assertEqual(model.calls, 1)
         self.assertEqual([option.label for option in options], [lead["label"] for lead in leads])
 
+    def test_authored_fallback_never_repeats_a_completed_action(self):
+        leads = [
+            {"label": "问报名缘由", "input": "我问周闻野为什么报名。"},
+            {"label": "了解节目安排", "input": "我问节目组今晚有什么安排。"},
+            {"label": "加入晚餐准备", "input": "我去帮大家准备晚餐。"},
+        ]
+        options = asyncio.run(ActionOptionAdvisor(FakeOptionModel()).suggest(
+            "周闻野刚回答了报名原因。", "novel",
+            story_context={"anchors": ["周闻野", "节目组", "晚餐"], "leads": leads},
+            recent_actions=(leads[0]["input"],),
+        ))
+        self.assertEqual([item.input for item in options],
+                         [leads[1]["input"], leads[2]["input"]])
+
     def test_novel_campaign_stores_single_prose_and_reuses_it_on_retry(self):
         program = CampaignProgram.from_dict({
             "id": "test-novel", "ticks_per_day": 2, "final_tick": 2,

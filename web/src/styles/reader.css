@@ -211,17 +211,6 @@
 .story-segments > :last-child .story-prose p:last-child {
   margin-bottom: 0;
 }
-.time-block {
-  align-self: center;
-  max-width: 680px;
-  border-top: 1px solid oklch(0.38 0.025 14);
-  border-bottom: 1px solid oklch(0.38 0.025 14);
-  padding: 10px 20px;
-  color: oklch(0.73 0.025 25);
-  font-size: 0.84rem;
-  line-height: 1.65;
-  text-align: center;
-}
 .dialogue-block {
   border: 1px solid oklch(0.35 0.025 14);
   border-radius: 12px;
@@ -563,16 +552,6 @@
   margin-top: 10px;
   color: oklch(0.57 0.015 20);
   font-size: 0.72rem;
-}
-.time-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
-}
-.time-actions .ui-button {
-  flex: 1 1 180px;
-  min-height: 47px;
 }
 .composer .form-error {
   margin-top: 14px;

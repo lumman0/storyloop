@@ -16,6 +16,11 @@ from story_harness.runtime.campaign import CampaignProgram
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class SimpleNovelPresenter:
+    async def present(self, context):
+        return "我来到门前，看见故事从这里开始。"
+
+
 class PlayModeTests(unittest.TestCase):
     def test_mode_is_selected_when_creating_a_save_and_survives_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -51,15 +56,18 @@ class PlayModeTests(unittest.TestCase):
                 portal = PlayerPortal(catalog, ROOT / "config/local.json", db_path)
                 token = portal.register("mode-player", "password-123")["token"]
                 portal._action_options = AsyncMock(return_value=())
+                portal._novel_presenter = lambda *_: SimpleNovelPresenter()
                 self.assertEqual(portal.games(token)[0]["play_modes"], ["campaign", "freeform"])
 
                 guided = asyncio.run(portal.create_save(token, "scenario", "campaign"))
                 self.assertEqual(guided["mode"], "campaign")
+                self.assertEqual(guided["presentation_mode"], "novel")
                 self.assertEqual(guided["interaction"]["kind"], "continue")
                 self.assertEqual(guided["interaction"]["label"], "推门进去")
 
                 open_world = asyncio.run(portal.create_save(token, "scenario", "freeform"))
                 self.assertEqual(open_world["mode"], "freeform")
+                self.assertEqual(open_world["presentation_mode"], "interactive")
                 self.assertIsNone(open_world["interaction"])
                 self.assertNotIn("campaign", portal.store.load(open_world["game_id"]).data)
                 self.assertEqual(asyncio.run(portal.resume_save(token, open_world["game_id"]))["mode"],

@@ -24,9 +24,9 @@ function Prose({ text }: { text: string }) {
 
 function Segment({ segment }: { segment: StorySegment }) {
   if (segment.kind === "prompt") return null;
-  if (segment.kind === "time") {
-    return <div className="time-block" aria-label="时间流逝">{playerFacingText(segment.text)}</div>;
-  }
+  // Time remains in the save and progress panel; the story presenter weaves
+  // its passage into prose instead of printing a mechanical clock message.
+  if (segment.kind === "time") return null;
   if (segment.kind === "dialogue") {
     return (
       <div className="dialogue-block">
@@ -57,7 +57,7 @@ function Segment({ segment }: { segment: StorySegment }) {
 export function StoryContent({ view }: { view: View }) {
   if (view.segments?.length) {
     const visible = view.segments.filter(
-      (item) => item.kind !== "prompt" && item.text.trim(),
+      (item) => item.kind !== "prompt" && item.kind !== "time" && item.text.trim(),
     );
     return visible.length ? (
       <div className="story-segments">
