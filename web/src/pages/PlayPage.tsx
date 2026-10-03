@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, Feather, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Feather, Moon, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
 import { api, type CastMember, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
@@ -466,6 +466,19 @@ export function PlayPage() {
                           ))}
                     </div>
                   </section>
+                )}
+                {current.mode === "campaign" && current.time_of_day === "晚上" && (
+                  <div className="night-action">
+                    <span>夜色已深。你还可以继续行动，或准备休息。</span>
+                    <button
+                      type="button"
+                      onClick={() => void submitText("/rest")}
+                      disabled={busy || !!pending}
+                    >
+                      <Moon size={16} aria-hidden="true" />
+                      准备休息
+                    </button>
+                  </div>
                 )}
                 <form className="composer" onSubmit={submit}>
                   <label htmlFor="turn-input">写下你的行动或想说的话</label>

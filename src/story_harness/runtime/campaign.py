@@ -28,6 +28,17 @@ class ScenePresenter(Protocol):
     async def present(self, context: SceneContext) -> str: ...
 
 
+class PreparedMessage(Protocol):
+    speech: str
+    def confirm(self) -> None: ...
+    def abort(self) -> None: ...
+
+
+class MessageWriter(Protocol):
+    async def prepare(self, game_id: str, actor_id: str,
+                      player_note: str | None) -> PreparedMessage: ...
+
+
 @dataclass(frozen=True)
 class CampaignOutcome:
     text: str
@@ -64,7 +75,7 @@ class CampaignProgram:
         if not isinstance(steps, list) or not steps:
             raise ValueError("campaign requires steps")
         seen: set[str] = set()
-        previous = -1
+        previous = (-1, -1)
         for step in steps:
             if not isinstance(step, dict) or not isinstance(step.get("id"), str) or not step["id"]:
                 raise ValueError("campaign step requires an ID")
@@ -72,9 +83,14 @@ class CampaignProgram:
                 raise ValueError("duplicate campaign step ID")
             seen.add(step["id"])
             at = step.get("at")
-            if type(at) is not int or not previous <= at <= final_tick:
+            if type(at) is not int or not 0 <= at <= final_tick:
                 raise ValueError("campaign steps must be ordered within final_tick")
-            previous = at
+            at_subtick = step.get("at_subtick", 0)
+            if type(at_subtick) is not int or at_subtick < 0:
+                raise ValueError("campaign at_subtick must be a nonnegative integer")
+            if (at, at_subtick) < previous:
+                raise ValueError("campaign steps must be ordered within final_tick")
+            previous = (at, at_subtick)
             kind = step.get("kind")
             if kind not in {"scene", "continue", "choice", "message", "finale"}:
                 raise ValueError("unknown campaign step kind")
@@ -170,7 +186,8 @@ class CampaignSession:
     def __init__(self, store: GameStore, program: CampaignProgram, react: ReactTurn | None = None,
                  telemetry: Telemetry | None = None, turns_per_story_tick: int = 1,
                  scene_presenter: ScenePresenter | None = None,
-                 novel_presenter: ScenePresenter | None = None) -> None:
+                 novel_presenter: ScenePresenter | None = None,
+                 message_writer: MessageWriter | None = None) -> None:
         if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
             raise ValueError("turns_per_story_tick must be positive")
         self.store = store
@@ -178,13 +195,20 @@ class CampaignSession:
         self.react = react
         self.telemetry = telemetry or LangfuseTelemetry()
         self.turns_per_story_tick = turns_per_story_tick
-        self.clock = StoryClock(program.ticks_per_day * turns_per_story_tick)
+        if any(step.get("at_subtick", 0) >= turns_per_story_tick for step in program.steps):
+            raise ValueError("campaign at_subtick must be smaller than turns_per_story_tick")
+        self.clock = StoryClock(program.ticks_per_day * turns_per_story_tick,
+                                overnight_requires_rest=True)
         self.scene_presenter = scene_presenter
         self.novel_presenter = novel_presenter
+        self.message_writer = message_writer
         self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def _story_tick(self, snapshot: Snapshot) -> int:
         return snapshot.tick // self.turns_per_story_tick
+
+    def _step_due(self, snapshot: Snapshot, step: dict[str, Any]) -> bool:
+        return snapshot.tick >= step["at"] * self.turns_per_story_tick + step.get("at_subtick", 0)
 
     async def start(self, game_id: str, *, present_opening: bool = True) -> CampaignOutcome:
         async with self._locks.setdefault(game_id, asyncio.Lock()):
@@ -413,9 +437,15 @@ class CampaignSession:
                     return self._outcome(game_id, ["只能发送给已经互动过的嘉宾。", StorySegment("prompt", self._prompt(gate))])
                 if len(parts) < 3 or not parts[2].strip():
                     return self._outcome(game_id, ["请在选项后写留言内容。", StorySegment("prompt", self._prompt(gate))])
-            incoming = self._commit_choice(snapshot, gate, selected, parts[2] if len(parts) > 2 else "", turn_id, text)
-            return self._drain(game_id, [StorySegment("narration", selected.get("text", f"已选择：{selected['label']}"))]
-                               + [StorySegment("message", item) for item in incoming])
+            content = parts[2].strip() if len(parts) > 2 else ""
+            incoming = await self._commit_choice(snapshot, gate, selected, content, turn_id, text)
+            visible = [StorySegment("narration", selected.get("text", f"已选择：{selected['label']}"))]
+            if gate["kind"] == "message":
+                if selected["id"] == "skip":
+                    visible = [StorySegment("narration", "你决定今晚不发送心动留言。")]
+                else:
+                    visible = [StorySegment("message", f"你发给{selected['label']}的心动留言：{content}")]
+            return self._drain(game_id, visible + [StorySegment("message", item) for item in incoming])
         if text == "/continue":
             raise ValueError("no campaign continuation is due")
         if text.startswith("/choose "):
@@ -425,6 +455,14 @@ class CampaignSession:
             next_tick = (snapshot.tick + self.clock.elapsed("rest", snapshot.tick)
                          if text == "/rest" else
                          (self._story_tick(snapshot) + 1) * self.turns_per_story_tick)
+            cursor = snapshot.data["campaign"]["cursor"]
+            if cursor < len(self.program.steps):
+                pending = self.program.steps[cursor]
+                pending_tick = (pending["at"] * self.turns_per_story_tick
+                                + pending.get("at_subtick", 0))
+                if snapshot.tick < pending_tick < next_tick:
+                    next_tick = pending_tick
+                    duration = "standard"
             self.store.commit(game_id, snapshot.version,
                               WorldEvent(f"{turn_id}:advance", "time_advanced", "player", None,
                                          next_tick, (), {"request_text": text,
@@ -437,8 +475,19 @@ class CampaignSession:
         else:
             if self.react is None:
                 raise ValueError("free-form turns require a ReAct session")
-            result = (await self.react.run_turn(game_id, text, turn_id, progress=progress)
-                      if progress is not None else await self.react.run_turn(game_id, text, turn_id))
+            bounded = getattr(self.react, "run_turn_bounded", None)
+            if bounded is not None:
+                cursor = snapshot.data["campaign"]["cursor"]
+                pending_tick = None
+                if cursor < len(self.program.steps):
+                    pending = self.program.steps[cursor]
+                    pending_tick = (pending["at"] * self.turns_per_story_tick
+                                    + pending.get("at_subtick", 0))
+                result = await bounded(game_id, text, turn_id,
+                                       max_tick=pending_tick, progress=progress)
+            else:
+                result = (await self.react.run_turn(game_id, text, turn_id, progress=progress)
+                          if progress is not None else await self.react.run_turn(game_id, text, turn_id))
             parts = list(getattr(result, "segments", ()))
             if not parts and getattr(result.decision, "duration", "brief") != "rest":
                 parts = [StorySegment("narration", result.narration)]
@@ -450,8 +499,11 @@ class CampaignSession:
                 targets = details.get("target_ids", [])
                 if isinstance(targets, list):
                     self._record_encounters(game_id, targets, turn_id, affinity=False)
-            self._append_passage(parts, snapshot.tick, result.snapshot.tick - snapshot.tick,
-                                 getattr(result.decision, "duration", "brief"))
+            duration = getattr(result.decision, "duration", "brief")
+            if (duration == "rest" and result.snapshot.tick // self.clock.ticks_per_day
+                    == snapshot.tick // self.clock.ticks_per_day):
+                duration = "standard"
+            self._append_passage(parts, snapshot.tick, result.snapshot.tick - snapshot.tick, duration)
         return self._drain(game_id, parts)
 
     def _append_passage(self, parts: list[DisplayPart], before_tick: object,
@@ -527,7 +579,7 @@ class CampaignSession:
         if cursor >= len(self.program.steps):
             return None
         step = self.program.steps[cursor]
-        return step if step["at"] <= self._story_tick(snapshot) and step["kind"] in {"continue", "choice", "message"} else None
+        return step if self._step_due(snapshot, step) and step["kind"] in {"continue", "choice", "message"} else None
 
     @staticmethod
     def _prompt(step: dict[str, Any]) -> str:
@@ -537,8 +589,8 @@ class CampaignSession:
         suffix = "；留言格式：/choose 选项ID 留言内容" if step["kind"] == "message" else "；输入 /choose 选项ID"
         return f"{step['prompt']}\n可选：{options}{suffix}"
 
-    def _commit_choice(self, before: Snapshot, step: dict[str, Any], option: dict[str, Any],
-                       content: str, turn_id: str, request_text: str) -> list[str]:
+    async def _commit_choice(self, before: Snapshot, step: dict[str, Any], option: dict[str, Any],
+                             content: str, turn_id: str, request_text: str) -> list[str]:
         campaign = before.data["campaign"]
         effects = [Effect(("campaign", "cursor"), campaign["cursor"] + 1),
                    Effect(("campaign", "choices", step["id"]), option["id"])]
@@ -573,6 +625,7 @@ class CampaignSession:
             observations.append(Observation(f"{event_id}:participant", event_id, notified,
                                             "shared_experience", f"玩家选择与你共同参与：{step['prompt']}", before.tick))
         incoming_texts: list[str] = []
+        prepared_messages: list[PreparedMessage] = []
         if step["kind"] == "message":
             senders: list[str] = []
             for index, rule in enumerate(step.get("incoming", [])):
@@ -581,12 +634,35 @@ class CampaignSession:
                 if not campaign["met"].get(actor_id) or score < rule["min_affinity"]:
                     continue
                 senders.append(actor_id)
-                visible = f"来自{rule['label']}的心动留言：{rule['text']}"
+                message = rule["text"]
+                if self.message_writer is not None:
+                    try:
+                        prepared = await self.message_writer.prepare(
+                            before.game_id, actor_id, content if recipient == actor_id else None,
+                        )
+                        candidate = " ".join(prepared.speech.strip().strip('“”"').split())
+                        if (candidate and len(candidate) <= 140
+                                and not candidate.startswith(("（", "(", "【"))):
+                            message = candidate
+                            prepared_messages.append(prepared)
+                        else:
+                            prepared.abort()
+                            with self.telemetry.span("campaign-message-fallback",
+                                                     {"actor_id": actor_id,
+                                                      "error_type": "invalid_message"}) as fallback_span:
+                                fallback_span.metric("story.campaign_message_fallback", 1.0)
+                    except Exception as error:
+                        # An NPC model outage must not erase the scripted message.
+                        with self.telemetry.span("campaign-message-fallback",
+                                                 {"actor_id": actor_id,
+                                                  "error_type": type(error).__name__}) as fallback_span:
+                            fallback_span.metric("story.campaign_message_fallback", 1.0)
+                visible = f"来自{rule['label']}的心动留言：{message}"
                 incoming_texts.append(visible)
                 observations.append(Observation(f"{event_id}:incoming:{index}:player", event_id,
                                                 "player", "private_message", visible, before.tick))
                 observations.append(Observation(f"{event_id}:incoming:{index}:sender", event_id,
-                                                actor_id, "outgoing_message", rule["text"], before.tick))
+                                                actor_id, "outgoing_message", message, before.tick))
             effects.append(Effect(("campaign", "incoming", step["id"]), senders))
         if recipient:
             observations.append(Observation(f"{event_id}:recipient", event_id, recipient,
@@ -594,11 +670,18 @@ class CampaignSession:
         event = WorldEvent(event_id, "campaign_choice", "player", None, before.tick,
                            tuple(effects), {"step_id": step["id"], "option_id": option["id"],
                                             "request_text": request_text})
-        with self.telemetry.span("campaign-choice", {"step_id": step["id"], "option_id": option["id"],
-                                                      "recipient_id": recipient}) as span:
-            self.store.commit(before.game_id, before.version, event, tuple(observations), ())
-            span.metric("story.campaign_choice", 1.0)
-            span.metric("story.incoming_messages", float(len(incoming_texts)))
+        try:
+            with self.telemetry.span("campaign-choice", {"step_id": step["id"], "option_id": option["id"],
+                                                          "recipient_id": recipient}) as span:
+                self.store.commit(before.game_id, before.version, event, tuple(observations), ())
+                span.metric("story.campaign_choice", 1.0)
+                span.metric("story.incoming_messages", float(len(incoming_texts)))
+        except BaseException:
+            for prepared in prepared_messages:
+                prepared.abort()
+            raise
+        for prepared in prepared_messages:
+            prepared.confirm()
         return incoming_texts
 
     def _drain(self, game_id: str, parts: list[DisplayPart]) -> CampaignOutcome:
@@ -617,7 +700,7 @@ class CampaignSession:
             if cursor >= len(self.program.steps):
                 break
             step = self.program.steps[cursor]
-            if step["at"] > story_tick:
+            if not self._step_due(before, step):
                 break
             if step["kind"] in {"continue", "choice", "message"}:
                 parts.append(StorySegment("prompt", self._prompt(step)))

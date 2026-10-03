@@ -121,6 +121,15 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
         result = await session.run_turn("game", "睡觉", "sleep")
         self.assertEqual(result.snapshot.tick, 6)
 
+    async def test_campaign_milestone_caps_natural_language_rest(self) -> None:
+        main = ScriptedMain(MainDecision(intent="speech", target_ids=[], duration="rest"))
+        session = GameSession(self.store, self.package, lambda _game: main, self.pool,
+                              max_steps=8,
+                              story_clock=StoryClock(6, overnight_requires_rest=True))
+        result = await session.run_turn_bounded("game", "我去睡觉", "early-sleep", max_tick=2)
+        self.assertEqual(result.snapshot.tick, 2)
+        self.assertEqual(self.store.event_details("game", "early-sleep:input")["duration_ticks"], 2)
+
     async def test_private_message_remains_separate_from_narration(self) -> None:
         async def summarize(_text: str, results: list[str]) -> str:
             return "环境：" + "、".join(results)

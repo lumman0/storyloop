@@ -13,6 +13,7 @@ PERIODS = ("上午", "中午", "下午", "晚上")
 @dataclass(frozen=True)
 class StoryClock:
     ticks_per_day: int
+    overnight_requires_rest: bool = False
 
     def __post_init__(self) -> None:
         if type(self.ticks_per_day) is not int or self.ticks_per_day < 1:
@@ -21,8 +22,14 @@ class StoryClock:
     def elapsed(self, duration: TurnDuration, before_tick: int) -> int:
         if duration == "rest":
             return self.ticks_per_day - before_tick % self.ticks_per_day
-        return {"brief": 1, "standard": min(2, self.ticks_per_day),
-                "extended": min(max(3, self.ticks_per_day // 2), self.ticks_per_day)}[duration]
+        estimate = {"brief": 1, "standard": min(2, self.ticks_per_day),
+                    "extended": min(max(3, self.ticks_per_day // 2), self.ticks_per_day)}[duration]
+        # A conversation can use the remaining evening, but cannot silently
+        # carry the player through a night's sleep into the next morning.
+        if self.overnight_requires_rest:
+            remaining_today = self.ticks_per_day - 1 - before_tick % self.ticks_per_day
+            return min(estimate, remaining_today)
+        return estimate
 
     def period(self, tick: int) -> str:
         index = min(3, tick % self.ticks_per_day * 4 // self.ticks_per_day)

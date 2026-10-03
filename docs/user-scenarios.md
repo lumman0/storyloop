@@ -6,6 +6,8 @@
 
 ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；章节剧本还需 `campaign.json`。文件名仅接受英文字母、数字、下划线和短横线，以 `.json` 结尾；不接受外层文件夹、非 JSON 文件、符号链接、重复文件名或不安全路径。压缩包最大 4 MiB，最多 16 个文件，单文件解压后最大 2 MiB，全部解压后最大 8 MiB。服务端使用 `ScenarioPackage` 和 `CampaignProgram` 校验，失败时不创建草稿。
 
+章节步骤可设置可选的 `at_subtick`，把晚餐、夜间留言等事件安排在一个剧情刻度内更晚的时点；它必须小于目录配置的 `turns_per_story_tick`。普通行动在当晚不会自动跳到次日，休息会先触发当晚尚未发生的必经事件。`message` 步骤的 `incoming` 文案是兜底；正常运行时由符合条件的 NPC 基于各自上下文生成私信，玩家发出的原文只交给收件人。
+
 章节剧本可在两个 `scene` 之间插入 `{ "id": "enter", "at": 0, "kind": "continue", "prompt": "门内传来谈话声。", "label": "走进去" }`。前端将它显示为继续阅读按钮；玩家点击后才呈现后续场景或选项，故事时间不前进。作者可用多个这样的节点组织开场，角色介绍与首次选择的顺序由剧本决定。CLI 对应 `/continue` 命令。
 
 平台建档时可选小说模式（`campaign`，主控将 NPC 结果整合为玩家第二人称正文）或剧本模式（`freeform`，玩家直接与 NPC 互动）。CLI 仍可在 `manifest.json` 使用 `"presentation_mode": "interactive"` 或 `"novel"` 指定呈现方式。普通回合结束后可调用 `followup_actions` 轻量模型生成行动建议；玩家始终可以自行输入。剧情必选节点使用剧本定义的合法选项。

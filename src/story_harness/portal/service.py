@@ -17,6 +17,7 @@ from weakref import WeakValueDictionary
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry, session_id_for_game
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
+from story_harness.agents.heart_message_writer import NpcHeartMessageWriter
 from story_harness.agents.novel_narrator import NovelTurnNarrator
 from story_harness.agents.prologue_generator import ModelPrologueGenerator
 from story_harness.agents.action_advisor import ActionOption, ActionOptionAdvisor
@@ -103,7 +104,7 @@ class PlayerPortal:
         self.moderation = ScenarioModerationService(self.engine, self.user_scenarios, self.access)
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
-        self._react_sessions: dict[tuple[Path, str, SaveGenerationSettings], GameSession] = {}
+        self._react_sessions: dict[tuple[Path, str, SaveGenerationSettings, bool], GameSession] = {}
         self._campaign_sessions: dict[tuple[Path, str, SaveGenerationSettings], tuple[CampaignProgram, CampaignSession]] = {}
         self._player_turn_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
@@ -543,14 +544,16 @@ class PlayerPortal:
                         del cache[key]
         return self.get_save_settings(token, game_id)
 
-    def _react(self, item: GameListing, package: ScenarioPackage, game_id: str) -> GameSession:
+    def _react(self, item: GameListing, package: ScenarioPackage, game_id: str,
+               *, overnight_requires_rest: bool = False) -> GameSession:
         settings = self._generation_settings(game_id)
-        key = (item.package_path, game_id, settings)
+        key = (item.package_path, game_id, settings, overnight_requires_rest)
         if key in self._react_sessions:
             return self._react_sessions[key]
         values = dict(os.environ)
         self._require_model_key(values)
-        clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick)
+        clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick,
+                            overnight_requires_rest=overnight_requires_rest)
                  if package.ticks_per_day is not None else None)
         session = make_react_session(self.config, package, self.store, values, self.telemetry,
                                      story_clock=clock, temperature=settings.temperature,
@@ -571,8 +574,9 @@ class PlayerPortal:
         if key in self._campaign_sessions:
             return self._campaign_sessions[key]
         program = CampaignProgram.load(item.package_path / "campaign.json")
+        react = self._react(item, package, game_id, overnight_requires_rest=True)
         result = (program, CampaignSession(
-            self.store, program, self._react(item, package, game_id), telemetry=self.telemetry,
+            self.store, program, react, telemetry=self.telemetry,
             turns_per_story_tick=item.turns_per_story_tick,
             scene_presenter=CampaignSceneNarrator(
                 package, program, self.config.create_model("narration", dict(os.environ), self.telemetry,
@@ -580,6 +584,7 @@ class PlayerPortal:
                 self.telemetry,
             ) if package.presentation_mode == "interactive" else None,
             novel_presenter=self._novel_presenter(package, game_id) if package.presentation_mode == "novel" else None,
+            message_writer=NpcHeartMessageWriter(react.npc_pool, package.role_cards),
         ))
         self._campaign_sessions[key] = result
         if len(self._campaign_sessions) > 128:
@@ -587,11 +592,25 @@ class PlayerPortal:
         return result
 
     def _novel_presenter(self, package: ScenarioPackage, game_id: str) -> NovelTurnNarrator:
+        def recent_prose(save_id: str) -> list[str]:
+            passages: list[str] = []
+            for turn in self.accounts.list_turns(save_id)[-3:]:
+                response = turn.get("response", {})
+                if not isinstance(response, dict):
+                    continue
+                for segment in response.get("segments", []):
+                    if isinstance(segment, dict) and segment.get("kind") == "narration":
+                        body = segment.get("text")
+                        if isinstance(body, str) and body.strip():
+                            passages.append(body.strip())
+            return passages[-3:]
+
         return NovelTurnNarrator(
             package,
             self.config.create_model("narration", dict(os.environ), self.telemetry,
                                      temperature=self._generation_settings(game_id).temperature),
             self.telemetry,
+            recent_prose,
         )
 
     async def _action_options(self, body: str, presentation_mode: str, *,

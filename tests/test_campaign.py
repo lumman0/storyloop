@@ -252,10 +252,65 @@ class CampaignTests(unittest.TestCase):
         self.assertFalse(any("今晚很开心" in o.content for o in self.store.observations_for("g", "m2")))
         self.assertTrue(any("今晚很开心" in o.content for o in self.store.observations_for("g", "player")))
         self.assertIn("今天和你聊天很开心", result.text)
+        self.assertIn("今晚很开心", result.text)
         self.assertEqual(result.snapshot.data["campaign"]["incoming"]["message"], ["m1"])
         self.assertTrue(any(o.channel == "outgoing_message" for o in self.store.observations_for("g", "m1")))
         self.assertFalse(any("今天和你聊天很开心" in o.content for o in self.store.observations_for("g", "m2")))
         self.assertRaises(ValueError, lambda: self.run_async(self.session.submit("g", "/choose m2", "t3-repeat")))
+
+    def test_conversation_stays_in_evening_until_rest(self):
+        clock = StoryClock(6, overnight_requires_rest=True)
+        self.assertEqual(clock.elapsed("standard", 5), 0)
+        self.assertEqual(clock.elapsed("extended", 4), 1)
+        self.assertEqual(clock.elapsed("rest", 5), 1)
+        self.assertEqual(StoryClock(6).elapsed("standard", 5), 2)
+
+    def test_eligible_npc_authors_message_from_own_context(self):
+        class Writer:
+            calls = []
+
+            async def prepare(self, game_id, actor_id, player_note):
+                self.calls.append((game_id, actor_id, player_note))
+                return SimpleNamespace(speech="今晚想起我们聊过的话。",
+                                       confirm=lambda: None, abort=lambda: None)
+
+        writer = Writer()
+        self.session.message_writer = writer
+        self.run_async(self.session.start("g"))
+        self.run_async(self.session.submit("g", "/choose m1", "mw-choice"))
+        self.run_async(self.session.submit("g", "和甲聊天", "mw-talk"))
+        result = self.run_async(self.session.submit("g", "/choose m1 我爱你", "mw-message"))
+        self.assertEqual(writer.calls, [("g", "m1", "我爱你")])
+        self.assertIn("你发给甲的心动留言：我爱你", result.text)
+        self.assertIn("来自甲的心动留言：今晚想起我们聊过的话。", result.text)
+
+    def test_late_milestone_waits_until_evening_and_rest_cannot_skip_it(self):
+        paced = CampaignProgram.from_dict({
+            "id": "late", "ticks_per_day": 2, "final_tick": 2,
+            "steps": [
+                {"id": "arrival", "at": 0, "kind": "choice", "prompt": "开始",
+                 "options": [{"id": "m1", "label": "甲"}]},
+                {"id": "dinner", "at": 1, "at_subtick": 2, "kind": "scene",
+                 "text": "晚餐开始了。"},
+                {"id": "late_choice", "at": 1, "at_subtick": 2, "kind": "choice",
+                 "prompt": "晚餐时坐哪边？", "options": [{"id": "m1", "label": "甲"}]},
+                {"id": "end", "at": 2, "kind": "finale", "choice_key": "arrival",
+                 "threshold": 0, "success_text": "结束", "other_text": "结束"},
+            ],
+        })
+        self.store.create_game(Snapshot("late", 0, 0, {
+            "scenario": {"id": "late", "version": "1"},
+            "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
+            "campaign": paced.initial_state(["m1"]),
+        }))
+        session = CampaignSession(self.store, paced, turns_per_story_tick=3)
+        self.run_async(session.start("late"))
+        self.run_async(session.submit("late", "/choose m1", "late-arrival"))
+        afternoon = self.run_async(session.submit("late", "/next", "late-next"))
+        self.assertEqual((afternoon.snapshot.tick, afternoon.gate_id), (3, None))
+        evening = self.run_async(session.submit("late", "/rest", "late-rest"))
+        self.assertEqual((evening.snapshot.tick, evening.gate_id), (5, "late_choice"))
+        self.assertIn("晚餐开始了", evening.text)
 
     def test_finale_depends_on_player_choice_and_affinity(self):
         self.run_async(self.session.start("g"))

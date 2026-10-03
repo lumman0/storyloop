@@ -13,12 +13,14 @@ from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.agents.novel_narrator import NovelTurnNarrator
+from story_harness.agents.heart_message_writer import NpcHeartMessageWriter
 from story_harness.agents.action_advisor import ActionOptionAdvisor
 from story_harness.cli.react_play import DEFAULT_CONFIG
 from story_harness.cli.guidance_view import format_turn_output
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.guidance import GuidanceAdvisor
 from story_harness.runtime.react_factory import make_react_session
+from story_harness.runtime.story_clock import StoryClock
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -40,15 +42,21 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
     except KeyError:
         package.seed_game(store, game_id)
         new_game = True
-    react = make_react_session(config, package, store, values, telemetry)
+    turns_per_story_tick = max(1, *(step.get("at_subtick", 0) + 1 for step in program.steps))
+    clock = (StoryClock(program.ticks_per_day * turns_per_story_tick,
+                        overnight_requires_rest=True)
+             if turns_per_story_tick > 1 else None)
+    react = make_react_session(config, package, store, values, telemetry, story_clock=clock)
     session = CampaignSession(
         store, program, react, telemetry=telemetry,
+        turns_per_story_tick=turns_per_story_tick,
         scene_presenter=CampaignSceneNarrator(
             package, program, config.create_model("narration", values, telemetry), telemetry,
         ) if package.presentation_mode == "interactive" else None,
         novel_presenter=(NovelTurnNarrator(
             package, config.create_model("narration", values, telemetry), telemetry,
         ) if package.presentation_mode == "novel" else None),
+        message_writer=NpcHeartMessageWriter(react.npc_pool, package.role_cards),
     )
     advisor = GuidanceAdvisor(store, package, program, telemetry=telemetry)
     option_task = ("followup_actions" if "followup_actions" in config.task_models

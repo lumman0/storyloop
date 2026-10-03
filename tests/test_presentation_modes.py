@@ -81,6 +81,18 @@ class PresentationModeTests(unittest.TestCase):
         self.assertIn("第二人称", str(model.prompt))
         self.assertEqual(prose, "你听见码头工的回应：早上好")
 
+    def test_novel_prompt_uses_recent_prose_to_avoid_repeated_motifs(self):
+        package = ScenarioPackage.load(EXAMPLE)
+        model = FailingNovelModel()
+        context = SceneContext("game", "你问他愿不愿意出门", Snapshot("game", 0, 0, {}),
+                               (StorySegment("dialogue", "我愿意。", "dockhand", "码头工"),),
+                               False, 1, "下午")
+        asyncio.run(NovelTurnNarrator(
+            package, model, recent_prose=lambda _: ["上午的光照着窗外的雪。"]
+        ).present(context))
+        self.assertIn("上午的光照着窗外的雪", str(model.prompt))
+        self.assertIn("不要复述", str(model.prompt))
+
     def test_manifest_defaults_to_interactive_and_accepts_novel(self):
         self.assertEqual(ScenarioPackage.load(EXAMPLE).presentation_mode, "interactive")
         with tempfile.TemporaryDirectory() as directory:

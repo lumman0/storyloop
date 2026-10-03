@@ -144,7 +144,8 @@ class GameSession:
             )
 
     async def run_turn(self, game_id: str, player_text: str, turn_id: str,
-                       progress: TurnProgress | None = None) -> TurnOutcome:
+                       progress: TurnProgress | None = None,
+                       max_tick: int | None = None) -> TurnOutcome:
         if not player_text.strip() or not turn_id:
             raise ValueError("turn requires text and an ID")
         lock = self._locks.setdefault(game_id, asyncio.Lock())
@@ -157,16 +158,23 @@ class GameSession:
             ) as turn_span:
                 try:
                     outcome = await self._run_locked_turn(game_id, player_text, turn_id,
-                                                          turn_span, progress)
+                                                          turn_span, progress, max_tick)
                 except BaseException:
                     turn_span.metric("story.turn_success", 0.0)
                     raise
                 turn_span.metric("story.turn_success", 1.0)
                 return outcome
 
+    async def run_turn_bounded(self, game_id: str, player_text: str, turn_id: str,
+                               *, max_tick: int | None,
+                               progress: TurnProgress | None = None) -> TurnOutcome:
+        """Let a campaign stop a free-form action at its next authored milestone."""
+        return await self.run_turn(game_id, player_text, turn_id, progress, max_tick)
+
     async def _run_locked_turn(self, game_id: str, player_text: str,
                                turn_id: str, turn_span: TraceSpan,
-                               progress: TurnProgress | None = None) -> TurnOutcome:
+                               progress: TurnProgress | None = None,
+                               max_tick: int | None = None) -> TurnOutcome:
         before = self.store.load(game_id)
         scenario = before.data.get("scenario", {})
         if (
@@ -197,6 +205,8 @@ class GameSession:
         await emit(progress, "stage", stage="committing")
         duration_ticks = (self.story_clock.elapsed(decision.duration, before.tick)
                           if self.story_clock is not None else 1)
+        if max_tick is not None:
+            duration_ticks = min(duration_ticks, max(0, max_tick - before.tick))
         if decision.intent == "speech":
             self.store_input(game_id, turn_id, player_text, decision, duration_ticks)
         elif decision.intent == "inspect":
