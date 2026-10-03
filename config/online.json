@@ -4,6 +4,7 @@
   "models": {
     "provider": "openai_compatible",
     "tool_choice_policy": "auto_only",
+    "structured_output_transport": "tool_call",
     "base_url": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
     "base_url_env": "STORY_BAILIAN_BASE_URL",
     "api_key_env": "STORY_BAILIAN_API_KEY",

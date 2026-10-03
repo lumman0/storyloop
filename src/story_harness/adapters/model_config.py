@@ -15,17 +15,25 @@ from story_harness.core.billing import record_model_usage
 
 
 ToolChoicePolicy = Literal["native", "auto_only"]
+StructuredOutputTransport = Literal["auto", "tool_call"]
 
 
 class CompatibleOpenAIChatModel(OpenAIChatModel):
     """Adapt forced tool choices for endpoints that only accept auto/none."""
 
     def __init__(self, *args: object, tool_choice_policy: ToolChoicePolicy = "native",
+                 structured_output_transport: StructuredOutputTransport = "auto",
                  telemetry: Telemetry | None = None, task: str = "model", **kwargs: object) -> None:
+        if structured_output_transport not in ("auto", "tool_call"):
+            raise ValueError("unsupported structured_output_transport")
         self.tool_choice_policy = tool_choice_policy
         self.telemetry = telemetry or LangfuseTelemetry()
         self.task = task
         super().__init__(*args, **kwargs)
+        if structured_output_transport == "tool_call":
+            # AgentScope 1.0.21 exposes no public setting for this route.
+            # The dependency is pinned; keep the provider-specific hook here.
+            self._structured_output_fallback = True
 
     async def __call__(
         self,
@@ -77,6 +85,7 @@ class NpcModelConfig:
     connect_timeout_seconds: float = 10
     max_retries: int = 2
     generate_kwargs: Mapping[str, object] = field(default_factory=dict, repr=False)
+    structured_output_transport: StructuredOutputTransport = "auto"
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str] | None = None) -> NpcModelConfig:
@@ -106,6 +115,7 @@ class NpcModelConfig:
             client_kwargs=client_kwargs,
             generate_kwargs=dict(self.generate_kwargs),
             tool_choice_policy=self.tool_choice_policy,
+            structured_output_transport=self.structured_output_transport,
             telemetry=self.telemetry,
             task=self.task,
         )

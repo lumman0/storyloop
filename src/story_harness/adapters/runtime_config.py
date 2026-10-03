@@ -93,6 +93,7 @@ class HarnessConfig:
     runtime: RuntimeSettings = field(repr=True)
     storage: StorageSettings = field(repr=True)
     model_generate_kwargs: Mapping[str, object] = field(default_factory=dict, repr=False)
+    structured_output_transport: str = "auto"
     memory_driver: str = "in_memory"
     player_memory: PlayerMemorySettings = field(default_factory=PlayerMemorySettings)
     tool_choice_policy: str = "native"
@@ -126,6 +127,9 @@ class HarnessConfig:
         tool_choice_policy = models.get("tool_choice_policy", "native")
         if tool_choice_policy not in ("native", "auto_only"):
             raise ValueError("models.tool_choice_policy must be native or auto_only")
+        structured_output_transport = models.get("structured_output_transport", "auto")
+        if structured_output_transport not in ("auto", "tool_call"):
+            raise ValueError("models.structured_output_transport must be auto or tool_call")
         timeout_seconds = _positive_seconds(models.get("timeout_seconds", 90), "models.timeout_seconds")
         connect_timeout_seconds = _positive_seconds(
             models.get("connect_timeout_seconds", 10), "models.connect_timeout_seconds")
@@ -216,6 +220,7 @@ class HarnessConfig:
             task_models=task_models,
             runtime=runtime_settings,
             model_generate_kwargs=generate_kwargs,
+            structured_output_transport=structured_output_transport,
             storage=StorageSettings(driver, resolved_path, url_env),
             memory_driver=memory_driver,
             player_memory=player_memory_settings,
@@ -286,6 +291,7 @@ class HarnessConfig:
             self.model_connect_timeout_seconds,
             self.model_max_retries,
             self.model_generate_kwargs,
+            self.structured_output_transport,
         ).create_model()
 
     def database_url(self, path_override: str | None = None,
