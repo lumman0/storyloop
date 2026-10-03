@@ -6,6 +6,8 @@
 
 ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；章节剧本还需 `campaign.json`。文件名仅接受英文字母、数字、下划线和短横线，以 `.json` 结尾；不接受外层文件夹、非 JSON 文件、符号链接、重复文件名或不安全路径。压缩包最大 4 MiB，最多 16 个文件，单文件解压后最大 2 MiB，全部解压后最大 8 MiB。服务端使用 `ScenarioPackage` 和 `CampaignProgram` 校验，失败时不创建草稿。
 
+`manifest.json` 可设置 `"presentation_mode": "interactive"` 或 `"novel"`。省略时沿用交互模式：NPC 分别回应，正文以第二人称面向玩家。小说模式仍由独立 NPC Agent 处理认知和行动，主控在本轮所有可见结果提交后整合为第一人称正文；剧本开场文案也应按第一人称撰写。模式与目录中的 `campaign` / `freeform` 流程类型相互独立。普通回合结束后会调用配置的 `followup_actions` 轻量模型生成三个可直接点击的行动；玩家始终可以自行输入。剧情必选节点使用剧本定义的合法选项，不生成绕过节点的建议。
+
 玩家可以尝试未在 `actions` 中列出的行动。`actions` 仅用于特殊的预设状态转换；重要物品或位置若需要被自由行动持续改变，可在 `manifest.json` 声明允许修改的**状态字段**，而不是列举所有动词。例如：
 
 ```json

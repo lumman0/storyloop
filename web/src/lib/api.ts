@@ -111,11 +111,13 @@ export type View = {
   game_id: string;
   catalog_id: string;
   mode: string;
+  presentation_mode?: "interactive" | "novel";
   opening: string;
   body: string;
   segments?: StorySegment[];
   interaction?: Interaction | null;
   suggestions: string[];
+  action_options?: { label: string; input: string }[];
   tick: number;
   state_version: number;
   day: number | null;

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from story_harness.adapters.store import GameStore
-from story_harness.core.contracts import Observation
+from story_harness.core.contracts import Observation, Snapshot
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,19 @@ class StorySegment:
         if self.speaker_name:
             result["speaker_name"] = self.speaker_name
         return result
+
+
+@dataclass(frozen=True)
+class SceneContext:
+    """Player-visible beats handed to a replaceable final presenter."""
+
+    game_id: str
+    player_text: str
+    snapshot: Snapshot
+    segments: tuple[StorySegment, ...]
+    opening: bool
+    day: int
+    period: str
 
 
 def segment_for_observation(store: GameStore, game_id: str, item: Observation) -> StorySegment:

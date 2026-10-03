@@ -14,6 +14,8 @@ from weakref import WeakValueDictionary
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry, session_id_for_game
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
+from story_harness.agents.novel_narrator import NovelTurnNarrator
+from story_harness.agents.action_advisor import ActionOption, ActionOptionAdvisor
 from story_harness.core.billing import collect_usage
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.access import AccessService
@@ -29,6 +31,7 @@ from story_harness.portal.presentation import campaign_interaction
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
+from story_harness.runtime.novel_presentation import present_freeform_novel
 from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
 from story_harness.runtime.turn_progress import TurnProgress, emit
@@ -412,10 +415,40 @@ class PlayerPortal:
             scene_presenter=CampaignSceneNarrator(
                 package, program, self.config.create_model("narration", dict(os.environ), self.telemetry),
                 self.telemetry,
-            ),
+            ) if package.presentation_mode == "interactive" else None,
+            novel_presenter=self._novel_presenter(package) if package.presentation_mode == "novel" else None,
         ))
         self._campaign_sessions[key] = result
         return result
+
+    def _novel_presenter(self, package: ScenarioPackage) -> NovelTurnNarrator:
+        return NovelTurnNarrator(
+            package,
+            self.config.create_model("narration", dict(os.environ), self.telemetry),
+            self.telemetry,
+        )
+
+    async def _action_options(self, body: str, presentation_mode: str, *,
+                              game_id: str = "", scenario_id: str = "",
+                              gate_id: str | None = None,
+                              complete: bool = False) -> tuple[ActionOption, ...]:
+        if gate_id is not None or complete or not body.strip():
+            return ()
+        task = ("followup_actions" if "followup_actions" in self.config.task_models
+                else "npc_selection")
+        advisor = ActionOptionAdvisor(
+            self.config.create_model(task, dict(os.environ), self.telemetry), self.telemetry,
+            timeout_seconds=self.config.runtime.followup_timeout_seconds,
+        )
+        return await advisor.suggest(body, presentation_mode, game_id, scenario_id)
+
+    async def _freeform_novel(self, package: ScenarioPackage, game_id: str, text: str, turn_id: str,
+                              segments: tuple[StorySegment, ...], progress: TurnProgress | None = None
+                              ) -> tuple[str, tuple[StorySegment, ...]]:
+        return await present_freeform_novel(
+            self.store, package, self._novel_presenter(package),
+            game_id, text, turn_id, segments, progress,
+        )
 
     @staticmethod
     def _view(game_id: str, catalog_id: str, mode: str, body: str,
@@ -423,13 +456,16 @@ class PlayerPortal:
               opening: str = "", turn_id: str | None = None,
               segments: tuple[StorySegment, ...] = (),
               program: CampaignProgram | None = None, gate_id: str | None = None,
-              time_of_day: str = "") -> dict:
+              time_of_day: str = "", presentation_mode: str = "interactive",
+              action_options: tuple[ActionOption, ...] = ()) -> dict:
         campaign = snapshot.data.get("campaign")
         return {"game_id": game_id, "catalog_id": catalog_id, "mode": mode,
+                "presentation_mode": presentation_mode,
                 "opening": opening, "body": body,
                 "segments": [part.to_dict() for part in segments],
                 "interaction": campaign_interaction(program, snapshot, gate_id) if program else None,
                 "suggestions": list(guidance.items),
+                "action_options": [option.model_dump() for option in action_options],
                 "tick": snapshot.tick, "state_version": snapshot.version,
                 "day": campaign.get("day") if isinstance(campaign, dict) else None,
                 "time_of_day": time_of_day or None,
@@ -463,6 +499,12 @@ class PlayerPortal:
         preview = self.moderation.preview_for(game_id, player_id) is not None
         latest = self.accounts.latest_turn_response(game_id)
         snapshot = self.store.load(game_id)
+        if latest is None:
+            intro = self.accounts.get_intro(game_id)
+            if (intro is not None and snapshot.version == intro.get("state_version")
+                    and not self.store.ready_work(game_id, snapshot.tick)
+                    and (item.mode != "campaign" or "interaction" in intro)):
+                return {**intro, "opening": ""}
         if (latest is not None and snapshot.version == latest["state_version"]
                 and not self.store.ready_work(game_id, snapshot.tick)
                 and (item.mode != "campaign" or "interaction" in latest)):
@@ -486,16 +528,28 @@ class PlayerPortal:
                                              turns_per_story_tick=item.turns_per_story_tick).advise(
                 game_id, outcome.snapshot, gate_id=outcome.gate_id,
                 complete=outcome.complete, visible_text=outcome.text)
+            action_options = await self._action_options(
+                outcome.text or opening, package.presentation_mode,
+                game_id=game_id, scenario_id=package.package_id,
+                gate_id=outcome.gate_id, complete=outcome.complete,
+            )
             return self._view(game_id, item.game_id, item.mode, outcome.text,
                               outcome.snapshot, guidance, complete=outcome.complete,
                               opening=opening, segments=outcome.segments,
                               program=program, gate_id=outcome.gate_id,
-                              time_of_day=outcome.time_of_day)
+                              time_of_day=outcome.time_of_day,
+                              presentation_mode=package.presentation_mode,
+                              action_options=action_options)
         snapshot = self.store.load(game_id)
         guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
             game_id, snapshot, visible_text=opening)
+        action_options = await self._action_options(
+            opening, package.presentation_mode, game_id=game_id,
+            scenario_id=package.package_id,
+        )
         return self._view(game_id, item.game_id, item.mode, "", snapshot, guidance,
-                          opening=opening)
+                          opening=opening, presentation_mode=package.presentation_mode,
+                          action_options=action_options)
 
     async def turn(self, token: str, game_id: str, text: str,
                    request_id: str | None = None, progress: TurnProgress | None = None) -> dict:
@@ -542,23 +596,41 @@ class PlayerPortal:
                                                  turns_per_story_tick=item.turns_per_story_tick).advise(
                     game_id, outcome.snapshot, gate_id=outcome.gate_id,
                     complete=outcome.complete, visible_text=outcome.text)
+                action_options = await self._action_options(
+                    outcome.text, package.presentation_mode,
+                    game_id=game_id, scenario_id=package.package_id,
+                    gate_id=outcome.gate_id, complete=outcome.complete,
+                )
                 view = self._view(game_id, item.game_id, item.mode, outcome.text,
                                   outcome.snapshot, guidance, complete=outcome.complete,
                                   turn_id=turn_id, segments=outcome.segments,
                                   program=program, gate_id=outcome.gate_id,
-                                  time_of_day=outcome.time_of_day)
+                                  time_of_day=outcome.time_of_day,
+                                  presentation_mode=package.presentation_mode,
+                                  action_options=action_options)
             else:
                 outcome = await self._react(item, package).run_turn(
                     game_id, text, turn_id, progress=progress,
                 )
-                await emit(progress, "preview", body=outcome.narration,
-                           segments=[part.to_dict() for part in outcome.segments])
+                body, segments = outcome.narration, outcome.segments
+                if package.presentation_mode == "novel":
+                    body, segments = await self._freeform_novel(
+                        package, game_id, text, turn_id, segments, progress,
+                    )
+                await emit(progress, "preview", body=body,
+                           segments=[part.to_dict() for part in segments])
                 await emit(progress, "stage", stage="guidance")
                 guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
-                    game_id, outcome.snapshot, visible_text=outcome.narration)
-                view = self._view(game_id, item.game_id, item.mode, outcome.narration,
-                                  outcome.snapshot, guidance, turn_id=turn_id,
-                                  segments=outcome.segments)
+                    game_id, self.store.load(game_id), visible_text=body)
+                action_options = await self._action_options(
+                    body, package.presentation_mode, game_id=game_id,
+                    scenario_id=package.package_id,
+                )
+                view = self._view(game_id, item.game_id, item.mode, body,
+                                  self.store.load(game_id), guidance, turn_id=turn_id,
+                                  segments=segments,
+                                  presentation_mode=package.presentation_mode,
+                                  action_options=action_options)
         if self.billing is not None and not preview:
             with self.telemetry.span(
                 "billing-settlement",
@@ -598,7 +670,16 @@ class PlayerPortal:
                    if observation.event_id.startswith(f"{turn_id}:")]
         segments = tuple(segment_for_observation(self.store, game_id, item) for item in visible)
         body = "\n\n".join(item.body_text for item in segments) or "上次操作已提交，暂时没有新的可见变化。"
+        if package.presentation_mode == "novel":
+            body, segments = await self._freeform_novel(package, game_id, text, turn_id, segments)
+            snapshot = self.store.load(game_id)
         guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
             game_id, snapshot, visible_text=body)
+        action_options = await self._action_options(
+            body, package.presentation_mode, game_id=game_id,
+            scenario_id=package.package_id,
+        )
         return self._view(game_id, item.game_id, item.mode, body, snapshot, guidance,
-                          turn_id=turn_id, segments=segments)
+                          turn_id=turn_id, segments=segments,
+                          presentation_mode=package.presentation_mode,
+                          action_options=action_options)

@@ -36,6 +36,7 @@ class ScenarioPackage:
     action_rules: dict[str, ActionRule]
     opening: str
     mutable_fields: tuple[MutableField, ...] = ()
+    presentation_mode: str = "interactive"
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -54,6 +55,9 @@ class ScenarioPackage:
         version = _required_string(raw, "version")
         time_unit = _required_string(raw, "time_unit")
         opening = raw.get("opening", "")
+        presentation_mode = raw.get("presentation_mode", "interactive")
+        if not isinstance(presentation_mode, str) or presentation_mode not in {"interactive", "novel"}:
+            raise ValueError("presentation_mode must be interactive or novel")
         if not isinstance(opening, str) or ("opening" in raw and not opening.strip()):
             raise ValueError("opening must be nonempty text when provided")
         if time_unit not in {"tick", "slot", "hour", "day", "week", "month"}:
@@ -123,7 +127,8 @@ class ScenarioPackage:
         action_rules = parse_action_rules(raw.get("actions", []), state)
         mutable_fields = parse_mutable_fields(raw.get("mutable_state", []), state)
         return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
-                   state, tuple(work), worldbook, action_rules, opening, mutable_fields)
+                   state, tuple(work), worldbook, action_rules, opening, mutable_fields,
+                   presentation_mode)
 
     def seed_game(self, store: GameStore, game_id: str) -> None:
         state = deepcopy(self.initial_state)
@@ -132,5 +137,6 @@ class ScenarioPackage:
             "version": self.version,
             "time_unit": self.time_unit,
             "ticks_per_day": self.ticks_per_day,
+            "presentation_mode": self.presentation_mode,
         }
         store.create_game(Snapshot(game_id, 0, 0, state), self.initial_work)

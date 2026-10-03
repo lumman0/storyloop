@@ -12,6 +12,8 @@ from pathlib import Path
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
+from story_harness.agents.novel_narrator import NovelTurnNarrator
+from story_harness.agents.action_advisor import ActionOptionAdvisor
 from story_harness.cli.react_play import DEFAULT_CONFIG
 from story_harness.cli.guidance_view import format_turn_output
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
@@ -43,9 +45,18 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
         store, program, react, telemetry=telemetry,
         scene_presenter=CampaignSceneNarrator(
             package, program, config.create_model("narration", values, telemetry), telemetry,
-        ),
+        ) if package.presentation_mode == "interactive" else None,
+        novel_presenter=(NovelTurnNarrator(
+            package, config.create_model("narration", values, telemetry), telemetry,
+        ) if package.presentation_mode == "novel" else None),
     )
     advisor = GuidanceAdvisor(store, package, program, telemetry=telemetry)
+    option_task = ("followup_actions" if "followup_actions" in config.task_models
+                   else "npc_selection")
+    option_advisor = ActionOptionAdvisor(
+        config.create_model(option_task, values, telemetry), telemetry,
+        config.runtime.followup_timeout_seconds,
+    )
     print(f"{package.package_id} | game={game_id} | /next 推进时段 | /quit 退出")
     if new_game and package.opening:
         print(package.opening)
@@ -67,6 +78,12 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
         print(format_turn_output(initial.text,
                                  f"[第 {initial.snapshot.data['campaign']['day']} 天 | tick {initial.snapshot.tick}]",
                                  guidance))
+        options = (await option_advisor.suggest(initial.text or package.opening,
+                                                package.presentation_mode,
+                                                game_id, package.package_id)
+                   if initial.gate_id is None and not initial.complete else ())
+        if options:
+            print("\n".join(f"{index}. {option.label}" for index, option in enumerate(options, 1)))
         while not initial.complete:
             try:
                 player_text = input("你> ").strip()
@@ -76,6 +93,8 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
                 break
             if not player_text:
                 continue
+            if player_text in {"1", "2", "3"} and options:
+                player_text = options[int(player_text) - 1].input
             turn_id = f"campaign-turn-{store.completed_turn_count(game_id)}"
             try:
                 outcome = await session.submit(game_id, player_text, turn_id)
@@ -88,6 +107,11 @@ async def play(package_path: str, config_path: str, game_id: str, db_path: str |
             print(format_turn_output(outcome.text,
                                      f"[第 {outcome.snapshot.data['campaign']['day']} 天 | tick {outcome.snapshot.tick}]",
                                      guidance))
+            options = (await option_advisor.suggest(outcome.text, package.presentation_mode,
+                                                    game_id, package.package_id)
+                       if outcome.gate_id is None and not outcome.complete else ())
+            if options:
+                print("\n".join(f"{index}. {option.label}" for index, option in enumerate(options, 1)))
             initial = outcome
     finally:
         telemetry.flush()

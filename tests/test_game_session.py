@@ -94,6 +94,22 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.narration, "【码头工】\nA：我听见了。")
         self.assertEqual(main.visible_results, [])
 
+    async def test_novel_mode_defers_visible_npc_segments_to_final_presenter(self) -> None:
+        package = replace(self.package, presentation_mode="novel")
+        main = ScriptedMain(MainDecision(intent="speech", target_ids=["dockhand"], channel="speech"))
+        session = GameSession(self.store, package, lambda _game: main, self.pool, max_steps=8)
+        progress_events = []
+
+        async def progress(event):
+            progress_events.append(event)
+
+        outcome = await session.run_turn("game", "你好", "novel-turn", progress=progress)
+
+        self.assertEqual(outcome.segments[0].kind, "dialogue")
+        self.assertEqual(outcome.segments[0].speaker_name, "码头工")
+        self.assertEqual(main.visible_results, [])
+        self.assertFalse(any(event.get("type") == "segment" for event in progress_events))
+
     async def test_campaign_clock_uses_main_decision_duration(self) -> None:
         main = ScriptedMain(MainDecision(intent="speech", target_ids=[], duration="extended"))
         session = GameSession(self.store, self.package, lambda _game: main, self.pool,

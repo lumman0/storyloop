@@ -12,7 +12,7 @@ from weakref import WeakValueDictionary
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 from story_harness.core.contracts import Effect, Observation, Snapshot, WorldEvent
-from story_harness.runtime.presentation import StorySegment, segment_for_observation
+from story_harness.runtime.presentation import SceneContext, StorySegment, segment_for_observation
 from story_harness.runtime.turn_progress import TurnProgress, emit
 from story_harness.runtime.story_clock import StoryClock
 
@@ -22,17 +22,6 @@ DisplayPart = str | StorySegment
 
 class ReactTurn(Protocol):
     async def run_turn(self, game_id: str, text: str, turn_id: str) -> Any: ...
-
-
-@dataclass(frozen=True)
-class SceneContext:
-    game_id: str
-    player_text: str
-    snapshot: Snapshot
-    segments: tuple[StorySegment, ...]
-    opening: bool
-    day: int
-    period: str
 
 
 class ScenePresenter(Protocol):
@@ -140,7 +129,8 @@ class CampaignSession:
 
     def __init__(self, store: GameStore, program: CampaignProgram, react: ReactTurn | None = None,
                  telemetry: Telemetry | None = None, turns_per_story_tick: int = 1,
-                 scene_presenter: ScenePresenter | None = None) -> None:
+                 scene_presenter: ScenePresenter | None = None,
+                 novel_presenter: ScenePresenter | None = None) -> None:
         if type(turns_per_story_tick) is not int or turns_per_story_tick < 1:
             raise ValueError("turns_per_story_tick must be positive")
         self.store = store
@@ -150,6 +140,7 @@ class CampaignSession:
         self.turns_per_story_tick = turns_per_story_tick
         self.clock = StoryClock(program.ticks_per_day * turns_per_story_tick)
         self.scene_presenter = scene_presenter
+        self.novel_presenter = novel_presenter
         self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def _story_tick(self, snapshot: Snapshot) -> int:
@@ -163,6 +154,9 @@ class CampaignSession:
                 resumed = await self._flush_ready(game_id)
                 self._reconcile_encounters(game_id)
                 result = self._drain(game_id, resumed)
+                result = await self._present_novel(
+                    game_id, "", "campaign:opening", result, None, opening=True,
+                )
                 span.update(metadata={"tick": result.snapshot.tick, "gate_id": result.gate_id})
                 return result
 
@@ -179,6 +173,7 @@ class CampaignSession:
                 await emit(progress, "stage", stage="campaign")
                 result = await self._submit_locked(game_id, text, turn_id, progress)
                 result = await self._present_scene(game_id, text, turn_id, result, progress)
+                result = await self._present_novel(game_id, text, turn_id, result, progress)
                 if not self.store.event_exists(game_id, f"{turn_id}:completed") and any(
                     self.store.event_exists(game_id, f"{turn_id}:{kind}")
                     for kind in ("choice", "advance", "input", "query", "action")
@@ -197,6 +192,48 @@ class CampaignSession:
                 if self.telemetry.capture_content:
                     span.update(output=result.text)
                 return result
+
+    async def _present_novel(self, game_id: str, text: str, turn_id: str,
+                             result: CampaignOutcome,
+                             progress: TurnProgress | None,
+                             *, opening: bool = False) -> CampaignOutcome:
+        if self.novel_presenter is None:
+            return result
+        operation = self._committed_operation(game_id, turn_id) if not opening else None
+        if not opening and operation is None:
+            return result
+        event_id = f"{turn_id}:novel"
+        saved_details = self.store.event_details(game_id, event_id)
+        saved = saved_details.get("text") if saved_details is not None else None
+        if saved is not None and not isinstance(saved, str):
+            raise ValueError("saved novel presentation is invalid")
+        if saved is None and opening and not any(
+            part.kind != "prompt" and part.text.strip() for part in result.segments
+        ):
+            return result
+        if saved is None:
+            context = SceneContext(
+                game_id, text, result.snapshot, result.segments,
+                opening or (operation is not None and operation[0] == "choice"
+                            and result.snapshot.tick == 0),
+                result.snapshot.data["campaign"]["day"], self.clock.period(result.snapshot.tick),
+            )
+            await emit(progress, "stage", stage="narrating")
+            saved = (await self.novel_presenter.present(context)).strip()
+            if not saved:
+                raise ValueError("novel presenter returned no prose")
+            before = self.store.load(game_id)
+            self.store.commit(
+                game_id, before.version,
+                WorldEvent(event_id, "novel_presented", None, turn_id, before.tick, (),
+                           {"text": saved}), (), (),
+            )
+        segments = (StorySegment("narration", saved),) + tuple(
+            part for part in result.segments if part.kind == "prompt"
+        )
+        await emit(progress, "segment", segment=segments[0].to_dict())
+        return replace(result, text="\n\n".join(part.text for part in segments),
+                       snapshot=self.store.load(game_id), segments=segments)
 
     async def _present_scene(self, game_id: str, text: str, turn_id: str,
                              result: CampaignOutcome,

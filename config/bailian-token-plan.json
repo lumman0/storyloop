@@ -17,7 +17,8 @@
       "main_react": "qwen3.8-max",
       "npc_reply": "qwen3.8-max",
       "adjudication": "qwen3.8-max",
-      "narration": "qwen3.8-max"
+      "narration": "qwen3.8-max",
+      "followup_actions": "qwen3.8-flash"
     }
   },
   "runtime": {

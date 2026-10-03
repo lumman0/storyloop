@@ -15,7 +15,7 @@ StoryLoop Platform is a multi-agent runtime and player platform for AI interacti
 
 | Component | Responsibility |
 | --- | --- |
-| Scenario packages and worldbook | Versioned character cards, initial state, mutable state fields, optional scripted action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. |
+| Scenario packages and worldbook | Versioned character cards, initial state, mutable state fields, optional scripted action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. Packages select interactive NPC dialogue or a first-person novel presentation; a lightweight model offers three clickable follow-up actions after ordinary turns. |
 | Narrative runtime | A director ReAct agent interprets input and coordinates actions; NPCs use independent AgentScope agents; a bounded work queue processes replies, environmental changes, and story events. |
 | State and time | Committed events update snapshots and produce recipient-specific observations; campaign scenarios combine scheduled milestones with elapsed time based on action duration. |
 | Player platform | React and FastAPI provide accounts, a catalog, private scenario uploads, single-player saves, resume, and history; SSE streams turn stages and committed visible story segments. |

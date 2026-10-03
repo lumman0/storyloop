@@ -241,15 +241,20 @@ class GameSession:
                                "scene_result_count": len(scene_results),
                                "observation_ids": [item.observation_id for item in new_observations],
                                "observation_channels": [item.channel for item in new_observations],
-                               "strategy": "preserve_dialogue_summarize_scene"},
+                               "strategy": ("defer_to_novel_presenter" if self.package.presentation_mode == "novel"
+                                            else "preserve_dialogue_summarize_scene")},
             kind="agent",
             input=scene_results if self.telemetry.capture_content else None,
         ) as narration_span:
             try:
-                segments = await compose_visible_segments(
-                    player_text, new_observations, main.summarize,
-                    lambda item: segment_for_observation(self.store, game_id, item),
-                )
+                if self.package.presentation_mode == "novel":
+                    segments = tuple(segment_for_observation(self.store, game_id, item)
+                                     for item in new_observations)
+                else:
+                    segments = await compose_visible_segments(
+                        player_text, new_observations, main.summarize,
+                        lambda item: segment_for_observation(self.store, game_id, item),
+                    )
                 narration = "\n\n".join(part.body_text for part in segments) or "暂时没有可见变化。"
                 narration_fallback = False
             except Exception as error:
@@ -279,6 +284,8 @@ class GameSession:
 
     async def _emit_visible_segments(self, game_id: str, observations: tuple[Observation, ...],
                                      progress: TurnProgress | None) -> None:
+        if self.package.presentation_mode == "novel":
+            return
         for item in observations:
             if item.recipient_id == "player":
                 await emit(progress, "segment",

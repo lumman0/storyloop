@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
-from story_harness.runtime.campaign import CampaignProgram, SceneContext
+from story_harness.runtime.campaign import CampaignProgram
+from story_harness.runtime.presentation import SceneContext
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.player_preferences import current_player_preferences
 

@@ -65,6 +65,7 @@ class RuntimeSettings:
     main_max_iters: int
     npc_max_iters: int
     max_npc_replies: int = 3
+    followup_timeout_seconds: float = 12
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,8 @@ class HarnessConfig:
             _positive_int(runtime.get("main_max_iters"), "main_max_iters"),
             _positive_int(runtime.get("npc_max_iters"), "npc_max_iters"),
             _positive_int(runtime.get("max_npc_replies", 3), "max_npc_replies"),
+            _positive_seconds(runtime.get("followup_timeout_seconds", 12),
+                              "runtime.followup_timeout_seconds"),
         )
         profile = data.get("environment", "local")
         if profile not in {"local", "online"}:

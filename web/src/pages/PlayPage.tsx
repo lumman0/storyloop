@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Clock3, Feather, Moon, Plus, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Clock3, Feather, Moon, Plus, Send, Sparkles } from "lucide-react";
 import { api, type History, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
@@ -179,6 +179,7 @@ export function PlayPage() {
   const visibleSuggestions = current?.suggestions.filter(
     (suggestion) => !containsStoryCommand(suggestion),
   ) ?? [];
+  const actionOptions = current?.action_options ?? [];
 
   return (
     <main className="reader-shell">
@@ -393,7 +394,24 @@ export function PlayPage() {
                 <Sparkles size={18} />
                 <h2>接下来可以试试</h2>
               </div>
-              {!current.interaction && visibleSuggestions.length ? (
+              {!current.interaction && actionOptions.length ? (
+                <ul aria-label="推荐行动">
+                  {actionOptions.map((option, index) => (
+                    <li key={`${index}-${option.label}`}>
+                      <button
+                        type="button"
+                        className="action-option"
+                        title={option.input}
+                        onClick={() => void submitText(option.input)}
+                        disabled={busy || !!pending || current.complete}
+                      >
+                        <span>{option.label}</span>
+                        <ArrowUpRight size={15} aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : !current.interaction && visibleSuggestions.length ? (
                 <ul>
                   {visibleSuggestions.map((suggestion, index) => (
                     <li key={`${index}-${suggestion}`}>
@@ -415,7 +433,9 @@ export function PlayPage() {
                     : "自由说出你的想法，故事会回应你。"}
                 </p>
               )}
-              <small>建议只是灵感，行动由你决定。</small>
+              <small>{actionOptions.length && !current.interaction
+                ? "点击即提交行动，也可以自己输入。"
+                : "建议只是灵感，行动由你决定。"}</small>
             </div>
           </aside>
         </div>
