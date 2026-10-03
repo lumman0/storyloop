@@ -39,6 +39,7 @@ from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.novel_presentation import present_freeform_novel
+from story_harness.portal.character_cards import shared_actor_memories
 from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from story_harness.runtime.react_factory import make_react_session
 from story_harness.runtime.turn_progress import TurnProgress, emit
@@ -289,8 +290,6 @@ class PlayerPortal:
         player_id = self.accounts.resolve_token(token)
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
-        if not item.portrait_art:
-            return []
         package = ScenarioPackage.load(item.package_path)
         snapshot = self.store.load(game_id)
         visible: set[str] = set()
@@ -306,14 +305,38 @@ class PlayerPortal:
                     if step["kind"] == "scene":
                         visible.update(actor_id for actor_id, name in package.actor_names.items()
                                        if name in step["text"])
+        for observation in self.store.observations_for(game_id, "player"):
+            if observation.channel == "dialogue":
+                speaker_id = (self.store.event_details(game_id, observation.event_id) or {}).get("speaker_id")
+                if isinstance(speaker_id, str):
+                    visible.add(speaker_id)
         for turn in self.accounts.list_turns(game_id):
             for segment in turn["response"].get("segments", ()):
                 if segment.get("kind") == "dialogue" and isinstance(segment.get("speaker_id"), str):
                     visible.add(segment["speaker_id"])
         return [{"id": actor_id, "name": package.actor_names[actor_id],
-                 "portrait_url": f"/v1/saves/{game_id}/cast/{quote(actor_id, safe='')}/portrait"}
+                 "portrait_url": (f"/v1/saves/{game_id}/cast/{quote(actor_id, safe='')}/portrait"
+                                  if actor_id in (item.portrait_art or {}) else None)}
                 for actor_id, _ in package.actor_cards
-                if actor_id in visible and actor_id in item.portrait_art]
+                if actor_id in visible]
+
+    def character_detail(self, token: str, game_id: str, actor_id: str) -> dict:
+        member = next((actor for actor in self.cast(token, game_id) if actor["id"] == actor_id), None)
+        if member is None:
+            raise KeyError("character not available")
+        player_id = self.accounts.resolve_token(token)
+        record = self.accounts.get_save(player_id, game_id)
+        item = self._verified_listing(record)
+        campaign = self.store.load(game_id).data.get("campaign")
+        affinity = (campaign.get("affinity", {}).get(actor_id)
+                    if isinstance(campaign, dict) and isinstance(campaign.get("affinity"), dict)
+                    else None)
+        count, memories = shared_actor_memories(self.store, game_id, actor_id)
+        return {**member,
+                "profile": (item.public_profiles or {}).get(actor_id, ""),
+                "affinity": affinity if type(affinity) is int else None,
+                "shared_event_count": count,
+                "memories": memories}
 
     def portrait_artwork(self, token: str, game_id: str, actor_id: str) -> Path:
         visible = {actor["id"] for actor in self.cast(token, game_id)}
@@ -322,7 +345,10 @@ class PlayerPortal:
         player_id = self.accounts.resolve_token(token)
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
-        return self._artwork_path(item, item.portrait_art[actor_id])
+        art_path = (item.portrait_art or {}).get(actor_id)
+        if art_path is None:
+            raise KeyError("portrait not available")
+        return self._artwork_path(item, art_path)
 
     def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
         player_id = self.accounts.resolve_token(token)

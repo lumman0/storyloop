@@ -47,6 +47,7 @@ class GameListing:
     play_modes: tuple[str, ...] = ()
     cover_art: str | None = None
     portrait_art: dict[str, str] | None = None
+    public_profiles: dict[str, str] | None = None
 
     @property
     def supported_play_modes(self) -> tuple[str, ...]:
@@ -125,6 +126,13 @@ class GameCatalog:
                         or not (package_path / art_path).resolve().is_relative_to(package_path)
                         or not (package_path / art_path).is_file()):
                     raise ValueError("catalog artwork path must name an image inside the package")
+            public_profiles = item.get("public_profiles", {})
+            if not isinstance(public_profiles, dict) or any(
+                actor_id not in package.actor_names or not isinstance(description, str)
+                or not description.strip() or len(description) > 400
+                for actor_id, description in public_profiles.items()
+            ):
+                raise ValueError("catalog public_profiles must describe known actors")
             if item["mode"] == "campaign":
                 program = CampaignProgram.load(package_path / "campaign.json")
                 if program.program_id != package.package_id or program.ticks_per_day != package.ticks_per_day:
@@ -135,7 +143,7 @@ class GameCatalog:
                                         item.get("summary", ""), item.get("genre", ""),
                                         item.get("theme", "harbor"), turns_per_story_tick, retired,
                                         tuple(play_modes) if play_modes is not None else (),
-                                        cover_art, portrait_art))
+                                        cover_art, portrait_art, public_profiles))
             package_refs[item["id"]] = item["package"]
         return cls(tuple(listings), package_store, package_refs)
 

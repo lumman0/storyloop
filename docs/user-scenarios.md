@@ -39,6 +39,8 @@ ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；
 
 官方剧本可以在目录条目中配置可选的 `artwork`：`cover` 指向剧本包内的封面图片，`portraits` 将角色 ID 映射到剧本包内的肖像图片，例如 `"artwork": {"cover": "art/cover.png", "portraits": {"npc_a": "art/npc_a.png"}}`。图片仅允许 PNG、WebP 或 JPEG，并须保存在私有剧本目录中。API 经登录态提供封面；角色肖像只在该存档已呈现角色之后提供。公开仓库无需存放私有剧本图片。当前用户 ZIP 上传仍仅接受 JSON，暂不提供作者上传图片。
 
+官方目录条目还可配置 `public_profiles`，将角色 ID 映射到玩家可见的简短人物介绍。它只在玩家已经遇见该角色后出现在人物卡；角色私有世界书、NPC 上下文压缩摘要不会直接返回给玩家。共同记忆来自玩家和该 NPC 都收到的已提交事件，不额外调用模型。
+
 `GameCatalog` 从 `ScenarioCatalogSource` 读取官方目录，并由 `ScenarioPackageStore` 定位发布包。用户上传包经 `PublishedPackageStore` 写入，当前实现为 `LocalPublishedPackageStore`。接口位于 `src/story_harness/portal/scenario_storage.py`：
 
 - `ScenarioCatalogSource.games()` 返回目录条目；包引用由服务端生成。

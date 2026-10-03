@@ -6,6 +6,7 @@ import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
 import { StoryContent } from "../components/StoryContent";
+import { CastPanel } from "../components/CastPanel";
 import { ChoicePanel } from "../components/ChoicePanel";
 import { containsStoryCommand, isStoryCommandInput, playerFacingText, storyLineBreaks } from "../lib/playerText";
 import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
@@ -537,19 +538,7 @@ export function PlayPage() {
                 </div>
               )}
             </div>
-            {cast.length > 0 && (
-              <div className="aside-panel cast-panel">
-                <span className="aside-kicker">已经认识的人</span>
-                <div className="cast-grid">
-                  {cast.map((member) => (
-                    <div className="cast-member" key={member.id}>
-                      <img src={member.portrait_url} alt="" loading="lazy" />
-                      <span>{member.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <CastPanel cast={cast} gameId={gameId} stateVersion={current.state_version} />
           </aside>
         </div>
       )}

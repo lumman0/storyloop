@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from story_harness.portal.http_api import create_app
 from story_harness.portal.service import PlayerPortal
+from story_harness.core.contracts import Observation, WorldEvent
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 
 
@@ -59,6 +60,7 @@ class ScenarioArtworkTests(unittest.TestCase):
                 "id": "scenario", "title": "测试", "mode": "campaign", "package": "scenario",
                 "artwork": {"cover": "art/cover.png",
                             "portraits": {"dockhand": "art/dockhand.png"}},
+                "public_profiles": {"dockhand": "在码头工作，熟悉来往船只。"},
             }]}), encoding="utf-8")
             portal = PlayerPortal(catalog, ROOT / "config/local.json", str(root / "game.sqlite3"))
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
@@ -70,6 +72,9 @@ class ScenarioArtworkTests(unittest.TestCase):
                                    headers={"Authorization": f"Bearer {owner}"})
                 self.assertEqual(cover.status_code, 200)
                 self.assertEqual(portal.cast(owner, game_id), [])
+                detail = f"/v1/saves/{game_id}/cast/dockhand"
+                self.assertEqual(client.get(detail,
+                    headers={"Authorization": f"Bearer {owner}"}).status_code, 404)
                 portrait = f"/v1/saves/{game_id}/cast/dockhand/portrait"
                 self.assertEqual(client.get(portrait,
                     headers={"Authorization": f"Bearer {owner}"}).status_code, 404)
@@ -78,4 +83,23 @@ class ScenarioArtworkTests(unittest.TestCase):
                 self.assertEqual(client.get(portrait,
                     headers={"Authorization": f"Bearer {owner}"}).content, b"portrait-image")
                 self.assertEqual(client.get(portrait,
+                    headers={"Authorization": f"Bearer {other}"}).status_code, 404)
+                before = portal.store.load(game_id)
+                portal.store.commit(game_id, before.version,
+                    WorldEvent("private-news", "noticed", None, None, before.tick, ()),
+                    (Observation("private-heard", "private-news", "dockhand", "rumor",
+                                 "只有码头工知道的秘密", before.tick),), ())
+                before = portal.store.load(game_id)
+                portal.store.commit(game_id, before.version,
+                    WorldEvent("shared-meeting", "met", None, None, before.tick, ()),
+                    (Observation("actor-meeting", "shared-meeting", "dockhand", "shared_experience",
+                                 "玩家向你打了招呼", before.tick),
+                     Observation("player-meeting", "shared-meeting", "player", "shared_experience",
+                                 "你和码头工打了招呼", before.tick)), ())
+                card = client.get(detail, headers={"Authorization": f"Bearer {owner}"})
+                self.assertEqual(card.status_code, 200)
+                self.assertEqual(card.json()["profile"], "在码头工作，熟悉来往船只。")
+                self.assertEqual(card.json()["memories"], ["你和码头工打了招呼"])
+                self.assertNotIn("秘密", str(card.json()))
+                self.assertEqual(client.get(detail,
                     headers={"Authorization": f"Bearer {other}"}).status_code, 404)

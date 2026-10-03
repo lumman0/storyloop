@@ -66,7 +66,7 @@ export function StoryContent({ view, cast = [] }: { view: View; cast?: CastMembe
           <Segment
             key={`${index}-${segment.speaker_id || segment.kind}`}
             segment={segment}
-            portrait={cast.find((member) => member.id === segment.speaker_id)?.portrait_url}
+            portrait={cast.find((member) => member.id === segment.speaker_id)?.portrait_url ?? undefined}
           />
         ))}
       </div>

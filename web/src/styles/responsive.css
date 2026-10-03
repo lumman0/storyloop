@@ -139,6 +139,8 @@
   .reader-aside {
     order: 2;
     position: static;
+    max-height: none;
+    overflow: visible;
     width: 100%;
     padding: 0 0 35px;
     display: grid;
