@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -44,6 +45,8 @@ class GameListing:
     turns_per_story_tick: int = 1
     retired: bool = False
     play_modes: tuple[str, ...] = ()
+    cover_art: str | None = None
+    portrait_art: dict[str, str] | None = None
 
     @property
     def supported_play_modes(self) -> tuple[str, ...]:
@@ -105,6 +108,23 @@ class GameCatalog:
                     raise ValueError(f"catalog game {field} must be a string")
             package_path = Path(package_store.materialize(item["package"])).resolve()
             package = ScenarioPackage.load(package_path)
+            artwork = item.get("artwork", {})
+            if not isinstance(artwork, dict):
+                raise ValueError("catalog artwork must be an object")
+            cover_art = artwork.get("cover")
+            portrait_art = artwork.get("portraits", {})
+            if cover_art is not None and not isinstance(cover_art, str):
+                raise ValueError("catalog artwork cover must be a path")
+            if not isinstance(portrait_art, dict) or any(
+                actor_id not in package.actor_names or not isinstance(path, str)
+                for actor_id, path in portrait_art.items()
+            ):
+                raise ValueError("catalog portraits must map known actors to paths")
+            for art_path in ([cover_art] if cover_art else []) + list(portrait_art.values()):
+                if (not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.(?:png|webp|jpg|jpeg)", art_path)
+                        or not (package_path / art_path).resolve().is_relative_to(package_path)
+                        or not (package_path / art_path).is_file()):
+                    raise ValueError("catalog artwork path must name an image inside the package")
             if item["mode"] == "campaign":
                 program = CampaignProgram.load(package_path / "campaign.json")
                 if program.program_id != package.package_id or program.ticks_per_day != package.ticks_per_day:
@@ -114,7 +134,8 @@ class GameCatalog:
                                         _package_fingerprint(package_path, item["mode"]),
                                         item.get("summary", ""), item.get("genre", ""),
                                         item.get("theme", "harbor"), turns_per_story_tick, retired,
-                                        tuple(play_modes) if play_modes is not None else ()))
+                                        tuple(play_modes) if play_modes is not None else (),
+                                        cover_art, portrait_art))
             package_refs[item["id"]] = item["package"]
         return cls(tuple(listings), package_store, package_refs)
 

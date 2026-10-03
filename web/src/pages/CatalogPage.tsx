@@ -6,12 +6,14 @@ import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
 
-function GameArtwork({ theme }: { theme: string }) {
+function GameArtwork({ theme, coverUrl }: { theme: string; coverUrl?: string | null }) {
   return (
     <div
       className={`game-art game-art-${theme === "relay" ? "relay" : "harbor"}`}
       aria-hidden="true"
     >
+      {coverUrl && <img className="game-art-photo" src={coverUrl} alt="" loading="lazy"
+        onError={(event) => { event.currentTarget.hidden = true; }} />}
       <div className="art-glow" />
       <div className="art-horizon" />
       <div className="art-orb" />
@@ -35,7 +37,7 @@ function GameCard({
   const availableModes = game.play_modes?.length ? game.play_modes : [game.mode];
   return (
     <article className="game-card">
-      <GameArtwork theme={game.theme} />
+      <GameArtwork theme={game.theme} coverUrl={game.cover_url} />
       <div className="game-card-content">
         <span className="game-tag">
           {game.genre || (game.mode === "campaign" ? "章节故事" : "自由探索")}

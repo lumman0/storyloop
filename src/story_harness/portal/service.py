@@ -10,6 +10,7 @@ import re
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
@@ -264,8 +265,64 @@ class PlayerPortal:
         listings.update({item.game_id: item for item in self.moderation.public_listings()})
         return [{"id": item.game_id, "title": item.title, "mode": item.mode,
                  "play_modes": list(item.supported_play_modes),
-                 "summary": item.summary, "genre": item.genre, "theme": item.theme}
+                 "summary": item.summary, "genre": item.genre, "theme": item.theme,
+                 "cover_url": (f"/v1/catalog/{quote(item.game_id, safe='')}/artwork/cover"
+                               if item.cover_art else None)}
                 for item in listings.values()]
+
+    @staticmethod
+    def _artwork_path(item: GameListing, relative_path: str) -> Path:
+        root = item.package_path.resolve()
+        path = (root / relative_path).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise KeyError("artwork not found")
+        return path
+
+    def cover_artwork(self, token: str, catalog_id: str) -> Path:
+        player_id = self.accounts.resolve_token(token)
+        item = self._listing_for(player_id, catalog_id)
+        if not item.cover_art:
+            raise KeyError("cover not found")
+        return self._artwork_path(item, item.cover_art)
+
+    def cast(self, token: str, game_id: str) -> list[dict]:
+        player_id = self.accounts.resolve_token(token)
+        record = self.accounts.get_save(player_id, game_id)
+        item = self._verified_listing(record)
+        if not item.portrait_art:
+            return []
+        package = ScenarioPackage.load(item.package_path)
+        snapshot = self.store.load(game_id)
+        visible: set[str] = set()
+        campaign = snapshot.data.get("campaign")
+        if isinstance(campaign, dict):
+            met = campaign.get("met", {})
+            if isinstance(met, dict):
+                visible.update(actor_id for actor_id, known in met.items() if known is True)
+            cursor = campaign.get("cursor", 0)
+            if type(cursor) is int and cursor > 0:
+                program = CampaignProgram.load(item.package_path / "campaign.json")
+                for step in program.steps[:cursor]:
+                    if step["kind"] == "scene":
+                        visible.update(actor_id for actor_id, name in package.actor_names.items()
+                                       if name in step["text"])
+        for turn in self.accounts.list_turns(game_id):
+            for segment in turn["response"].get("segments", ()):
+                if segment.get("kind") == "dialogue" and isinstance(segment.get("speaker_id"), str):
+                    visible.add(segment["speaker_id"])
+        return [{"id": actor_id, "name": package.actor_names[actor_id],
+                 "portrait_url": f"/v1/saves/{game_id}/cast/{quote(actor_id, safe='')}/portrait"}
+                for actor_id, _ in package.actor_cards
+                if actor_id in visible and actor_id in item.portrait_art]
+
+    def portrait_artwork(self, token: str, game_id: str, actor_id: str) -> Path:
+        visible = {actor["id"] for actor in self.cast(token, game_id)}
+        if actor_id not in visible:
+            raise KeyError("portrait not available")
+        player_id = self.accounts.resolve_token(token)
+        record = self.accounts.get_save(player_id, game_id)
+        item = self._verified_listing(record)
+        return self._artwork_path(item, item.portrait_art[actor_id])
 
     def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
         player_id = self.accounts.resolve_token(token)

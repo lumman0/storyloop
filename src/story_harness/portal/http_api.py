@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager, suppress
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from pydantic import BaseModel, Field
@@ -225,6 +225,28 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.get("/v1/catalog")
     def catalog(auth: str = Depends(token)) -> dict:
         return {"games": portal.games(auth)}
+
+    @app.get("/v1/catalog/{catalog_id}/artwork/cover")
+    def catalog_cover(catalog_id: str, auth: str = Depends(token)) -> FileResponse:
+        try:
+            return FileResponse(portal.cover_artwork(auth, catalog_id))
+        except (KeyError, PermissionError, ValueError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/saves/{game_id}/cast")
+    def visible_cast(game_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return {"cast": portal.cast(auth, game_id)}
+        except (KeyError, PermissionError, ValueError) as error:
+            raise _http_error(error) from error
+
+    @app.get("/v1/saves/{game_id}/cast/{actor_id}/portrait")
+    def cast_portrait(game_id: str, actor_id: str,
+                      auth: str = Depends(token)) -> FileResponse:
+        try:
+            return FileResponse(portal.portrait_artwork(auth, game_id, actor_id))
+        except (KeyError, PermissionError, ValueError) as error:
+            raise _http_error(error) from error
 
     @app.get("/v1/me/memory")
     async def player_memory(auth: str = Depends(token)) -> dict:

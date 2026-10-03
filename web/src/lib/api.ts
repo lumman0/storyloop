@@ -8,7 +8,9 @@ export type Game = {
   summary: string;
   genre: string;
   theme: string;
+  cover_url?: string | null;
 };
+export type CastMember = { id: string; name: string; portrait_url: string };
 export type UserScenario = {
   id: string;
   title: string;
@@ -397,6 +399,8 @@ export const api = {
     ),
   history: (gameId: string) =>
     request<History>(`/v1/saves/${encodeURIComponent(gameId)}/history`),
+  cast: (gameId: string) =>
+    request<{ cast: CastMember[] }>(`/v1/saves/${encodeURIComponent(gameId)}/cast`),
   saveSettings: (gameId: string) =>
     request<SaveSettings>(`/v1/saves/${encodeURIComponent(gameId)}/settings`),
   updateSaveSettings: (gameId: string, temperature: number, contextWindowTokens: number) =>

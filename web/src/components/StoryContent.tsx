@@ -1,4 +1,4 @@
-import type { StorySegment, View } from "../lib/api";
+import type { CastMember, StorySegment, View } from "../lib/api";
 import { playerFacingText, storyLineBreaks } from "../lib/playerText";
 import { parseStoryInline } from "../lib/storyMarkup";
 
@@ -22,7 +22,7 @@ function Prose({ text }: { text: string }) {
   );
 }
 
-function Segment({ segment }: { segment: StorySegment }) {
+function Segment({ segment, portrait }: { segment: StorySegment; portrait?: string }) {
   if (segment.kind === "prompt") return null;
   // Time remains in the save and progress panel; the story presenter weaves
   // its passage into prose instead of printing a mechanical clock message.
@@ -31,6 +31,7 @@ function Segment({ segment }: { segment: StorySegment }) {
     return (
       <div className="dialogue-block">
         <div className="dialogue-speaker">
+          {portrait && <img className="dialogue-avatar" src={portrait} alt="" loading="lazy" />}
           {segment.speaker_name || "在场的人"}
         </div>
         <Prose text={segment.text} />
@@ -54,7 +55,7 @@ function Segment({ segment }: { segment: StorySegment }) {
   );
 }
 
-export function StoryContent({ view }: { view: View }) {
+export function StoryContent({ view, cast = [] }: { view: View; cast?: CastMember[] }) {
   if (view.segments?.length) {
     const visible = view.segments.filter(
       (item) => item.kind !== "prompt" && item.kind !== "time" && item.text.trim(),
@@ -65,6 +66,7 @@ export function StoryContent({ view }: { view: View }) {
           <Segment
             key={`${index}-${segment.speaker_id || segment.kind}`}
             segment={segment}
+            portrait={cast.find((member) => member.id === segment.speaker_id)?.portrait_url}
           />
         ))}
       </div>

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight, Feather, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
-import { api, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
+import { api, type CastMember, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
@@ -56,6 +56,7 @@ export function PlayPage() {
   const { gameId = "" } = useParams();
   const [history, setHistory] = useState<History | null>(null);
   const [current, setCurrent] = useState<View | null>(null);
+  const [cast, setCast] = useState<CastMember[]>([]);
   const [title, setTitle] = useState("正在载入故事");
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -96,6 +97,17 @@ export function PlayPage() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [busy]);
+
+  useEffect(() => {
+    if (!current) return;
+    let active = true;
+    api.cast(gameId).then(({ cast: members }) => {
+      if (active) setCast(members);
+    }).catch(() => {
+      if (active) setCast([]);
+    });
+    return () => { active = false; };
+  }, [gameId, current?.state_version]);
 
   useEffect(() => {
     let active = true;
@@ -325,7 +337,7 @@ export function PlayPage() {
                         ))}
                       </div>
                     )}
-                    <StoryContent view={intro} />
+                    <StoryContent view={intro} cast={cast} />
                   </div>
                 </article>
               )}
@@ -350,7 +362,7 @@ export function PlayPage() {
                     </div>
                     <div className="entry-content">
                       <span className="entry-label">故事回应</span>
-                      <StoryContent view={turn.response} />
+                      <StoryContent view={turn.response} cast={cast} />
                       {turn.response.billing && (
                         <div className="turn-billing">
                           消耗 {turn.response.billing.charged_points} 积分
@@ -380,7 +392,7 @@ export function PlayPage() {
                         )}
                       </div>
                       {(pending.segments.length > 0 || pending.body) && (
-                        <StoryContent view={{ ...current, body: pending.body, segments: pending.segments }} />
+                        <StoryContent view={{ ...current, body: pending.body, segments: pending.segments }} cast={cast} />
                       )}
                       {pending.error && (
                         <div className="pending-actions">
@@ -525,6 +537,19 @@ export function PlayPage() {
                 </div>
               )}
             </div>
+            {cast.length > 0 && (
+              <div className="aside-panel cast-panel">
+                <span className="aside-kicker">已经认识的人</span>
+                <div className="cast-grid">
+                  {cast.map((member) => (
+                    <div className="cast-member" key={member.id}>
+                      <img src={member.portrait_url} alt="" loading="lazy" />
+                      <span>{member.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       )}
