@@ -52,7 +52,7 @@ function GameCard({
                   className={`game-mode-option ${selectedMode === mode ? "selected" : ""}`}
                   key={mode} disabled={busy} onClick={() => setSelectedMode(mode)}>
                   <strong>{mode === "campaign" ? "小说模式" : "剧本模式"}</strong>
-                  <span>{mode === "campaign" ? "以第一人称阅读与选择，主控整合角色回应" : "直接与角色对话，在世界中自由行动"}</span>
+                  <span>{mode === "campaign" ? "以第二人称阅读与选择，主控整合角色回应" : "直接与角色对话，在世界中自由行动"}</span>
                 </button>
               ))}
             </div>

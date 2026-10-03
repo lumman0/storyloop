@@ -52,7 +52,7 @@ class ScenarioArtworkTests(unittest.TestCase):
                 "final_tick": program.final_tick, "steps": program.steps,
             }), encoding="utf-8")
             manifest["initial_state"]["campaign"] = program.initial_state(["dockhand"])
-            manifest["authored_prologue"] = "我站在门外。"
+            manifest["authored_prologue"] = "你站在门外。"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             catalog = root / "catalog.json"
             catalog.write_text(json.dumps({"games": [{

@@ -45,7 +45,7 @@ class PlayModeTests(unittest.TestCase):
             manifest["initial_state"]["campaign"] = CampaignProgram.from_dict(program).initial_state(
                 [actor["id"] for actor in manifest["actors"]]
             )
-            manifest["authored_prologue"] = "我来到门前。\n\n门里有人在等我。"
+            manifest["authored_prologue"] = "你来到门前。\n\n门里有人在等你。"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             catalog = root / "catalog.json"
             catalog.write_text(json.dumps({"games": [{"id": "scenario", "title": "测试故事",

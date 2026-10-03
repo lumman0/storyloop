@@ -1,4 +1,4 @@
-"""Durable first-person presentation for a completed freeform turn."""
+"""Durable second-person presentation for a completed freeform turn."""
 
 from __future__ import annotations
 

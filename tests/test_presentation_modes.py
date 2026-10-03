@@ -42,7 +42,16 @@ class BlankOptionModel(FakeOptionModel):
 
 class EscapedNewlineModel:
     async def __call__(self, prompt, **kwargs):
-        return SimpleNamespace(metadata={"text": "我推开门。\\n\\n屋内传来谈话声。"})
+        return SimpleNamespace(metadata={"text": "你推开门。\\n\\n屋内传来谈话声。"})
+
+
+class FailingNovelModel:
+    def __init__(self):
+        self.prompt = None
+
+    async def __call__(self, prompt, **kwargs):
+        self.prompt = prompt
+        raise RuntimeError("offline")
 
 
 class FakeNovelPresenter:
@@ -51,7 +60,7 @@ class FakeNovelPresenter:
 
     async def present(self, context):
         self.calls.append(context)
-        return "我看见客厅的灯亮起来，故事从这里开始。"
+        return "你看见客厅的灯亮起来，故事从这里开始。"
 
 
 class PresentationModeTests(unittest.TestCase):
@@ -60,7 +69,17 @@ class PresentationModeTests(unittest.TestCase):
         context = SceneContext("game", "", Snapshot("game", 0, 0, {}),
                                (StorySegment("scene", "门打开了。"),), True, 1, "上午")
         prose = asyncio.run(NovelTurnNarrator(package, EscapedNewlineModel()).present(context))
-        self.assertEqual(prose, "我推开门。\n\n屋内传来谈话声。")
+        self.assertEqual(prose, "你推开门。\n\n屋内传来谈话声。")
+
+    def test_novel_prompt_and_fallback_address_the_player_as_you(self):
+        package = ScenarioPackage.load(EXAMPLE)
+        model = FailingNovelModel()
+        context = SceneContext("game", "我打招呼", Snapshot("game", 0, 0, {}),
+                               (StorySegment("dialogue", "早上好", "dockhand", "码头工"),),
+                               False, 1, "上午")
+        prose = asyncio.run(NovelTurnNarrator(package, model).present(context))
+        self.assertIn("第二人称", str(model.prompt))
+        self.assertEqual(prose, "你听见码头工的回应：早上好")
 
     def test_manifest_defaults_to_interactive_and_accepts_novel(self):
         self.assertEqual(ScenarioPackage.load(EXAMPLE).presentation_mode, "interactive")
@@ -138,7 +157,7 @@ class PresentationModeTests(unittest.TestCase):
             session = CampaignSession(store, program, novel_presenter=presenter)
             result = asyncio.run(session.submit("game", "/choose a", "turn-1"))
             self.assertEqual([part.kind for part in result.segments], ["narration"])
-            self.assertEqual(result.text, "我看见客厅的灯亮起来，故事从这里开始。")
+            self.assertEqual(result.text, "你看见客厅的灯亮起来，故事从这里开始。")
             self.assertEqual(len(presenter.calls), 1)
             replay = asyncio.run(session.submit("game", "/choose a", "turn-1"))
             self.assertEqual(replay.text, result.text)

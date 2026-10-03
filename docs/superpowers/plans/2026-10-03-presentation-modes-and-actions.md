@@ -4,7 +4,7 @@
 
 **Goal:** Support interactive and novel presentation for the same authoritative game loop, then offer three clickable, model-suggested player actions after ordinary turns.
 
-**Architecture:** A versioned scenario manifest selects the presentation mode. The ReAct runtime still commits NPC and world events; novel mode withholds raw streaming segments and passes visible beats to one first-person presenter. An independent cheap-model advisor sees only the final player-visible story and returns optional actions. Campaign gates use their existing validated controls.
+**Architecture:** A versioned scenario manifest selects the presentation mode. The ReAct runtime still commits NPC and world events; novel mode withholds raw streaming segments and passes visible beats to one second-person presenter. An independent cheap-model advisor sees only the final player-visible story and returns optional actions. Campaign gates use their existing validated controls.
 
 **Tech Stack:** Python, AgentScope, FastAPI, React, TypeScript.
 
