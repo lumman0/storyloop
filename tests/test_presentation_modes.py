@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from story_harness.adapters.store import SQLiteGameStore
 from story_harness.agents.action_advisor import ActionOptionAdvisor
-from story_harness.agents.novel_narrator import NovelTurnNarrator
+from story_harness.agents.novel_narrator import NovelTurnNarrator, repeated_imagery
 from story_harness.core.contracts import Snapshot
 from story_harness.portal.service import PlayerPortal
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
@@ -45,6 +45,11 @@ class EscapedNewlineModel:
         return SimpleNamespace(metadata={"text": "你推开门。\\n\\n屋内传来谈话声。"})
 
 
+class OddQuoteModel:
+    async def __call__(self, prompt, **kwargs):
+        return SimpleNamespace(metadata={"text": '你问了他一句。"\n他回答：“我愿意。”'})
+
+
 class FailingNovelModel:
     def __init__(self):
         self.prompt = None
@@ -71,6 +76,13 @@ class PresentationModeTests(unittest.TestCase):
         prose = asyncio.run(NovelTurnNarrator(package, EscapedNewlineModel()).present(context))
         self.assertEqual(prose, "你推开门。\n\n屋内传来谈话声。")
 
+    def test_novel_prose_removes_orphan_paragraph_quote(self):
+        package = ScenarioPackage.load(EXAMPLE)
+        context = SceneContext("game", "", Snapshot("game", 0, 0, {}),
+                               (StorySegment("dialogue", "我愿意。"),), False, 1, "上午")
+        prose = asyncio.run(NovelTurnNarrator(package, OddQuoteModel()).present(context))
+        self.assertEqual(prose, "你问了他一句。\n他回答：“我愿意。”")
+
     def test_novel_prompt_and_fallback_address_the_player_as_you(self):
         package = ScenarioPackage.load(EXAMPLE)
         model = FailingNovelModel()
@@ -88,10 +100,16 @@ class PresentationModeTests(unittest.TestCase):
                                (StorySegment("dialogue", "我愿意。", "dockhand", "码头工"),),
                                False, 1, "下午")
         asyncio.run(NovelTurnNarrator(
-            package, model, recent_prose=lambda _: ["上午的光照着窗外的雪。"]
+            package, model, recent_prose=lambda _: ["上午的光照着窗外的雪。",
+                                                     "窗边的雪光很亮。"]
         ).present(context))
         self.assertIn("上午的光照着窗外的雪", str(model.prompt))
         self.assertIn("不要复述", str(model.prompt))
+        self.assertIn("avoid_repeated_imagery", str(model.prompt))
+        self.assertIn("dialogue_only", str(model.prompt))
+        self.assertIn("80至140字", str(model.prompt))
+        self.assertEqual(repeated_imagery(["上午的光照着窗外的雪。", "窗边的雪光很亮。"]),
+                         ["光线与明暗", "窗与玻璃", "雪景"])
 
     def test_manifest_defaults_to_interactive_and_accepts_novel(self):
         self.assertEqual(ScenarioPackage.load(EXAMPLE).presentation_mode, "interactive")
