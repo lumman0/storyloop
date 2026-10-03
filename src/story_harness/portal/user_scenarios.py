@@ -10,6 +10,7 @@ import stat
 import time
 import zipfile
 from pathlib import Path
+from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy import Engine, text
@@ -18,6 +19,7 @@ from story_harness.portal.catalog import GameCatalog, GameListing, _package_fing
 from story_harness.portal.scenario_storage import LocalPublishedPackageStore, PublishedPackageStore
 from story_harness.runtime.campaign import CampaignProgram
 from story_harness.world.scenario import ScenarioPackage
+from story_harness.world.prologue import save_prologue
 
 
 MAX_ARCHIVE_BYTES = 4 * 1024 * 1024
@@ -78,10 +80,23 @@ def _extract_package(archive: bytes, directory: Path) -> None:
 
 class UserScenarioService:
     def __init__(self, engine: Engine, directory: str | Path,
-                 package_store: PublishedPackageStore | None = None) -> None:
+                 package_store: PublishedPackageStore | None = None,
+                 prologue_generator: Callable[[ScenarioPackage, CampaignProgram | None, str, str], str]
+                 | None = None) -> None:
         self.engine = engine
         self.directory = Path(directory).resolve()
         self.package_store = package_store or LocalPublishedPackageStore(self.directory)
+        self.prologue_generator = prologue_generator
+
+    def _prepare_prologue(self, staged: Path, package: ScenarioPackage,
+                          program: CampaignProgram | None, title: str,
+                          summary: str) -> ScenarioPackage:
+        if package.authored_prologue:
+            return package
+        if self.prologue_generator is None:
+            raise ValueError("scenario prologue generator is unavailable")
+        prose = self.prologue_generator(package, program, title, summary).strip()
+        return save_prologue(staged, prose)
 
     @staticmethod
     def _public_row(row) -> dict:
@@ -97,6 +112,10 @@ class UserScenarioService:
         summary = summary.strip() if isinstance(summary, str) else ""
         if not title or len(title) > 80 or len(summary) > 300:
             raise ValueError("title must have 1–80 characters and summary at most 300")
+        with self.engine.connect() as db:
+            if db.execute(text("SELECT COUNT(*) FROM user_scenarios WHERE owner_id=:owner"),
+                          {"owner": owner_id}).scalar_one() >= MAX_SCENARIOS_PER_AUTHOR:
+                raise ValueError("author scenario limit reached")
         scenario_id = f"usr_{uuid4().hex}"
         version_id = uuid4().hex
         reference = f"{scenario_id}/{version_id}"
@@ -107,10 +126,12 @@ class UserScenarioService:
             _extract_package(archive, staged)
             package = ScenarioPackage.load(staged)
             mode = "campaign" if (staged / "campaign.json").exists() else "freeform"
+            program = None
             if mode == "campaign":
                 program = CampaignProgram.load(staged / "campaign.json")
                 if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
                     raise ValueError("campaign does not match scenario")
+            package = self._prepare_prologue(staged, package, program, title, summary)
             fingerprint = _package_fingerprint(staged, mode)
             self.package_store.publish(reference, staged)
             package_written = True
@@ -204,11 +225,11 @@ class UserScenarioService:
             _extract_package(archive, staged)
             package = ScenarioPackage.load(staged)
             mode = "campaign" if (staged / "campaign.json").exists() else "freeform"
+            program = None
             if mode == "campaign":
                 program = CampaignProgram.load(staged / "campaign.json")
                 if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
                     raise ValueError("campaign does not match scenario")
-            fingerprint = _package_fingerprint(staged, mode)
             with self.engine.connect() as db:
                 row = db.execute(text("""SELECT s.owner_id,s.mode,v.package_id
                     FROM user_scenarios s JOIN user_scenario_versions v
@@ -220,6 +241,8 @@ class UserScenarioService:
                 raise PermissionError("scenario belongs to another author")
             if row["mode"] != mode or row["package_id"] != package.package_id:
                 raise ValueError("new version must keep scenario mode and package ID")
+            package = self._prepare_prologue(staged, package, program, title, summary)
+            fingerprint = _package_fingerprint(staged, mode)
             self.package_store.publish(reference, staged)
             package_written = True
             with self.engine.begin() as db:

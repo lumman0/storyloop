@@ -186,7 +186,7 @@ class CampaignSession:
     def _story_tick(self, snapshot: Snapshot) -> int:
         return snapshot.tick // self.turns_per_story_tick
 
-    async def start(self, game_id: str) -> CampaignOutcome:
+    async def start(self, game_id: str, *, present_opening: bool = True) -> CampaignOutcome:
         async with self._locks.setdefault(game_id, asyncio.Lock()):
             self._validate_snapshot(self.store.load(game_id))
             with self.telemetry.span("campaign-start", {"game_id": game_id, "campaign_id": self.program.program_id},
@@ -194,9 +194,10 @@ class CampaignSession:
                 resumed = await self._flush_ready(game_id)
                 self._reconcile_encounters(game_id)
                 result = self._drain(game_id, resumed)
-                result = await self._present_novel(
-                    game_id, "", "campaign:opening", result, None, opening=True,
-                )
+                if present_opening:
+                    result = await self._present_novel(
+                        game_id, "", "campaign:opening", result, None, opening=True,
+                    )
                 span.update(metadata={"tick": result.snapshot.tick, "gate_id": result.gate_id})
                 return result
 

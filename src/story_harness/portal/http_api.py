@@ -272,9 +272,11 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                               file: UploadFile = File(...), auth: str = Depends(token)) -> dict:
         content = await read_scenario_archive(file)
         try:
-            return portal.upload_scenario(auth, title, summary, content)
+            return await asyncio.to_thread(portal.upload_scenario, auth, title, summary, content)
         except ValueError as error:
             raise _http_error(error) from error
+        except (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError) as error:
+            raise _model_http_error(error) from error
 
     @app.post("/v1/my-scenarios/{scenario_id}/versions", status_code=201)
     async def upload_scenario_version(scenario_id: str, title: str = Form(...),
@@ -282,9 +284,12 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                                       auth: str = Depends(token)) -> dict:
         content = await read_scenario_archive(file)
         try:
-            return portal.upload_scenario_version(auth, scenario_id, title, summary, content)
+            return await asyncio.to_thread(portal.upload_scenario_version, auth, scenario_id,
+                                           title, summary, content)
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
+        except (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError) as error:
+            raise _model_http_error(error) from error
 
     @app.post("/v1/my-scenarios/{scenario_id}/submit", status_code=201)
     def submit_scenario(scenario_id: str, auth: str = Depends(token)) -> dict:

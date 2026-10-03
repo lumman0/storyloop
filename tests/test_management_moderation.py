@@ -27,7 +27,8 @@ def _archive() -> bytes:
 def test_review_roles_approval_public_catalog_and_account_revocation(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("STORY_UPLOAD_DIR", str(tmp_path / "uploads"))
     portal = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
-                          str(tmp_path / "portal.sqlite3"))
+                          str(tmp_path / "portal.sqlite3"),
+                          prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
         author = portal.register("author", "password-123")
         reviewer = portal.register("reviewer", "password-123")
@@ -73,7 +74,8 @@ def test_rejected_version_can_be_replaced_but_private_draft_cannot_disappear(tmp
                                                                                monkeypatch) -> None:
     monkeypatch.setenv("STORY_UPLOAD_DIR", str(tmp_path / "uploads"))
     portal = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
-                          str(tmp_path / "portal.sqlite3"))
+                          str(tmp_path / "portal.sqlite3"),
+                          prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
     try:
         author = portal.register("author", "password-123")
         admin = portal.register("administrator", "password-123")

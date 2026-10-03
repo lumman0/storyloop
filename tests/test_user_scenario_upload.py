@@ -40,7 +40,38 @@ def archive(files: dict[str, bytes] | None = None) -> bytes:
 class UserScenarioUploadTests(unittest.TestCase):
     def portal(self, directory: Path) -> PlayerPortal:
         return PlayerPortal(ROOT / "config" / "games.example.json",
-                            ROOT / "config" / "local.json", str(directory / "portal.sqlite3"))
+                            ROOT / "config" / "local.json", str(directory / "portal.sqlite3"),
+                            prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
+
+    def test_missing_prologue_is_generated_once_for_each_saved_version(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+                         "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
+        ):
+            portal = self.portal(Path(temp))
+            calls: list[str] = []
+
+            def generate(package, program, title, summary):
+                calls.append(package.version)
+                return f"第{len(calls)}版序章。\n\n从这里开始。"
+
+            portal.user_scenarios.prologue_generator = generate
+            try:
+                token = portal.register("author", "upload-pass-123")["token"]
+                first = portal.upload_scenario(token, "故事", "背景", archive())
+                first_package = portal.user_scenarios.package_store.materialize(
+                    f"{first['id']}/{first['version_id']}")
+                self.assertEqual(json.loads((first_package / "manifest.json").read_text(
+                    encoding="utf-8"))["authored_prologue"], "第1版序章。\n\n从这里开始。")
+                portal.publish_scenario(token, first["id"])
+                view = asyncio.run(portal.create_save(token, first["id"]))
+                self.assertEqual(view["opening"], "第1版序章。\n\n从这里开始。")
+                asyncio.run(portal.resume_save(token, view["game_id"]))
+                self.assertEqual(len(calls), 1)
+                portal.upload_scenario_version(token, first["id"], "故事", "背景", archive())
+                self.assertEqual(len(calls), 2)
+            finally:
+                portal.close()
 
     def test_upload_stays_private_until_author_publishes(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
@@ -181,7 +212,8 @@ class UserScenarioUploadTests(unittest.TestCase):
             try:
                 store = RecordingStore(Path(temp) / "packages")
                 portal.user_scenarios = UserScenarioService(portal.engine, Path(temp) / "uploads",
-                                                            package_store=store)
+                                                            package_store=store,
+                                                            prologue_generator=lambda *_: "固定开场。")
                 token = portal.register("author", "upload-pass-123")["token"]
                 item = portal.upload_scenario(token, "Custom", "", archive())
                 self.assertEqual(len(store.published), 1)

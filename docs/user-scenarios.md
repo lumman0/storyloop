@@ -8,7 +8,11 @@ ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；
 
 章节剧本可在两个 `scene` 之间插入 `{ "id": "enter", "at": 0, "kind": "continue", "prompt": "门内传来谈话声。", "label": "走进去" }`。前端将它显示为继续阅读按钮；玩家点击后才呈现后续场景或选项，故事时间不前进。作者可用多个这样的节点组织开场，角色介绍与首次选择的顺序由剧本决定。CLI 对应 `/continue` 命令。
 
-`manifest.json` 可设置 `"presentation_mode": "interactive"` 或 `"novel"`。省略时沿用交互模式：NPC 分别回应，正文以第二人称面向玩家。小说模式仍由独立 NPC Agent 处理认知和行动，主控在本轮所有可见结果提交后整合为第一人称正文；剧本开场文案也应按第一人称撰写。模式与目录中的 `campaign` / `freeform` 流程类型相互独立。普通回合结束后会调用配置的 `followup_actions` 轻量模型生成三个可直接点击的行动；玩家始终可以自行输入。剧情必选节点使用剧本定义的合法选项，不生成绕过节点的建议。
+平台建档时可选小说模式（`campaign`，主控将 NPC 结果整合为玩家第一人称正文）或剧本模式（`freeform`，玩家直接与 NPC 互动）。CLI 仍可在 `manifest.json` 使用 `"presentation_mode": "interactive"` 或 `"novel"` 指定呈现方式。普通回合结束后可调用 `followup_actions` 轻量模型生成行动建议；玩家始终可以自行输入。剧情必选节点使用剧本定义的合法选项。
+
+可在 `manifest.json` 写入 `"authored_prologue"`，预写完整序章。它应覆盖开局已触发的场景、公开背景、已确定的主角身份和眼前可行动的情境。若省略，平台在上传或上传新版本时调用一次 `prologue` 模型，生成结果写回不可变剧本包，再计算版本指纹；玩家建档与重开页面只读取已保存的序章，不生成也不扣玩家积分。生成仅使用开场、公开世界书和开局玩家可见场景，不读取秘密。官方剧本应预先提供该字段。`opening` 保留为互动模式的回退开场。请在 JSON 字符串中使用正常的 `\n` 换行转义，不要让正文出现字面 `\\n`。
+
+维护官方剧本时，若包里尚无序章，可在加入目录前运行 `python -m story_harness.cli.prepare_prologue 剧本目录 --config 配置文件 --title 剧本名`。该命令把生成结果写入 `manifest.json`；再次执行会直接跳过模型调用。作者上传接口在生成失败时不发布版本，保留原 ZIP 可重试。`models.tasks.prologue` 可以单独选择模型，未配置时沿用 `narration`。
 
 玩家可以尝试未在 `actions` 中列出的行动。`actions` 仅用于特殊的预设状态转换；重要物品或位置若需要被自由行动持续改变，可在 `manifest.json` 声明允许修改的**状态字段**，而不是列举所有动词。例如：
 

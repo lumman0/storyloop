@@ -17,6 +17,7 @@ from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.telemetry import configured_telemetry, session_id_for_game
 from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.agents.novel_narrator import NovelTurnNarrator
+from story_harness.agents.prologue_generator import ModelPrologueGenerator
 from story_harness.agents.action_advisor import ActionOption, ActionOptionAdvisor
 from story_harness.agents.status_adjudicator import ModelStatusAdjudicator
 from story_harness.core.billing import collect_usage
@@ -59,7 +60,8 @@ class PlayerPortal:
     def __init__(self, catalog_path: str | Path | None, config_path: str | Path,
                  db_path: str | None = None,
                  accounts: PlayerRepository | None = None,
-                 *, catalog: GameCatalog | None = None) -> None:
+                 *, catalog: GameCatalog | None = None,
+                 prologue_generator=None) -> None:
         if catalog is not None:
             self.catalog = catalog
         elif catalog_path is not None:
@@ -91,11 +93,14 @@ class PlayerPortal:
         self._profile_cache: dict[str, tuple[str, ...]] = {}
         self._memory_access = asyncio.Lock()
         self._memory_wakeup = asyncio.Event()
-        self.user_scenarios = UserScenarioService(self.engine, upload_dir)
+        self.telemetry = configured_telemetry()
+        self.user_scenarios = UserScenarioService(
+            self.engine, upload_dir,
+            prologue_generator=prologue_generator or self._generate_prologue,
+        )
         self.moderation = ScenarioModerationService(self.engine, self.user_scenarios, self.access)
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
-        self.telemetry = configured_telemetry()
         self._react_sessions: dict[tuple[Path, str, SaveGenerationSettings], GameSession] = {}
         self._campaign_sessions: dict[tuple[Path, str, SaveGenerationSettings], tuple[CampaignProgram, CampaignSession]] = {}
         self._player_turn_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
@@ -265,6 +270,14 @@ class PlayerPortal:
     def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
         player_id = self.accounts.resolve_token(token)
         return self.user_scenarios.upload(player_id, title, summary, archive)
+
+    def _generate_prologue(self, package: ScenarioPackage, program: CampaignProgram | None,
+                           title: str, summary: str) -> str:
+        task = "prologue" if "prologue" in self.config.task_models else "narration"
+        model = self.config.create_model(task, dict(os.environ), self.telemetry)
+        return asyncio.run(ModelPrologueGenerator(model, self.telemetry).generate(
+            package, program, title, summary,
+        ))
 
     def upload_scenario_version(self, token: str, scenario_id: str, title: str,
                                 summary: str, archive: bytes) -> dict:
@@ -588,10 +601,8 @@ class PlayerPortal:
         self.accounts.create_save(player_id, item.game_id, game_id,
                                   item.package_id, item.package_version, item.fingerprint,
                                   selected_mode)
-        preferences = await self._preferences_for(player_id)
-        with player_preferences_scope(preferences):
-            result = await self._open_save(item, package, game_id, opening=package.opening,
-                                           play_mode=selected_mode)
+        result = await self._open_save(item, package, game_id, opening=package.opening,
+                                       play_mode=selected_mode)
         self.accounts.store_intro(game_id, result)
         return result
 
@@ -603,7 +614,6 @@ class PlayerPortal:
     async def _resume_save_for_player(self, player_id: str, game_id: str) -> dict:
         record = self.accounts.get_save(player_id, game_id)
         item = self._verified_listing(record)
-        preview = self.moderation.preview_for(game_id, player_id) is not None
         latest = self.accounts.latest_turn_response(game_id)
         snapshot = self.store.load(game_id)
         if latest is None:
@@ -618,11 +628,9 @@ class PlayerPortal:
             return {**latest, "opening": ""}
         package = self._package_for_mode(ScenarioPackage.load(item.package_path),
                                          record.play_mode or item.mode)
-        preferences = () if preview else await self._preferences_for(player_id)
-        with player_preferences_scope(preferences):
-            result = await self._open_save(item, package, game_id,
-                                           opening=package.opening if latest is None else "",
-                                           play_mode=record.play_mode or item.mode)
+        result = await self._open_save(item, package, game_id,
+                                       opening=package.opening if latest is None else "",
+                                       play_mode=record.play_mode or item.mode)
         if latest is None:
             self.accounts.store_intro(game_id, result)
         return result
@@ -633,39 +641,39 @@ class PlayerPortal:
         mode = play_mode or item.mode
         if mode == "campaign":
             program, session = self._campaign(item, package, game_id)
-            outcome = await session.start(game_id)
+            authored = package.authored_prologue if package.presentation_mode == "novel" else ""
+            outcome = await session.start(game_id, present_opening=False)
+            opening_text = (authored or "\n\n".join(part for part in (opening, outcome.text)
+                                                   if part.strip())
+                            if package.presentation_mode == "novel" else opening)
+            body = "" if package.presentation_mode == "novel" else outcome.text
+            segments = (tuple(part for part in outcome.segments if part.kind == "prompt")
+                        if package.presentation_mode == "novel" else outcome.segments)
             guidance = await GuidanceAdvisor(self.store, package, program,
                                              telemetry=self.telemetry,
                                              turns_per_story_tick=item.turns_per_story_tick).advise(
                 game_id, outcome.snapshot, gate_id=outcome.gate_id,
-                complete=outcome.complete, visible_text=outcome.text)
-            action_options = await self._action_options(
-                outcome.text or opening, package.presentation_mode,
-                game_id=game_id, scenario_id=package.package_id,
-                gate_id=outcome.gate_id, complete=outcome.complete,
-                program=program, snapshot=outcome.snapshot,
-            )
-            return self._view(game_id, item.game_id, mode, outcome.text,
+                complete=outcome.complete, visible_text=opening_text or body)
+            action_options: tuple[ActionOption, ...] = ()
+            return self._view(game_id, item.game_id, mode, body,
                               outcome.snapshot, guidance, complete=outcome.complete,
-                              opening=(opening if package.presentation_mode != "novel"
-                                       or not outcome.text else ""),
-                              segments=outcome.segments,
+                              opening=opening_text, segments=segments,
                               program=program, gate_id=outcome.gate_id,
                               time_of_day=outcome.time_of_day,
                               presentation_mode=package.presentation_mode,
                               action_options=action_options,
                               status_fields=package.status_fields, time_unit=package.time_unit)
         snapshot = self.store.load(game_id)
+        opening_text = (package.authored_prologue or opening
+                        if item.mode == "freeform" else opening)
         guidance = await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
-            game_id, snapshot, visible_text=opening)
-        action_options = await self._action_options(
-            opening, package.presentation_mode, game_id=game_id,
-            scenario_id=package.package_id,
-        )
+            game_id, snapshot, visible_text=opening_text)
+        # Creating a save should not wait for an optional model suggestion.
+        action_options: tuple[ActionOption, ...] = ()
         clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick)
                  if package.ticks_per_day is not None else None)
         return self._view(game_id, item.game_id, mode, "", snapshot, guidance,
-                          opening=opening, presentation_mode=package.presentation_mode,
+                          opening=opening_text, presentation_mode=package.presentation_mode,
                           action_options=action_options, clock=clock,
                           status_fields=package.status_fields, time_unit=package.time_unit)
 

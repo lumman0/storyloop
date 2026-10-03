@@ -1,9 +1,9 @@
 import type { StorySegment, View } from "../lib/api";
-import { playerFacingText } from "../lib/playerText";
+import { playerFacingText, storyLineBreaks } from "../lib/playerText";
 import { parseStoryInline } from "../lib/storyMarkup";
 
 function Prose({ text }: { text: string }) {
-  const displayText = playerFacingText(text);
+  const displayText = storyLineBreaks(playerFacingText(text));
   return (
     <div className="story-prose">
       {displayText

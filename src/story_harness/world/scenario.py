@@ -39,6 +39,7 @@ class ScenarioPackage:
     mutable_fields: tuple[MutableField, ...] = ()
     presentation_mode: str = "interactive"
     status_fields: tuple[StatusField, ...] = ()
+    authored_prologue: str = ""
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -57,11 +58,15 @@ class ScenarioPackage:
         version = _required_string(raw, "version")
         time_unit = _required_string(raw, "time_unit")
         opening = raw.get("opening", "")
+        authored_prologue = raw.get("authored_prologue", "")
         presentation_mode = raw.get("presentation_mode", "interactive")
         if not isinstance(presentation_mode, str) or presentation_mode not in {"interactive", "novel"}:
             raise ValueError("presentation_mode must be interactive or novel")
         if not isinstance(opening, str) or ("opening" in raw and not opening.strip()):
             raise ValueError("opening must be nonempty text when provided")
+        if not isinstance(authored_prologue, str) or ("authored_prologue" in raw
+                                                      and not authored_prologue.strip()):
+            raise ValueError("authored_prologue must be nonempty text when provided")
         if time_unit not in {"tick", "slot", "hour", "day", "week", "month"}:
             raise ValueError(f"unsupported time unit: {time_unit}")
         ticks_per_day = raw.get("ticks_per_day")
@@ -131,7 +136,7 @@ class ScenarioPackage:
         status_fields = parse_status_fields(raw.get("status_fields", []), state)
         return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
                    state, tuple(work), worldbook, action_rules, opening, mutable_fields,
-                   presentation_mode, status_fields)
+                   presentation_mode, status_fields, authored_prologue)
 
     def seed_game(self, store: GameStore, game_id: str, *, include_campaign: bool = True) -> None:
         state = deepcopy(self.initial_state)

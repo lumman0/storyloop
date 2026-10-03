@@ -7,7 +7,7 @@ import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
 import { StoryContent } from "../components/StoryContent";
 import { ChoicePanel } from "../components/ChoicePanel";
-import { containsStoryCommand, isStoryCommandInput, playerFacingText } from "../lib/playerText";
+import { containsStoryCommand, isStoryCommandInput, playerFacingText, storyLineBreaks } from "../lib/playerText";
 import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
 import { createRequestId } from "../lib/requestId";
 
@@ -320,7 +320,7 @@ export function PlayPage() {
                     <span className="entry-label">序章</span>
                     {intro.opening && (
                       <div className="story-prose">
-                        {playerFacingText(intro.opening).split(/\n\s*\n/).filter(Boolean).map((paragraph, index) => (
+                        {storyLineBreaks(playerFacingText(intro.opening)).split(/\n\s*\n/).filter(Boolean).map((paragraph, index) => (
                           <p key={index}>{paragraph}</p>
                         ))}
                       </div>

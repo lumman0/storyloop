@@ -28,6 +28,7 @@
       "npc_reply": "deepseek-v4.1-flash",
       "adjudication": "deepseek-v4.1-flash",
       "narration": "deepseek-v4.1-flash",
+      "prologue": "deepseek-v4.1-flash",
       "context_compression": "deepseek-v4.1-flash",
       "followup_actions": "deepseek-v4.1-flash"
     }

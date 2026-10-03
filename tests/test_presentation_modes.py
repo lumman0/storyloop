@@ -7,11 +7,12 @@ from types import SimpleNamespace
 
 from story_harness.adapters.store import SQLiteGameStore
 from story_harness.agents.action_advisor import ActionOptionAdvisor
+from story_harness.agents.novel_narrator import NovelTurnNarrator
 from story_harness.core.contracts import Snapshot
 from story_harness.portal.service import PlayerPortal
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.novel_presentation import recover_last_freeform_novel
-from story_harness.runtime.presentation import StorySegment
+from story_harness.runtime.presentation import SceneContext, StorySegment
 from story_harness.runtime.player_input import submit_player_input
 from story_harness.world.scenario import ScenarioPackage
 
@@ -39,6 +40,11 @@ class BlankOptionModel(FakeOptionModel):
         return response
 
 
+class EscapedNewlineModel:
+    async def __call__(self, prompt, **kwargs):
+        return SimpleNamespace(metadata={"text": "我推开门。\\n\\n屋内传来谈话声。"})
+
+
 class FakeNovelPresenter:
     def __init__(self):
         self.calls = []
@@ -49,6 +55,13 @@ class FakeNovelPresenter:
 
 
 class PresentationModeTests(unittest.TestCase):
+    def test_novel_prose_decodes_literal_model_line_breaks(self):
+        package = ScenarioPackage.load(EXAMPLE)
+        context = SceneContext("game", "", Snapshot("game", 0, 0, {}),
+                               (StorySegment("scene", "门打开了。"),), True, 1, "上午")
+        prose = asyncio.run(NovelTurnNarrator(package, EscapedNewlineModel()).present(context))
+        self.assertEqual(prose, "我推开门。\n\n屋内传来谈话声。")
+
     def test_manifest_defaults_to_interactive_and_accepts_novel(self):
         self.assertEqual(ScenarioPackage.load(EXAMPLE).presentation_mode, "interactive")
         with tempfile.TemporaryDirectory() as directory:

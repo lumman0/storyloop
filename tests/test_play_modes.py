@@ -16,9 +16,9 @@ from story_harness.runtime.campaign import CampaignProgram
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class SimpleNovelPresenter:
+class ForbiddenNovelPresenter:
     async def present(self, context):
-        return "我来到门前，看见故事从这里开始。"
+        raise AssertionError("authored prologue must not wait for a model")
 
 
 class PlayModeTests(unittest.TestCase):
@@ -45,6 +45,7 @@ class PlayModeTests(unittest.TestCase):
             manifest["initial_state"]["campaign"] = CampaignProgram.from_dict(program).initial_state(
                 [actor["id"] for actor in manifest["actors"]]
             )
+            manifest["authored_prologue"] = "我来到门前。\n\n门里有人在等我。"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             catalog = root / "catalog.json"
             catalog.write_text(json.dumps({"games": [{"id": "scenario", "title": "测试故事",
@@ -56,12 +57,14 @@ class PlayModeTests(unittest.TestCase):
                 portal = PlayerPortal(catalog, ROOT / "config/local.json", db_path)
                 token = portal.register("mode-player", "password-123")["token"]
                 portal._action_options = AsyncMock(return_value=())
-                portal._novel_presenter = lambda *_: SimpleNovelPresenter()
+                portal._novel_presenter = lambda *_: ForbiddenNovelPresenter()
                 self.assertEqual(portal.games(token)[0]["play_modes"], ["campaign", "freeform"])
 
                 guided = asyncio.run(portal.create_save(token, "scenario", "campaign"))
                 self.assertEqual(guided["mode"], "campaign")
                 self.assertEqual(guided["presentation_mode"], "novel")
+                self.assertEqual(guided["opening"], manifest["authored_prologue"])
+                self.assertEqual(guided["body"], "")
                 self.assertEqual(guided["interaction"]["kind"], "continue")
                 self.assertEqual(guided["interaction"]["label"], "推门进去")
 

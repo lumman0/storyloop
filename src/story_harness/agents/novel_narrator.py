@@ -74,6 +74,7 @@ class NovelTurnNarrator:
             ) as span:
                 response = await self.model(prompt, structured_model=NovelProse)
                 prose = NovelProse.model_validate(response.metadata).text.strip()
+                prose = prose.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
                 if not prose:
                     raise ValueError("novel presenter returned empty prose")
                 if self.telemetry.capture_content:
