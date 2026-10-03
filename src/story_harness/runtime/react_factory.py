@@ -4,6 +4,7 @@ from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import Telemetry
 from story_harness.agents.main_agent import MainReActAgent
+from story_harness.agents.action_resolver import ModelActionResolver
 from story_harness.agents.npc_agent import NpcAgentPool
 from story_harness.agents.selector_agent import AgentScopeWorkSelector
 from story_harness.runtime.game_session import GameSession
@@ -43,4 +44,7 @@ def make_react_session(config: HarnessConfig, package: ScenarioPackage,
         selector=AgentScopeWorkSelector(config.create_model("work_selection", values, telemetry), telemetry=telemetry),
         telemetry=telemetry,
         story_clock=story_clock,
+        action_resolver=ModelActionResolver(
+            store, package, config.create_model("adjudication", values, telemetry), telemetry,
+        ),
     )

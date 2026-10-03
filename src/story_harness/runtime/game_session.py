@@ -10,7 +10,8 @@ from weakref import WeakValueDictionary
 
 from story_harness.core.actions import adjudicate_action
 from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.core.contracts import Observation, Snapshot, WorldEvent
+from story_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
+from story_harness.core.open_actions import OpenActionOutcome, validate_open_effects
 from story_harness.agents.main_agent import MainDecision
 from story_harness.runtime.npc_work import make_npc_reply_handler
 from story_harness.core.perception import physical_observations
@@ -28,6 +29,11 @@ class MainAgent(Protocol):
     async def decide(self, player_text: str) -> MainDecision: ...
 
     async def summarize(self, player_text: str, visible_results: list[str]) -> str: ...
+
+
+class ActionResolver(Protocol):
+    async def resolve(self, before: Snapshot, player_text: str,
+                      suggested_targets: tuple[str, ...]) -> OpenActionOutcome: ...
 
 
 @dataclass(frozen=True)
@@ -68,6 +74,11 @@ async def compose_visible_segments(
                              else StorySegment("dialogue", observation.content))
             else:
                 parts.append(StorySegment("message", observation.content))
+        elif observation.channel == "resolved_action":
+            if scene_results:
+                parts.append(StorySegment("narration", await summarize(player_text, scene_results)))
+                scene_results = []
+            parts.append(StorySegment("narration", observation.content))
         else:
             scene_results.append(observation.content)
     if scene_results:
@@ -87,6 +98,7 @@ class GameSession:
         telemetry: Telemetry | None = None,
         max_npc_replies: int = 3,
         story_clock: StoryClock | None = None,
+        action_resolver: ActionResolver | None = None,
     ) -> None:
         if type(max_npc_replies) is not int or max_npc_replies < 1:
             raise ValueError("max_npc_replies must be positive")
@@ -99,6 +111,7 @@ class GameSession:
         self.telemetry = telemetry or LangfuseTelemetry()
         self.max_npc_replies = max_npc_replies
         self.story_clock = story_clock
+        self.action_resolver = action_resolver
         self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def _runner(self) -> TurnRunner:
@@ -190,7 +203,9 @@ class GameSession:
             self._inspect(before, turn_id, player_text, decision,
                           duration_ticks if self.story_clock is not None else 0)
         elif decision.intent == "action":
-            self._act(before, turn_id, player_text, decision, duration_ticks)
+            if decision.action_id not in self.package.action_rules:
+                await emit(progress, "stage", stage="adjudicating")
+            await self._act(before, turn_id, player_text, decision, duration_ticks)
         else:
             raise ValueError(f"unsupported main intent: {decision.intent}")
 
@@ -304,25 +319,52 @@ class GameSession:
         )
         self.store.commit(before.game_id, before.version, event, (observation,), ())
 
-    def _act(
+    async def _act(
         self, before: Snapshot, turn_id: str, text: str, decision: MainDecision,
         duration_ticks: int = 1,
     ) -> None:
         event_id = f"{turn_id}:action"
         rule = self.package.action_rules.get(decision.action_id or "")
         if rule is None:
-            reason = "这个行动没有对应的剧本规则，世界状态未改变。"
+            if self.action_resolver is None:
+                raise ValueError("freeform action resolver is not configured")
+            outcome = await self.action_resolver.resolve(before, text, tuple(decision.target_ids))
+            validate_open_effects(outcome.effects, self.package.mutable_fields, before.data)
+            actors = before.data.get("actors", {})
+            player = actors.get("player", {}) if isinstance(actors, dict) else {}
+            location = player.get("location") if isinstance(player, dict) else None
+            if not isinstance(location, str):
+                raise ValueError("player has no current location")
+            targets = outcome.target_ids[:self.max_npc_replies]
+            if any(actor_id not in self.package.actor_names
+                   or not isinstance(actors.get(actor_id), dict)
+                   or actors[actor_id].get("location") != location
+                   for actor_id in targets):
+                raise ValueError("open action target must be a nearby character")
             event = WorldEvent(
-                event_id, "action_rejected", "player", None, before.tick + duration_ticks, (),
-                details={"text": text, "action_id": decision.action_id, "reason": reason,
+                event_id, "player_action", "player", None, before.tick + duration_ticks,
+                outcome.effects,
+                details={"text": text, "action_id": None, "outcome": outcome.status,
+                         "target_ids": list(targets), "location": location,
+                         "sensory": outcome.sensory,
                          "before_tick": before.tick, "duration_ticks": duration_ticks,
                          "duration": decision.duration},
             )
-            observations = (
-                Observation(f"{event_id}:result", event_id, "player", "action_result", reason, event.tick),
+            observations = (Observation(
+                f"{event_id}:result", event_id, "player", "resolved_action",
+                outcome.player_result, event.tick),
+            ) + tuple(item for item in physical_observations(before, event)
+                      if item.recipient_id != "player")
+            work = tuple(
+                PendingWork(f"{event_id}:reply:{actor_id}", "npc_reply", event.tick,
+                            10, event_id,
+                            {"actor_id": actor_id, "player_message": outcome.sensory,
+                             "duration_ticks": 0})
+                for actor_id in targets
             )
         else:
             event, direct = adjudicate_action(before, rule, event_id, text,
                                               duration_ticks, decision.duration)
             observations = direct + physical_observations(before, event)
-        self.store.commit(before.game_id, before.version, event, observations, ())
+            work = ()
+        self.store.commit(before.game_id, before.version, event, observations, work)

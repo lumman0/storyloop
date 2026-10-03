@@ -6,6 +6,23 @@
 
 ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；章节剧本还需 `campaign.json`。文件名仅接受英文字母、数字、下划线和短横线，以 `.json` 结尾；不接受外层文件夹、非 JSON 文件、符号链接、重复文件名或不安全路径。压缩包最大 4 MiB，最多 16 个文件，单文件解压后最大 2 MiB，全部解压后最大 8 MiB。服务端使用 `ScenarioPackage` 和 `CampaignProgram` 校验，失败时不创建草稿。
 
+玩家可以尝试未在 `actions` 中列出的行动。`actions` 仅用于特殊的预设状态转换；重要物品或位置若需要被自由行动持续改变，可在 `manifest.json` 声明允许修改的**状态字段**，而不是列举所有动词。例如：
+
+```json
+{
+  "initial_state": {
+    "world": {"shop_window": {"broken": false}},
+    "actors": {"player": {"location": "square"}}
+  },
+  "mutable_state": [
+    {"path": ["world", "shop_window", "broken"], "values": [false, true]}
+  ],
+  "actions": []
+}
+```
+
+自由行动会记录结果并投递给能感知的角色；裁决器只有在字段已声明且新值属于 `values` 时才能持久改变状态。没有声明的字段不会被模型直接写入。技术裁决失败不会提交行动或推进故事时间。
+
 上传包写入独立的 `STORY_UPLOAD_DIR`。数据库 `user_scenarios` 与 `user_scenario_versions` 记录作者、不可变包引用、版本和 SHA-256 内容指纹。上传新版本时保留旧版本，已有存档继续绑定原版本与指纹。同一剧本同时只允许一个待审提交；驳回或撤回后，作者上传新版本再提交。
 
 每位作者最多保留 20 个剧本。未发布、未送审的草稿可删除；已发布或送审的剧本不能直接删除，以免已有存档和审核记录失去依赖。

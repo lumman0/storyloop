@@ -71,6 +71,29 @@ class CampaignTests(unittest.TestCase):
     def run_async(self, coro):
         return asyncio.run(coro)
 
+    def test_open_action_marks_target_met_without_positive_affinity(self):
+        class ActionReact(FakeReact):
+            async def run_turn(self, game_id, text, turn_id):
+                before = self.store.load(game_id)
+                after = self.store.commit(
+                    game_id, before.version,
+                    WorldEvent(f"{turn_id}:action", "player_action", "player", None,
+                               before.tick + 1, (),
+                               {"text": text, "target_ids": ["m1"],
+                                "before_tick": before.tick, "duration_ticks": 1,
+                                "duration": "brief"}), (), (),
+                )
+                return SimpleNamespace(narration="甲看到了你的动作。",
+                                       decision=SimpleNamespace(intent="action", target_ids=["m1"],
+                                                                duration="brief"), snapshot=after)
+
+        session = CampaignSession(self.store, self.program, ActionReact(self.store))
+        self.run_async(session.submit("g", "/choose m1", "badge"))
+        result = self.run_async(session.submit("g", "推了甲一下", "action-turn"))
+
+        self.assertTrue(result.snapshot.data["campaign"]["met"]["m1"])
+        self.assertEqual(result.snapshot.data["campaign"]["affinity"]["m1"], 0)
+
     def test_opening_and_following_turn_receive_durable_scene_response(self):
         guided = CampaignProgram.from_dict({
             "id": "guided", "ticks_per_day": 2, "final_tick": 4,

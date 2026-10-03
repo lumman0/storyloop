@@ -2,7 +2,7 @@
 
 [中文](README.md) · [English](README.en.md)
 
-StoryLoop Platform is a multi-agent runtime and player platform for AI interactive fiction. It connects open-ended player input, independent characters, a changing world, and scheduled story beats in one traceable causal flow: player actions update authoritative game state, characters respond using only information available to them, and the runtime presents the visible outcome as a story.
+StoryLoop Platform is a multi-agent runtime and player platform for AI interactive fiction. It connects open-ended player input, independent characters, a changing world, and scheduled story beats in one traceable causal flow: player actions are resolved and recorded, characters respond using only information available to them, and the runtime presents the visible outcome as a story.
 
 ## Problems it addresses
 
@@ -15,7 +15,7 @@ StoryLoop Platform is a multi-agent runtime and player platform for AI interacti
 
 | Component | Responsibility |
 | --- | --- |
-| Scenario packages and worldbook | Versioned character cards, initial state, action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. |
+| Scenario packages and worldbook | Versioned character cards, initial state, mutable state fields, optional scripted action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. |
 | Narrative runtime | A director ReAct agent interprets input and coordinates actions; NPCs use independent AgentScope agents; a bounded work queue processes replies, environmental changes, and story events. |
 | State and time | Committed events update snapshots and produce recipient-specific observations; campaign scenarios combine scheduled milestones with elapsed time based on action duration. |
 | Player platform | React and FastAPI provide accounts, a catalog, private scenario uploads, single-player saves, resume, and history; SSE streams turn stages and committed visible story segments. |
@@ -42,7 +42,7 @@ flowchart LR
     Runtime -. traces / metrics .-> Langfuse[Optional Langfuse]
 ```
 
-On each turn, the director reads permitted world knowledge and current state to decide what the player action affects. The runtime commits events, projects observations, and processes causally queued work. The presentation layer assembles the player-visible result and keeps next-step guidance separate from story prose. Work handlers are registered by task type; execution does not depend on a fixed agent graph. Scenario packages provide content, while the platform handles execution, isolation, and persistence.
+On each turn, the director reads permitted world knowledge and current state to interpret the player's input. An action resolver handles open-ended actions; durable state changes must pass validation against fields declared by the scenario. The runtime commits events, projects observations, and processes causally queued work. The presentation layer assembles the player-visible result and keeps next-step guidance separate from story prose. Work handlers are registered by task type; execution does not depend on a fixed agent graph. Scenario packages provide content, while the platform handles execution, isolation, and persistence.
 
 Authoritative game data is separate from agent context. `GameStore` manages events, observations, snapshots, and pending work; SQLAlchemy repositories use SQLite locally and PostgreSQL online. The worldbook currently uses visibility-scoped JSON entry retrieval rather than vector RAG. Models are routed per task through an OpenAI-compatible API. Online browser sessions use `Secure`, `HttpOnly` cookies.
 

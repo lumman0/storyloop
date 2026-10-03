@@ -1,18 +1,20 @@
 import tempfile
 import json
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from agentscope.model import ChatModelBase, ChatResponse
 
 from story_harness.agents.npc_agent import NpcAgentPool
 from story_harness.runtime.game_session import GameSession, compose_visible_narration, compose_visible_segments
-from story_harness.core.contracts import Observation
+from story_harness.core.contracts import Effect, Observation
 from story_harness.agents.main_agent import MainDecision
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.adapters.store import SQLiteGameStore
 from story_harness.runtime.schedule import advance_time
 from story_harness.runtime.story_clock import StoryClock
+from story_harness.core.open_actions import MutableField, OpenActionOutcome
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -37,6 +39,14 @@ class ScriptedMain:
     async def summarize(self, player_text: str, visible_results: list[str]) -> str:
         self.visible_results = visible_results
         return "；".join(visible_results) if visible_results else "暂时没有可见变化。"
+
+
+class ScriptedActionResolver:
+    async def resolve(self, before, player_text, suggested_targets):
+        return OpenActionOutcome(
+            "occurred", "你抬手拍了对方一下。", "玩家抬手拍了码头工一下。",
+            ("dockhand",), (),
+        )
 
 
 class GameSessionTests(unittest.IsolatedAsyncioTestCase):
@@ -177,6 +187,60 @@ class GameSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.store.observations_for("game", "dockhand")), 1)
         self.assertIn("不允许重复", second.narration)
         self.assertEqual([item.text for item in self.store.player_inputs_for("game")], ["我打破橱窗", "我再打一次"])
+
+    async def test_unlisted_action_is_committed_and_target_npc_responds(self) -> None:
+        main = ScriptedMain(MainDecision(intent="action", target_ids=["dockhand"]))
+        package = replace(self.package, action_rules={})
+        session = GameSession(self.store, package, lambda _game: main, self.pool,
+                              max_steps=8, action_resolver=ScriptedActionResolver())
+
+        outcome = await session.run_turn("game", "拍一下码头工", "open-action")
+
+        self.assertEqual(outcome.snapshot.tick, 1)
+        self.assertEqual(self.store.player_inputs_for("game")[-1].channel, "action")
+        self.assertEqual(self.store.event_details("game", "open-action:action")["outcome"], "occurred")
+        self.assertIn("拍了对方", outcome.narration)
+        self.assertIn("【码头工】", outcome.narration)
+        self.assertTrue(any(item.channel == "witnessed"
+                            for item in self.store.observations_for("game", "dockhand")))
+
+    async def test_open_action_changes_only_declared_state_fields(self) -> None:
+        class BreakWindowResolver:
+            async def resolve(self, before, player_text, suggested_targets):
+                return OpenActionOutcome(
+                    "occurred", "橱窗被打破，玻璃落在地上。", "玩家打破了橱窗。",
+                    (), (Effect(("world", "shop_window", "broken"), True),),
+                )
+
+        package = replace(self.package, mutable_fields=(
+            MutableField(("world", "shop_window", "broken"), (False, True)),
+        ))
+        session = GameSession(self.store, package,
+                              lambda _game: ScriptedMain(MainDecision(intent="action")),
+                              self.pool, max_steps=8, action_resolver=BreakWindowResolver())
+
+        result = await session.run_turn("game", "拿石头砸橱窗", "open-window")
+
+        self.assertTrue(result.snapshot.data["world"]["shop_window"]["broken"])
+        self.assertIn("橱窗被打破", result.narration)
+
+    async def test_invalid_open_action_effect_never_advances_time(self) -> None:
+        class InvalidResolver:
+            async def resolve(self, before, player_text, suggested_targets):
+                return OpenActionOutcome(
+                    "occurred", "世界变了。", "玩家做了什么。", (),
+                    (Effect(("campaign", "day"), 99),),
+                )
+
+        session = GameSession(self.store, self.package,
+                              lambda _game: ScriptedMain(MainDecision(intent="action")),
+                              self.pool, max_steps=8, action_resolver=InvalidResolver())
+
+        with self.assertRaisesRegex(ValueError, "undeclared"):
+            await session.run_turn("game", "随便行动", "invalid-open")
+
+        self.assertEqual(self.store.load("game").tick, 0)
+        self.assertFalse(self.store.event_exists("game", "invalid-open:action"))
 
     async def test_inspect_is_free_and_cannot_read_secret_entry(self) -> None:
         public = ScriptedMain(MainDecision(intent="inspect", entry_id="market_rule"))

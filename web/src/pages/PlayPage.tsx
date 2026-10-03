@@ -41,6 +41,7 @@ const stageLabels: Record<string, string> = {
   received: "行动已送达",
   campaign: "检查当前剧情",
   thinking: "理解你的行动",
+  adjudicating: "判断行动结果",
   committing: "记录世界变化",
   characters: "角色正在回应",
   background: "处理背景事件",

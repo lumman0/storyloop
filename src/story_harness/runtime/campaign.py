@@ -334,6 +334,11 @@ class CampaignSession:
             parts.extend(await self._flush_ready(game_id, progress))
             if result.decision.intent == "speech":
                 self._record_encounters(game_id, result.decision.target_ids, turn_id)
+            elif result.decision.intent == "action":
+                details = self.store.event_details(game_id, f"{turn_id}:action") or {}
+                targets = details.get("target_ids", [])
+                if isinstance(targets, list):
+                    self._record_encounters(game_id, targets, turn_id, affinity=False)
             self._append_passage(parts, snapshot.tick, result.snapshot.tick - snapshot.tick,
                                  getattr(result.decision, "duration", "brief"))
         return self._drain(game_id, parts)
@@ -379,7 +384,8 @@ class CampaignSession:
             if work.kind == "npc_reply" and work.payload.get("duration_ticks", 1) != 0:
                 raise ValueError("campaign NPC reply duration_ticks must be zero")
 
-    def _record_encounters(self, game_id: str, target_ids: list[str], turn_id: str) -> None:
+    def _record_encounters(self, game_id: str, target_ids: list[str], turn_id: str,
+                           *, affinity: bool = True) -> None:
         if self.store.event_exists(game_id, f"{turn_id}:encounter"):
             return
         before = self.store.load(game_id)
@@ -388,7 +394,9 @@ class CampaignSession:
         for actor_id in set(target_ids):
             if actor_id in campaign["met"]:
                 effects.append(Effect(("campaign", "met", actor_id), True))
-                effects.append(Effect(("campaign", "affinity", actor_id), campaign["affinity"][actor_id] + 1))
+                if affinity:
+                    effects.append(Effect(("campaign", "affinity", actor_id),
+                                          campaign["affinity"][actor_id] + 1))
         if effects:
             self.store.commit(game_id, before.version,
                               WorldEvent(f"{turn_id}:encounter", "campaign_encounter", "player", turn_id,
@@ -396,10 +404,12 @@ class CampaignSession:
 
     def _reconcile_encounters(self, game_id: str) -> None:
         for item in self.store.player_inputs_for(game_id):
-            if item.channel == "speech" and item.event_id.endswith(":input"):
-                turn_id = item.event_id[:-len(":input")]
+            if (item.channel == "speech" and item.event_id.endswith(":input")) or (
+                    item.channel == "action" and item.event_id.endswith(":action")):
+                turn_id = item.event_id.rsplit(":", 1)[0]
                 if not self.store.event_exists(game_id, f"{turn_id}:encounter"):
-                    self._record_encounters(game_id, list(item.target_ids), turn_id)
+                    self._record_encounters(game_id, list(item.target_ids), turn_id,
+                                            affinity=item.channel == "speech")
 
     def _due_gate(self, snapshot: Snapshot) -> dict[str, Any] | None:
         cursor = snapshot.data["campaign"]["cursor"]

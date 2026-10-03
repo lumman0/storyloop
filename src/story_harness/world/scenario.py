@@ -9,6 +9,7 @@ from pathlib import Path
 
 from story_harness.core.contracts import PendingWork, Snapshot
 from story_harness.core.actions import ActionRule, parse_action_rules
+from story_harness.core.open_actions import MutableField, parse_mutable_fields
 from story_harness.runtime.schedule import validate_scenario_cue
 from story_harness.adapters.store import GameStore
 from story_harness.world.worldbook import Worldbook
@@ -34,6 +35,7 @@ class ScenarioPackage:
     worldbook: Worldbook
     action_rules: dict[str, ActionRule]
     opening: str
+    mutable_fields: tuple[MutableField, ...] = ()
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -119,8 +121,9 @@ class ScenarioPackage:
             raise ValueError("duplicate work ID")
 
         action_rules = parse_action_rules(raw.get("actions", []), state)
+        mutable_fields = parse_mutable_fields(raw.get("mutable_state", []), state)
         return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
-                   state, tuple(work), worldbook, action_rules, opening)
+                   state, tuple(work), worldbook, action_rules, opening, mutable_fields)
 
     def seed_game(self, store: GameStore, game_id: str) -> None:
         state = deepcopy(self.initial_state)

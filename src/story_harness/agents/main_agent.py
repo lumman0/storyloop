@@ -152,8 +152,11 @@ class MainReActAgent:
                 "同时估计本次行动耗时：寒暄或简短查看为 brief，持续交谈、用餐为 standard，"
                 "下午的活动或长途外出为 extended，睡觉或整夜休息为 rest。"
                 "玩家明确说出时间跨度时优先遵从；睡觉或休息设 speech，target_ids 留空，duration=rest。"
-                "只有 get_available_actions 列出的 ID 可用于 action；执行时仍会校验世界状态。"
-                "其他动作不能自行提交状态变化。"
+                "玩家可以尝试任意行动；动作不需要出现在预设清单中。"
+                "普通行动无需查询动作清单，只有遇到特殊剧本机关时才查询。"
+                "只有选择 get_available_actions 列出的特殊剧本动作时才填写 action_id；"
+                "其他行动选择 action 并让 action_id 留空，可填写相关在场角色的 target_ids。"
+                "动作结果和持久状态变化由后续裁决器决定，不得自行宣称已成功。"
             ),
             model=model,
             formatter=ThinkingSafeOpenAIChatFormatter(),
