@@ -14,8 +14,11 @@ def campaign_interaction(program: CampaignProgram, snapshot: Snapshot,
     if cursor >= len(program.steps):
         return None
     step = program.steps[cursor]
-    if step["id"] != gate_id or step["kind"] not in {"choice", "message"} or step["at"] > snapshot.tick:
+    if step["id"] != gate_id or step["kind"] not in {"continue", "choice", "message"}:
         return None
+    if step["kind"] == "continue":
+        return {"id": step["id"], "kind": "continue", "prompt": step["prompt"],
+                "label": step["label"], "options": []}
     met = snapshot.data["campaign"].get("met", {})
     return {
         "id": step["id"], "kind": step["kind"], "prompt": step["prompt"],

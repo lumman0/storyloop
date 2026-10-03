@@ -98,8 +98,9 @@ export type StorySegment = {
 };
 export type Interaction = {
   id: string;
-  kind: "choice" | "message";
+  kind: "choice" | "message" | "continue";
   prompt: string;
+  label?: string;
   options: {
     id: string;
     label: string;

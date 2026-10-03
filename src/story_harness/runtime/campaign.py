@@ -76,8 +76,13 @@ class CampaignProgram:
                 raise ValueError("campaign steps must be ordered within final_tick")
             previous = at
             kind = step.get("kind")
-            if kind not in {"scene", "choice", "message", "finale"}:
+            if kind not in {"scene", "continue", "choice", "message", "finale"}:
                 raise ValueError("unknown campaign step kind")
+            if kind == "continue" and (not isinstance(step.get("prompt"), str)
+                                       or not step["prompt"].strip()
+                                       or not isinstance(step.get("label"), str)
+                                       or not step["label"].strip()):
+                raise ValueError("continue requires prompt and label")
             if kind in {"choice", "message"}:
                 if not isinstance(step.get("prompt"), str) or not isinstance(step.get("options"), list):
                     raise ValueError("choice requires prompt and options")
@@ -176,13 +181,14 @@ class CampaignSession:
                 result = await self._present_novel(game_id, text, turn_id, result, progress)
                 if not self.store.event_exists(game_id, f"{turn_id}:completed") and any(
                     self.store.event_exists(game_id, f"{turn_id}:{kind}")
-                    for kind in ("choice", "advance", "input", "query", "action")
+                    for kind in ("continue", "choice", "advance", "input", "query", "action")
                 ):
                     before = self.store.load(game_id)
                     after = self.store.commit(
                         game_id, before.version,
                         WorldEvent(f"{turn_id}:completed", "campaign_turn_completed", "player", None,
-                                   before.tick, (), {"input": text, "display_text": result.text}),
+                                   before.tick, (), {"input": text, "display_text": result.text,
+                                                     "display_segments": [part.to_dict() for part in result.segments]}),
                         (), (),
                     )
                     result = replace(result, snapshot=after)
@@ -244,6 +250,8 @@ class CampaignSession:
         if operation is None:
             return result
         kind, _ = operation
+        if kind == "continue":
+            return result
         if kind == "choice" and result.snapshot.tick == 0 and result.gate_id is not None:
             return result
         event_id = f"{turn_id}:scene"
@@ -298,7 +306,7 @@ class CampaignSession:
         return await self.submit(game_id, original, turn_id)
 
     def _committed_operation(self, game_id: str, turn_id: str) -> tuple[str, dict[str, object]] | None:
-        for kind in ("choice", "advance", "input", "query", "action"):
+        for kind in ("continue", "choice", "advance", "input", "query", "action"):
             details = self.store.event_details(game_id, f"{turn_id}:{kind}")
             if details is not None:
                 return kind, details
@@ -310,16 +318,31 @@ class CampaignSession:
         self._validate_snapshot(snapshot)
         committed = self._committed_operation(game_id, turn_id)
         if committed is not None:
-            _, details = committed
+            kind, details = committed
             original = details.get("request_text", details.get("text"))
             if original != text:
                 raise ValueError("turn ID already belongs to a different input")
+            completed = self.store.event_details(game_id, f"{turn_id}:completed") or {}
+            saved_segments = completed.get("display_segments")
+            if isinstance(saved_segments, list):
+                return self._outcome(game_id, [StorySegment(**item) for item in saved_segments])
             resumed = await self._flush_ready(game_id, progress)
             self._reconcile_encounters(game_id)
             replay = [segment_for_observation(self.store, game_id, item)
                       for item in self.store.observations_for(game_id, "player")
                       if item.event_id.startswith(f"{turn_id}:")]
             parts = resumed + [part for part in replay if part not in resumed]
+            if kind == "continue":
+                step_id = details.get("step_id")
+                start = next((index for index, step in enumerate(self.program.steps)
+                              if step["id"] == step_id), -1)
+                cursor = self.store.load(game_id).data["campaign"]["cursor"]
+                for step in self.program.steps[start + 1:cursor]:
+                    event_id = f"campaign:{step['id']}"
+                    if step["kind"] in {"scene", "finale"} and self.store.event_exists(game_id, event_id):
+                        parts.extend(segment_for_observation(self.store, game_id, item)
+                                     for item in self.store.observations_for(game_id, "player")
+                                     if item.event_id == event_id)
             self._append_passage(parts, details.get("before_tick"), details.get("duration_ticks"),
                                  details.get("duration", "brief"))
             return self._drain(game_id, parts or ["上次操作已提交，继续当前进度。"])
@@ -327,6 +350,18 @@ class CampaignSession:
             raise ValueError("campaign is complete")
         gate = self._due_gate(snapshot)
         if gate is not None:
+            if gate["kind"] == "continue":
+                if text != "/continue":
+                    return self._outcome(game_id, [StorySegment("prompt", self._prompt(gate))])
+                self.store.commit(
+                    game_id, snapshot.version,
+                    WorldEvent(f"{turn_id}:continue", "campaign_continued", "player", None,
+                               snapshot.tick, (Effect(("campaign", "cursor"),
+                                                      snapshot.data["campaign"]["cursor"] + 1),),
+                               {"step_id": gate["id"], "request_text": text}),
+                    (), (),
+                )
+                return self._drain(game_id, [])
             if not text.startswith("/choose "):
                 return self._outcome(game_id, [StorySegment("prompt", self._prompt(gate))])
             parts = text.split(maxsplit=2)
@@ -344,6 +379,8 @@ class CampaignSession:
             incoming = self._commit_choice(snapshot, gate, selected, parts[2] if len(parts) > 2 else "", turn_id, text)
             return self._drain(game_id, [StorySegment("narration", selected.get("text", f"已选择：{selected['label']}"))]
                                + [StorySegment("message", item) for item in incoming])
+        if text == "/continue":
+            raise ValueError("no campaign continuation is due")
         if text.startswith("/choose "):
             raise ValueError("no campaign choice is due")
         if text in {"/next", "/rest"}:
@@ -453,10 +490,12 @@ class CampaignSession:
         if cursor >= len(self.program.steps):
             return None
         step = self.program.steps[cursor]
-        return step if step["at"] <= self._story_tick(snapshot) and step["kind"] in {"choice", "message"} else None
+        return step if step["at"] <= self._story_tick(snapshot) and step["kind"] in {"continue", "choice", "message"} else None
 
     @staticmethod
     def _prompt(step: dict[str, Any]) -> str:
+        if step["kind"] == "continue":
+            return f"{step['prompt']}\n输入 /continue：{step['label']}"
         options = " / ".join(f"{item['id']}={item['label']}" for item in step["options"])
         suffix = "；留言格式：/choose 选项ID 留言内容" if step["kind"] == "message" else "；输入 /choose 选项ID"
         return f"{step['prompt']}\n可选：{options}{suffix}"
@@ -543,7 +582,7 @@ class CampaignSession:
             step = self.program.steps[cursor]
             if step["at"] > story_tick:
                 break
-            if step["kind"] in {"choice", "message"}:
+            if step["kind"] in {"continue", "choice", "message"}:
                 parts.append(StorySegment("prompt", self._prompt(step)))
                 break
             effects = [Effect(("campaign", "cursor"), cursor + 1)]

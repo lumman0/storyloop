@@ -23,6 +23,19 @@ export function ChoicePanel({
   }, [interaction.id]);
   const option = interaction.options.find((item) => item.id === selected);
 
+  if (interaction.kind === "continue") {
+    return (
+      <div className="choice-panel continue-panel" aria-label="继续阅读剧情">
+        <p className="continue-prompt">{playerFacingText(interaction.prompt)}</p>
+        <Button type="button" disabled={busy} onClick={() => void onChoose("/continue")}>
+          {busy ? "正在继续…" : playerFacingText(interaction.label || "继续阅读")}
+          <ArrowRight size={16} />
+        </Button>
+        {error && <p className="form-error" role="alert">{error}</p>}
+      </div>
+    );
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (

@@ -140,6 +140,8 @@ class PlayerPortal:
                             request_id: str, player_text: str) -> None:
         if not self.memory_feature_enabled or self.player_memory is None:
             return
+        if player_text == "/continue" or player_text in {"/next", "/rest"} or player_text.startswith("/choose "):
+            return
         try:
             if self.memory_jobs.enqueue(player_id, game_id, request_id, player_text):
                 self._memory_wakeup.set()
@@ -364,8 +366,6 @@ class PlayerPortal:
                 item = self._verified_listing(record)
             except (KeyError, ValueError):
                 item = None
-            if item is not None and item.retired:
-                continue
             snapshot = self.store.load(record.game_id)
             campaign = snapshot.data.get("campaign")
             result.append({"game_id": record.game_id, "catalog_id": record.catalog_id,

@@ -15,6 +15,7 @@ function playerAction(text: string | null, previous: View | null | undefined) {
   if (!text) return "早期存档的行动记录不可用";
   if (text === "/next") return "推进到下一时段";
   if (text === "/rest") return "休息到第二天";
+  if (text === "/continue") return previous?.interaction?.label || "继续阅读";
   if (text.startsWith("/choose ")) {
     const [, id, ...rest] = text.split(/\s+/);
     const label = previous?.interaction?.options.find(
@@ -219,7 +220,9 @@ export function PlayPage() {
                     <span className="entry-label">序章</span>
                     {intro.opening && (
                       <div className="story-prose">
-                        <p>{playerFacingText(intro.opening)}</p>
+                        {playerFacingText(intro.opening).split(/\n\s*\n/).filter(Boolean).map((paragraph, index) => (
+                          <p key={index}>{paragraph}</p>
+                        ))}
                       </div>
                     )}
                     <StoryContent view={intro} />
@@ -429,7 +432,9 @@ export function PlayPage() {
               ) : (
                 <p>
                   {current.interaction
-                    ? "先完成当前剧情选择，故事就会继续。"
+                    ? current.interaction.kind === "continue"
+                      ? "读完这一幕，再继续往下看。"
+                      : "先完成当前剧情选择，故事就会继续。"
                     : "自由说出你的想法，故事会回应你。"}
                 </p>
               )}

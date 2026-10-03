@@ -43,6 +43,8 @@ class RuleGuidanceProvider:
         if context.complete:
             return ("本局已结束。可以回顾经历，或换一个 game-id 开启新游戏。",)
         if context.due_kind is not None:
+            if context.due_kind == "continue":
+                return ("读完这一段后，点击继续阅读进入下一幕。",)
             if context.due_kind == "message":
                 skip = "；不想留言可输入 /choose skip" if context.skip_available else ""
                 return (f"当前需要「{context.due_prompt}」；给已认识的嘉宾留言请用 /choose 选项ID 留言内容{skip}。",)
@@ -137,13 +139,13 @@ class GuidanceAdvisor:
         due_step = None
         if gate_id is not None and self.program is not None:
             due_step = next((step for step in self.program.steps
-                             if step["id"] == gate_id and step["kind"] in {"choice", "message"}
+                             if step["id"] == gate_id and step["kind"] in {"continue", "choice", "message"}
                              and step["at"] <= snapshot.tick // self.turns_per_story_tick), None)
         progress = (min(1.0, (snapshot.tick // self.turns_per_story_tick) / self.program.final_tick)
                     if self.program is not None else None)
         return GuidanceContext(game_id, snapshot.tick, nearby, recent_targets, unmet,
                                due_step["prompt"] if due_step else None,
                                due_step["kind"] if due_step else None,
-                               any(option["id"] == "skip" for option in due_step["options"])
+                               any(option["id"] == "skip" for option in due_step.get("options", []))
                                if due_step else False,
                                progress, complete)

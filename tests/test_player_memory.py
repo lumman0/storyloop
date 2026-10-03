@@ -75,6 +75,26 @@ def test_server_flag_keeps_memory_off_by_default() -> None:
     assert config.player_memory_enabled({"STORY_PLAYER_MEMORY_ENABLED": "1"}) is True
 
 
+def test_campaign_controls_are_not_sent_to_player_profile_memory() -> None:
+    class Jobs:
+        def __init__(self) -> None:
+            self.inputs: list[str] = []
+
+        def enqueue(self, _player_id: str, _game_id: str,
+                    _request_id: str, player_text: str) -> bool:
+            self.inputs.append(player_text)
+            return False
+
+    portal = object.__new__(PlayerPortal)
+    portal.memory_feature_enabled = True
+    portal.player_memory = FakePlayerMemory()
+    portal.memory_jobs = Jobs()
+    for text in ("/continue", "/next", "/rest", "/choose a 一句话"):
+        portal._queue_memory_input("player", "game", text, text)
+    portal._queue_memory_input("player", "game", "speech", "我喜欢慢慢认识人。")
+    assert portal.memory_jobs.inputs == ["我喜欢慢慢认识人。"]
+
+
 def test_mem0_embedded_store_is_persistent_and_user_scoped_without_model_calls(tmp_path: Path) -> None:
     config = replace(HarnessConfig.load(ROOT / "config/online.json"), local_api_key="offline-key")
     memory = Mem0PlayerMemory(config, tmp_path / "memory")
