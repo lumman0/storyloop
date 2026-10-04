@@ -5,11 +5,12 @@ import unittest
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn
+from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
 from story_harness.agents.scene_messages import MessageScene
-from story_harness.core.contracts import Observation, WorldEvent
+from story_harness.core.contracts import AgentContextEntry, Observation, WorldEvent
 from story_harness.core.open_actions import parse_mutable_fields, validate_open_effects
 from story_harness.core.contracts import Effect
 from story_harness.agents.action_advisor import ActionOption
@@ -215,7 +216,85 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(context.request["player_profile"]["name"], "林晚")
         self.assertIn("第一天只公布名字。", context.request["public_rules"])
-        self.assertIn("室内光线", context.request["avoid_repeated_scenery"])
+        self.assertIn("上午的光照在窗外雪坡上。", context.request["recent_visible_beats"])
+        self.assertNotIn("avoid_repeated_scenery", context.request)
+
+    async def test_older_relevant_memory_keeps_the_end_of_a_long_scene(self):
+        entries = [AgentContextEntry(0, "old", "scene", "日常片段。" * 180 +
+                                     "你和码头工约定第二天在港口见。", 0)]
+        entries.extend(AgentContextEntry(index, f"recent-{index}", "scene",
+                                         f"第{index}段新故事。", index)
+                       for index in range(1, 14))
+
+        recalled = SceneContextProjector._history(
+            entries, "第二天的约定是什么", recent=10, older=1, excerpt_chars=700)
+
+        self.assertIn("约定第二天在港口见", recalled[0]["text"])
+
+    async def test_default_generation_asks_for_story_without_status_or_action_plan(self):
+        class CapturingModel:
+            def __init__(self):
+                self.schema = None
+                self.calls = 0
+
+            async def __call__(self, messages, *, structured_model):
+                self.calls += 1
+                self.schema = structured_model
+                return SimpleNamespace(metadata={
+                    "prose": "你和码头工做完饭，又坐下来吃了晚餐。",
+                    "participants": ["dockhand"],
+                    "interaction": "action",
+                    "witnessed": "玩家和码头工一起做饭并吃了晚餐。",
+                    "memories": [
+                        {"actor_id": "dockhand", "fact": "一起做饭并吃了晚餐。"},
+                        {"actor_id": "unknown", "fact": "不应保存。"},
+                        {"bad": "sidecar"},
+                    ],
+                })
+
+        model = CapturingModel()
+        context = SceneContextProjector(self.store, self.package).project(
+            self.store.load("game"), "我和码头工做饭并吃饭")
+        self.assertNotIn("mutable_state", context.request)
+        self.assertNotIn("updatable_status", context.request)
+        self.assertNotIn("authored_action_leads", context.request)
+        self.assertNotIn("recent_suggested_options", context.request)
+        self.assertNotIn("avoid_repeated_scenery", context.request)
+
+        session = self.session(SingleSceneGenerator(model, self.package))
+        outcome = await session.run_turn("game", "我和码头工做饭并吃饭", "narrative-turn")
+        turn = SceneTurn.model_validate(
+            self.store.event_details("game", "narrative-turn:action")["single_call"])
+
+        self.assertEqual(model.schema.__name__, "NarrativeTurn")
+        self.assertEqual(model.calls, 1)
+        self.assertEqual(set(model.schema.model_fields) - {"prose"},
+                         {"replies", "options", "memories", "participants",
+                          "interaction", "duration", "delivery", "witnessed"})
+        self.assertEqual(turn.prose, "你和码头工做完饭，又坐下来吃了晚餐。")
+        self.assertEqual(outcome.narration, turn.prose)
+        self.assertEqual(turn.action.effects, [])
+        self.assertTrue(any("一起做饭并吃了晚餐" in item.content
+                            for item in self.store.observations_for("game", "dockhand")))
+        self.assertFalse(any(item.channel == "shared_experience"
+                             for item in self.store.observations_for("game", "unknown")))
+
+    async def test_bad_action_sidecar_never_replaces_complete_story(self):
+        prose = "你和码头工做完饭，端上桌，两人坐下吃了晚餐。"
+        generator = FakeGenerator(a_turn(
+            story_first=True,
+            decision={"intent": "action", "target_ids": ["dockhand"]},
+            prose=prose,
+            action={"status": "occurred", "player_result": "只做好了饭",
+                    "sensory": "玩家和码头工一起做饭并吃饭", "effects": [
+                        {"path": ["world", "shop_window", "broken"], "value": True}]},
+        ))
+
+        outcome = await self.session(generator).run_turn(
+            "game", "我和码头工做饭并吃饭", "turn-story-first")
+
+        self.assertEqual(outcome.narration, prose)
+        self.assertFalse(outcome.snapshot.data["world"]["shop_window"]["broken"])
 
 
     async def test_campaign_skips_second_presentation_call_for_free_action(self):

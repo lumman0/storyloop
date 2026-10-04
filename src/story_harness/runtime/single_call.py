@@ -192,12 +192,13 @@ class SingleCallGameSession:
                     "player_result": "你尝试了这件事，但结果尚未得到确认。",
                     "sensory": "玩家尝试采取行动，结果尚不明确。",
                 })})
-                prose = plan.action.player_result
+                if not plan.story_first:
+                    prose = plan.action.player_result
         if not prose:
             prose = "你停下来，留意眼前的变化。"
-        memorable = decision.intent == "speech" or (
-            decision.intent == "action" and plan.action.status == "occurred"
-        )
+        memorable = (decision.intent == "speech" or
+                     (decision.intent == "action" and
+                      (plan.story_first or plan.action.status == "occurred")))
         participants = set(targets) & set(nearby) if memorable else set()
         memories = []
         for item in plan.memories:
@@ -244,19 +245,22 @@ class SingleCallGameSession:
                                                      decision.duration)
                 effects = resolved.effects
                 details.update(resolved.details)
-                prose = "\n\n".join(item.content for item in direct) or prose
+                if not plan.story_first:
+                    prose = "\n\n".join(item.content for item in direct) or prose
             else:
                 effects = tuple(Effect(tuple(item.path), item.value)
                                 for item in plan.action.effects)
                 details.update({"action_id": None, "outcome": plan.action.status,
                                 "location": location,
-                                "sensory": plan.action.sensory or prose})
+                                "sensory": plan.action.sensory or
+                                ("" if plan.story_first else prose)})
         elif decision.intent == "inspect":
             entry = (self.package.worldbook.get(decision.entry_id, "player")
                      if decision.entry_id else None)
             if entry is not None:
                 details["entry_id"] = entry.entry_id
-                prose = entry.text
+                if not plan.story_first:
+                    prose = entry.text
         event = WorldEvent(event_id, {"speech": "player_input",
                                       "inspect": "player_query",
                                       "action": "player_action"}[decision.intent],
@@ -283,7 +287,8 @@ class SingleCallGameSession:
             observations.extend(Observation(f"{event_id}:heard:{actor_id}", event_id,
                                             actor_id, decision.channel, player_text, tick)
                                 for actor_id in hearers)
-        elif decision.intent == "action" and isinstance(location, str):
+        elif (decision.intent == "action" and isinstance(location, str)
+              and details.get("sensory")):
             observations.extend(item for item in physical_observations(before, event)
                                 if item.recipient_id != "player")
         pending = tuple(PendingWork(
