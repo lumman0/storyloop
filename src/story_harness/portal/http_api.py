@@ -241,6 +241,13 @@ def create_app(portal: PlayerPortal) -> FastAPI:
         except (KeyError, PermissionError, ValueError) as error:
             raise _http_error(error) from error
 
+    @app.get("/v1/saves/{game_id}/player-card")
+    def player_card(game_id: str, auth: str = Depends(token)) -> dict:
+        try:
+            return portal.player_card(auth, game_id)
+        except (KeyError, PermissionError, ValueError) as error:
+            raise _http_error(error) from error
+
     @app.get("/v1/saves/{game_id}/cast/{actor_id}")
     def character_detail(game_id: str, actor_id: str, auth: str = Depends(token)) -> dict:
         try:

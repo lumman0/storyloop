@@ -142,6 +142,8 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                 save = client.post("/v1/saves", json={"catalog_id": "npc-chat"}, headers=headers)
                 self.assertEqual(save.status_code, 201)
                 game_id = save.json()["game_id"]
+                self.assertEqual(client.get(f"/v1/saves/{game_id}/player-card", headers=headers).json(),
+                                 {"name": "", "fields": []})
                 intro = client.get(f"/v1/saves/{game_id}/history", headers=headers)
                 self.assertEqual(intro.status_code, 200)
                 self.assertIn("港口广场", intro.json()["intro"]["opening"])

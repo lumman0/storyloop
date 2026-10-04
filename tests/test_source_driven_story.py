@@ -9,8 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 from story_harness.agents.scene_turn import SourceNarrativeTurn
 from story_harness.agents.story_opening import GeneratedStoryOpening
+from story_harness.portal.http_api import create_app
 from story_harness.portal.service import PlayerPortal
 
 
@@ -111,6 +114,18 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 self.assertIsNone(first["interaction"])
                 self.assertEqual(len(first["action_options"]), 3)
                 save_id = first["game_id"]
+                stranger = portal.register("other-player", "password-123")["token"]
+                with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
+                    own_card = client.get(f"/v1/saves/{save_id}/player-card", headers={
+                        "Authorization": f"Bearer {token}",
+                    })
+                    self.assertEqual(own_card.status_code, 200)
+                    self.assertEqual(own_card.json(), {"name": "访客", "fields": [
+                        {"key": "appearance", "value": "背着行囊"},
+                    ]})
+                    self.assertEqual(client.get(f"/v1/saves/{save_id}/player-card", headers={
+                        "Authorization": f"Bearer {stranger}",
+                    }).status_code, 404)
                 self.assertEqual(asyncio.run(portal.resume_save(token, save_id))["opening"], "")
                 turn = asyncio.run(portal.turn(token, save_id, "我向阿岚打招呼。", "turn-1"))
                 self.assertIn("早，船还没进港", turn["body"])

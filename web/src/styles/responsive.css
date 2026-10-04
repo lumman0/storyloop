@@ -136,6 +136,8 @@
   .reading-column {
     order: 1;
   }
+  .player-card-mobile { display: block; }
+  .player-card-desktop { display: none; }
   .reader-aside {
     order: 2;
     position: static;

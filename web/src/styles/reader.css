@@ -634,6 +634,42 @@
   line-height: 1.7;
   margin: 0;
 }
+.player-card-mobile { display: none; }
+.player-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.player-card-avatar {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: oklch(0.31 0.023 18);
+  color: oklch(0.78 0.08 28);
+}
+.player-card-heading strong,
+.player-card-heading small { display: block; }
+.player-card-heading strong { font-size: 1rem; }
+.player-card-heading small { margin-top: 3px; color: oklch(0.65 0.035 22); font-size: 0.72rem; }
+.player-card-fields {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid oklch(0.32 0.019 12);
+}
+.player-card-fields > div { padding: 7px 0; }
+.player-card-fields dt { color: oklch(0.69 0.05 24); font-size: 0.72rem; }
+.player-card-fields dd {
+  margin: 4px 0 0;
+  color: oklch(0.89 0.016 20);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .cast-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

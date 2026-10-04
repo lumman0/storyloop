@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
 import { StoryContent } from "../components/StoryContent";
 import { CastPanel } from "../components/CastPanel";
+import { PlayerCardPanel, usePlayerCard } from "../components/PlayerCardPanel";
 import { ChoicePanel } from "../components/ChoicePanel";
 import { containsStoryCommand, isStoryCommandInput, playerFacingText, storyLineBreaks } from "../lib/playerText";
 import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
@@ -75,6 +76,7 @@ export function PlayPage() {
   const [temperature, setTemperature] = useState(1);
   const [contextWindow, setContextWindow] = useState(65536);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const playerCard = usePlayerCard(gameId, current?.state_version ?? 0);
 
   useEffect(() => {
     let active = true;
@@ -323,6 +325,10 @@ export function PlayPage() {
               <h1>{title}</h1>
               <p>每一页，都因你的选择而不同。</p>
             </div>
+            <div className="player-card-mobile">
+              <PlayerCardPanel card={playerCard.card} loading={playerCard.loading}
+                error={playerCard.error} onRetry={playerCard.retry} />
+            </div>
             <div className="story-timeline">
               {intro && (intro.opening || intro.body) && (
                 <article className="story-entry intro-entry">
@@ -550,6 +556,10 @@ export function PlayPage() {
                   </dl>
                 </div>
               )}
+            </div>
+            <div className="player-card-desktop">
+              <PlayerCardPanel card={playerCard.card} loading={playerCard.loading}
+                error={playerCard.error} onRetry={playerCard.retry} />
             </div>
             <CastPanel cast={cast} gameId={gameId} stateVersion={current.state_version} />
           </aside>

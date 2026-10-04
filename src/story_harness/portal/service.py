@@ -300,6 +300,23 @@ class PlayerPortal:
             raise KeyError("cover not found")
         return self._artwork_path(item, item.cover_art)
 
+    def player_card(self, token: str, game_id: str) -> dict:
+        player_id = self.accounts.resolve_token(token)
+        self.accounts.get_save(player_id, game_id)
+        profile = self.store.load(game_id).data.get("player_profile")
+        if not isinstance(profile, dict):
+            return {"name": "", "fields": []}
+        name = profile.get("name")
+        name = name.strip()[:80] if isinstance(name, str) else ""
+        fields = []
+        for key, value in profile.items():
+            if (len(fields) >= 24 or not isinstance(key, str) or key == "name"
+                    or key.startswith("_") or not 0 < len(key.strip()) <= 64
+                    or not isinstance(value, str) or not value.strip()):
+                continue
+            fields.append({"key": key.strip(), "value": value.strip()[:1000]})
+        return {"name": name, "fields": fields}
+
     def cast(self, token: str, game_id: str) -> list[dict]:
         player_id = self.accounts.resolve_token(token)
         record = self.accounts.get_save(player_id, game_id)

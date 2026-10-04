@@ -22,6 +22,10 @@ export type CharacterDetail = CastMember & {
   shared_event_count: number;
   memories: string[];
 };
+export type PlayerCard = {
+  name: string;
+  fields: { key: string; value: string }[];
+};
 export type UserScenario = {
   id: string;
   title: string;
@@ -414,6 +418,8 @@ export const api = {
     ),
   history: (gameId: string) =>
     request<History>(`/v1/saves/${encodeURIComponent(gameId)}/history`),
+  playerCard: (gameId: string) =>
+    request<PlayerCard>(`/v1/saves/${encodeURIComponent(gameId)}/player-card`),
   cast: (gameId: string) =>
     request<{ cast: CastMember[] }>(`/v1/saves/${encodeURIComponent(gameId)}/cast`),
   characterDetail: (gameId: string, actorId: string) =>
