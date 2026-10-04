@@ -108,6 +108,17 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(generator.calls, 1)
         self.assertEqual([item.kind for item in first.segments], ["scene"])
 
+        unseen = FakeGenerator(a_turn(
+            decision={"intent": "action", "target_ids": ["dockhand"]},
+            prose="你独自走到岸边，放下随身的包。",
+            action={"status": "occurred", "player_result": "你放下了包",
+                    "sensory": "玩家放下随身的包", "effects": []},
+            memories=[{"actor_id": "dockhand", "fact": "码头工夸奖了玩家的包。"}],
+        ))
+        await self.session(unseen).run_turn("game", "我独自到岸边放下包", "turn-2")
+        self.assertEqual(len([item for item in self.store.observations_for("game", "dockhand")
+                              if item.channel == "shared_experience"]), 1)
+
     async def test_interactive_mode_keeps_npc_reply_as_separate_visible_segment(self):
         package = replace(self.package, presentation_mode="interactive")
         generator = FakeGenerator(a_turn())

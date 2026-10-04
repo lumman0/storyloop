@@ -201,7 +201,12 @@ class SingleCallGameSession:
         participants = set(targets) & set(nearby) if memorable else set()
         memories = []
         for item in plan.memories:
-            if item.actor_id in participants and item.actor_id not in {
+            visibly_present = (
+                self.package.actor_names.get(item.actor_id, "") in prose
+                or (self.package.presentation_mode == "interactive"
+                    and any(reply.actor_id == item.actor_id for reply in replies))
+            ) if item.actor_id in participants else False
+            if visibly_present and item.actor_id not in {
                 prior.actor_id for prior in memories
             } and item.fact.strip():
                 memories.append(item.model_copy(update={"fact": item.fact.strip()[:180]}))
