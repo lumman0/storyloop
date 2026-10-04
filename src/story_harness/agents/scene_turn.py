@@ -1,0 +1,256 @@
+"""One structured model generation for an ordinary story turn."""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from typing import Literal
+
+from agentscope.message import Msg
+from agentscope.model import ChatModelBase
+from pydantic import BaseModel, Field
+
+from story_harness.adapters.store import GameStore
+from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
+from story_harness.agents.main_agent import MainDecision
+from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
+from story_harness.core.contracts import AgentContextEntry, Snapshot
+from story_harness.core.open_actions import _read_path
+from story_harness.runtime.agent_context import estimate_tokens
+from story_harness.runtime.player_preferences import current_player_preferences
+from story_harness.runtime.story_clock import StoryClock
+from story_harness.world.scenario import ScenarioPackage
+from story_harness.world.status_fields import _value_at
+
+
+class SceneReply(BaseModel):
+    actor_id: str
+    speech: str = Field(min_length=1)
+
+
+class ProposedEffect(BaseModel):
+    path: list[str]
+    value: str | int | bool
+
+
+class ProposedStatusChange(BaseModel):
+    id: str
+    delta: int
+
+
+class ProposedAction(BaseModel):
+    status: Literal["occurred", "attempted", "blocked"] = "attempted"
+    player_result: str = ""
+    sensory: str = ""
+    effects: list[ProposedEffect] = Field(default_factory=list)
+
+
+class ProposedNextAction(BaseModel):
+    label: str
+    input: str
+
+
+class SceneTurn(BaseModel):
+    decision: MainDecision
+    prose: str = Field(min_length=1)
+    replies: list[SceneReply] = Field(default_factory=list)
+    action: ProposedAction = Field(default_factory=ProposedAction)
+    status_changes: list[ProposedStatusChange] = Field(default_factory=list)
+    options: list[ProposedNextAction] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SceneModelContext:
+    request: dict[str, object]
+    nearby_actor_ids: tuple[str, ...]
+    focus_actor_ids: tuple[str, ...]
+
+
+class SceneContextProjector:
+    """Read independent, recipient-scoped histories without a compression call."""
+
+    def __init__(self, store: GameStore, package: ScenarioPackage,
+                 *, max_responders: int = 3, context_window_tokens: int = 65536,
+                 clock: StoryClock | None = None, program=None) -> None:
+        self.store = store
+        self.package = package
+        self.max_responders = max_responders
+        self.context_window_tokens = context_window_tokens
+        self.clock = clock
+        self.program = program
+
+    @staticmethod
+    def _history(entries: list[AgentContextEntry], query: str,
+                 *, recent: int, older: int) -> list[dict[str, object]]:
+        """Retain recent context plus relevant earlier, actor-owned milestones."""
+        terms = set()
+        for word in re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9]{3,}", query.casefold()):
+            if re.search(r"[\u4e00-\u9fff]", word):
+                terms.update(word[index:index + 2] for index in range(len(word) - 1))
+            else:
+                terms.add(word)
+        earlier = entries[:-recent] if len(entries) > recent else []
+        notable = {"private_message", "campaign_choice", "shared_experience",
+                   "witnessed", "outgoing_message", "background"}
+        ranked = sorted(enumerate(earlier), key=lambda pair: (
+            sum(term in pair[1].content.casefold() for term in terms) * 4
+            + (2 if pair[1].channel in notable else 0), pair[0],
+        ), reverse=True)
+        chosen = {index for index, _ in ranked[:older]}
+        selected = [entry for index, entry in enumerate(earlier) if index in chosen]
+        selected.extend(entries[-recent:])
+        return [{"channel": entry.channel, "text": entry.content[:260], "tick": entry.tick}
+                for entry in selected]
+
+    def project(self, snapshot: Snapshot, player_text: str) -> SceneModelContext:
+        actors = snapshot.data.get("actors", {})
+        player = actors.get("player", {}) if isinstance(actors, dict) else {}
+        location = player.get("location") if isinstance(player, dict) else None
+        nearby = tuple(actor_id for actor_id, _ in self.package.actor_cards
+                       if isinstance(actors.get(actor_id), dict)
+                       and actors[actor_id].get("location") == location)
+        mentioned = [actor_id for actor_id, _ in self.package.actor_cards
+                     if actor_id in player_text or self.package.actor_names[actor_id] in player_text]
+        recent_targets = [actor_id for item in reversed(self.store.player_inputs_for(snapshot.game_id)[-4:])
+                          for actor_id in item.target_ids if actor_id in nearby]
+        focus = tuple(dict.fromkeys((*mentioned, *recent_targets, *nearby)))[:self.max_responders]
+
+        player_checkpoint = self.store.agent_context_checkpoint(snapshot.game_id, "player")
+        player_history = self._history(
+            self.store.agent_context_entries(
+                snapshot.game_id, "player", player_checkpoint.through_version),
+            player_text, recent=10, older=4,
+        )
+        npc_contexts: list[dict[str, object]] = []
+        for actor_id in focus:
+            checkpoint = self.store.agent_context_checkpoint(snapshot.game_id, actor_id)
+            entries = self.store.agent_context_entries(snapshot.game_id, actor_id,
+                                                       checkpoint.through_version)
+            npc_contexts.append({
+                "id": actor_id, "name": self.package.actor_names[actor_id],
+                "role_card": self.package.role_cards[actor_id][:1200],
+                "own_summary": checkpoint.summary[:1200],
+                "own_history": self._history(entries, player_text, recent=8, older=3),
+            })
+        campaign = snapshot.data.get("campaign")
+        status = []
+        for field in self.package.status_fields:
+            if not field.automatically_updated:
+                continue
+            try:
+                if (field.when_path is not None
+                        and _value_at(snapshot.data, field.when_path) != field.when_equals):
+                    continue
+                current = _value_at(snapshot.data, field.path)
+            except ValueError:
+                continue
+            status.append({"id": field.field_id, "label": field.label, "current": current,
+                           "min": field.minimum, "max": field.maximum,
+                           "max_delta": field.max_delta, "description": field.description})
+        mutable = []
+        for field in self.package.mutable_fields:
+            try:
+                current = _read_path(snapshot.data, field.path)
+            except ValueError:
+                continue
+            mutable.append({"path": list(field.path), "current": current,
+                            "allowed_values": list(field.values)})
+        story_context = (self.program.current_action_context(snapshot)
+                         if self.program is not None else {})
+        request: dict[str, object] = {
+            "player_action": player_text, "presentation_mode": self.package.presentation_mode,
+            "location": location, "tick": snapshot.tick,
+            "day": campaign.get("day") if isinstance(campaign, dict) else None,
+            "time_period": self.clock.period(snapshot.tick) if self.clock else None,
+            "nearby_people": {actor_id: self.package.actor_names[actor_id] for actor_id in nearby},
+            "candidate_responders": list(focus),
+            "public_setting": [item.text[:650] for item in
+                               self.package.worldbook.visible_lore("player", limit=4)],
+            "player_summary": player_checkpoint.summary[:1200],
+            "player_history": player_history,
+            "npc_contexts": npc_contexts,
+            "mutable_state": mutable,
+            "updatable_status": status,
+            "current_story_scene": story_context.get("scene", ""),
+            "current_story_goal": story_context.get("goal", ""),
+            "story_anchors": story_context.get("anchors", []),
+            "authored_action_leads": story_context.get("leads", []),
+            "recent_player_actions": [item.text[:200] for item in
+                                      self.store.player_inputs_for(snapshot.game_id)[-4:]],
+            "player_style_preferences": list(current_player_preferences()),
+        }
+        if isinstance(campaign, dict):
+            request["player_recorded_choices"] = campaign.get("choices", {})
+            request["player_sent_messages"] = {
+                key: value[:200] for key, value in campaign.get("messages", {}).items()
+                if isinstance(key, str) and isinstance(value, str) and value
+            } if isinstance(campaign.get("messages"), dict) else {}
+        budget = min(16000, max(4800, self.context_window_tokens * 2 // 3))
+        while estimate_tokens(json.dumps(request, ensure_ascii=False)) > budget:
+            if player_history:
+                player_history.pop(0)
+            elif any(item["own_history"] for item in npc_contexts):
+                largest = max(npc_contexts, key=lambda item: len(item["own_history"]))
+                largest["own_history"].pop(0)
+            elif request["public_setting"]:
+                request["public_setting"].pop()
+            elif npc_contexts and any(item["role_card"] for item in npc_contexts):
+                for item in npc_contexts:
+                    item["role_card"] = item["role_card"][:max(0, len(item["role_card"]) // 2)]
+            else:
+                raise ValueError("player action exceeds the configured context window")
+        return SceneModelContext(request, nearby, focus)
+
+
+class SingleSceneGenerator:
+    def __init__(self, model: ChatModelBase, package: ScenarioPackage,
+                 telemetry: Telemetry | None = None) -> None:
+        self.model = model
+        self.package = package
+        self.telemetry = telemetry or LangfuseTelemetry()
+        self.formatter = ThinkingSafeOpenAIChatFormatter()
+
+    async def generate(self, game_id: str, context: SceneModelContext) -> SceneTurn:
+        system = (
+            "你是文游的单次场景主控。一次完成决策、相关角色回应、玩家可见正文、状态变化提议和三个可选后续行动。"
+            "输入中的 npc_contexts 是彼此独立的角色视角：角色只能依据自己的 role_card、own_history、"
+            "own_summary 和本场公开事实行动；绝不让一名角色说出另一名角色的私人经历或秘密。"
+            "只从 candidate_responders 选择最多三位立即回应；未被点名的群体场景也只让少数人说话。"
+            "玩家的行动只以 player_action 为准，不代替玩家增加话语、决定或情绪。"
+            "decision.intent 是 speech、inspect 或 action；一句话或简短问答 duration=brief，"
+            "用餐等持续活动为 standard，整段长活动为 extended，明确睡觉为 rest。"
+            "普通行动不需要预设 action_id。只有 mutable_state 明列的路径和值可以放进 action.effects；"
+            "不能把未成功的动作写成已经完成。status_changes 的 delta 不得超过对应 max_delta。"
+            "prose 必须是本轮具体、连贯、有代入感的故事回应，使用第二人称‘你’，不要重复前文的固定景物。"
+            "若行动花了时间，要在正文中自然写出光线、活动或时段如何变化，让玩家感到进程在继续，"
+            "不要只展示生硬的时间数字。"
+            "novel 模式下 prose 自然整合角色的对白，replies 仍单独列出以便保存角色经历；"
+            "interactive 模式下 prose 只写环境和行动，NPC 的发言只写进 replies，避免重复显示。"
+            "不要泄露隐藏剧情、凭空新增人物或已发生事件。没有足够信息就简短写，不能凑字数。"
+            "options 仅依据本轮可见剧情与 current_story_goal 提供三条不同、具体且能推进互动的行动；"
+            "按钮 input 使用第一人称玩家意图，不写系统命令，也不重复 recent_player_actions。"
+            "只输出符合 SceneTurn 的结构化结果，不调用工具。"
+        )
+        prompt = await self.formatter.format(msgs=[
+            Msg("system", system, "system"),
+            Msg("player", json.dumps(context.request, ensure_ascii=False), "user"),
+        ])
+        with self.telemetry.span(
+            "single-scene-generation",
+            {"game_id": game_id, "candidate_actor_ids": list(context.focus_actor_ids)},
+            kind="agent", input=context.request if self.telemetry.capture_content else None,
+            session_id=session_id_for_game(game_id, self.package.package_id),
+        ) as span:
+            response = await self.model(prompt, structured_model=SceneTurn)
+            result = SceneTurn.model_validate(response.metadata)
+            result = result.model_copy(update={
+                "prose": result.prose.replace("\\r\\n", "\n").replace("\\n", "\n").strip(),
+                "replies": [item.model_copy(update={
+                    "speech": item.speech.replace("\\r\\n", "\n").replace("\\n", "\n").strip(),
+                }) for item in result.replies],
+            })
+            span.metric("story.single_scene_model_calls", 1.0)
+            if self.telemetry.capture_content:
+                span.update(output=result.model_dump())
+            return result

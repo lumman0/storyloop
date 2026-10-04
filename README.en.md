@@ -2,7 +2,7 @@
 
 [中文](README.md) · [English](README.en.md)
 
-StoryLoop Platform is a multi-agent runtime and player platform for AI interactive fiction. It connects open-ended player input, independent characters, a changing world, and scheduled story beats in one traceable causal flow: player actions are resolved and recorded, characters respond using only information available to them, and the runtime presents the visible outcome as a story.
+StoryLoop Platform is a runtime and player platform for AI interactive fiction. Its default engine assembles player-visible history, each relevant NPC's own experience, and world state into one scene context. One structured model call generates an ordinary turn; the backend validates and commits events, then updates each character's knowledge separately. The former multi-agent ReAct engine remains available as a configurable beta path.
 
 ## Problems it addresses
 
@@ -15,8 +15,8 @@ StoryLoop Platform is a multi-agent runtime and player platform for AI interacti
 
 | Component | Responsibility |
 | --- | --- |
-| Scenario packages and worldbook | Versioned character cards, initial state, mutable state fields, optional scripted action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. Packages select interactive NPC dialogue or a first-person novel presentation; a lightweight model offers three clickable follow-up actions after ordinary turns. |
-| Narrative runtime | A director ReAct agent interprets input and coordinates actions; NPCs use independent AgentScope agents; a bounded work queue processes replies, environmental changes, and story events. |
+| Scenario packages and worldbook | Versioned character cards, initial state, mutable state fields, optional scripted action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. |
+| Narrative runtime | One structured model call proposes the decision, scene prose, relevant NPC replies, bounded status changes, and three follow-up actions. A bounded work queue commits character speech and environment events. Interactive mode displays separate NPC dialogue; novel mode presents second-person prose. The former multi-agent ReAct engine remains configurable as beta. |
 | State and time | Committed events update snapshots and produce recipient-specific observations; campaign scenarios combine scheduled milestones with elapsed time based on action duration. Scenarios may declare player-visible status fields and bounded per-turn changes. |
 | Player platform | React and FastAPI provide accounts, a catalog, private scenario uploads, single-player saves, resume, and history; SSE streams turn stages and committed visible story segments. |
 | Content moderation | Authors submit immutable scenario versions; reviewers inspect submissions and play isolated previews; administrators manage roles, account status, public releases, private-test invitations, and audit records. |
@@ -30,21 +30,21 @@ flowchart LR
     UI[React / Vite] --> API[FastAPI player API]
     API --> Portal[Accounts · saves · billing]
     Portal --> Runtime[Game session]
-    Runtime --> Main[Director ReAct]
+    Runtime --> Context[Separate player and NPC context projections]
+    Context --> Main[One scene model call]
     Runtime --> Queue[Bounded work queue]
-    Queue --> NPC[NPC agents]
+    Queue --> NPC[NPC speech and observation delivery]
     Queue --> Cues[Story and environment work]
     Main --> Book[Visibility-filtered worldbook]
-    NPC --> Book
     Runtime --> Store[Events · observations · snapshots]
     Store --> SQL[(SQLite / PostgreSQL)]
     Portal -. player opt-in .-> Mem0[Optional player profile]
     Runtime -. traces / metrics .-> Langfuse[Optional Langfuse]
 ```
 
-On each turn, the director reads permitted world knowledge and current state to interpret the player's input. An action resolver handles open-ended actions; durable state changes must pass validation against fields declared by the scenario. The runtime commits events, projects observations, and processes causally queued work. The presentation layer assembles the player-visible result and keeps next-step guidance separate from story prose. Work handlers are registered by task type; execution does not depend on a fixed agent graph. Scenario packages provide content, while the platform handles execution, isolation, and persistence.
+On an ordinary turn, a context projector reads the histories visible to the player and to each relevant character. The scene model returns one structured proposal. Durable state changes pass validation against scenario-declared fields before the runtime commits events and delivers recipient-specific observations. Scripted choices and time advances remain data-driven. One model request can write messages for several characters at a heart-message gate. Set `runtime.turn_engine` to `multi_agent_beta` in a separate configuration to use the former per-agent path; the web profile defaults to `single_call`.
 
-Authoritative game data is separate from agent context. `GameStore` manages events, observations, snapshots, and pending work; SQLAlchemy repositories use SQLite locally and PostgreSQL online. The director and each NPC build context from only their own committed history. Near a configured model window, older history becomes a persistent summary scoped to that save and actor, while recent events remain verbatim; source events are never deleted. Optional Mem0 player profiles are separate from this story context. Set per-model windows with `models.context_windows`, a fallback with `runtime.context_window_tokens`, and the summarizer with `models.tasks.context_compression`. The worldbook currently uses visibility-scoped JSON entry retrieval rather than vector RAG. Models are routed per task through an OpenAI-compatible API. Online browser sessions use `Secure`, `HttpOnly` cookies.
+Authoritative game data is separate from generation context. `GameStore` manages events, observations, snapshots, and pending work; SQLAlchemy repositories use SQLite locally and PostgreSQL online. The default engine selects recent and relevant older committed events separately for the player and each NPC without another compression call. The beta path retains actor-scoped persistent summaries. Source events are never deleted. Optional Mem0 player profiles remain separate from game facts. Set context limits with `models.context_windows` and `runtime.context_window_tokens`. The worldbook currently uses visibility-scoped JSON entry retrieval rather than vector RAG. Models are routed per task through an OpenAI-compatible API. Online browser sessions use `Secure`, `HttpOnly` cookies.
 
 ## Repository layout
 
@@ -79,6 +79,8 @@ Run an offline example without a model key:
 ```
 
 For live models, create a local credentials file and set `models.api_key` to a pay-as-you-go Bailian key. Git ignores the file. `config/local.json` defaults to `deepseek-v4.1-flash` on the Hong Kong endpoint; use `config/bailian-token-plan.json` for the separate Token Plan profile. `STORY_BAILIAN_API_KEY` overrides the file when present.
+
+`config/local.json` and `config/online.json` set `runtime.turn_engine` to `single_call`. For comparison, change a separate config copy to `multi_agent_beta`; the website has no player-facing engine switch.
 
 ```cmd
 copy config\application.local.example.json config\application.local.json

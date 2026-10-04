@@ -25,6 +25,7 @@
       "intent_classification": "deepseek-v4.1-flash",
       "work_selection": "deepseek-v4.1-flash",
       "main_react": "deepseek-v4.1-flash",
+      "single_turn": "deepseek-v4.1-flash",
       "npc_reply": "deepseek-v4.1-flash",
       "adjudication": "deepseek-v4.1-flash",
       "narration": "deepseek-v4.1-flash",
@@ -35,6 +36,7 @@
   },
   "runtime": {
     "max_steps": 8,
+    "turn_engine": "single_call",
     "max_npc_replies": 3,
     "main_max_iters": 4,
     "npc_max_iters": 3,

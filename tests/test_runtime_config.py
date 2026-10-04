@@ -18,6 +18,7 @@ class HarnessConfigTests(unittest.TestCase):
             self.assertEqual(config.model_base_url({}),
                              "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
             self.assertIn("deepseek-v4.1-flash", config.billing_policy.rates)
+            self.assertEqual(config.runtime.turn_engine, "single_call")
             model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-key"})
             self.assertEqual(model.generate_kwargs, {"extra_body": {"enable_thinking": False}})
             self.assertTrue(model._structured_output_fallback)
@@ -46,6 +47,7 @@ class HarnessConfigTests(unittest.TestCase):
             raw["billing"]["models"]["another-model"] = dict(raw["billing"]["models"]["qwen3.8-max"])
             raw["runtime"]["max_steps"] = 3
             raw["runtime"]["max_npc_replies"] = 2
+            raw["runtime"]["turn_engine"] = "multi_agent_beta"
             path.write_text(json.dumps(raw), encoding="utf-8")
 
             config = HarnessConfig.load(path)
@@ -53,6 +55,7 @@ class HarnessConfigTests(unittest.TestCase):
             self.assertEqual(config.model_name("main_react"), "another-model")
             self.assertEqual(config.runtime.max_steps, 3)
             self.assertEqual(config.runtime.max_npc_replies, 2)
+            self.assertEqual(config.runtime.turn_engine, "multi_agent_beta")
             self.assertEqual(str(config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "x"}).client.base_url), "https://example.invalid/v1/")
 
     def test_invalid_budget_and_missing_key_fail_before_model_call(self) -> None:

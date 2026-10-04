@@ -67,6 +67,7 @@ class RuntimeSettings:
     max_npc_replies: int = 3
     followup_timeout_seconds: float = 12
     context_window_tokens: int = 65536
+    turn_engine: str = "single_call"
 
 
 @dataclass(frozen=True)
@@ -171,9 +172,12 @@ class HarnessConfig:
                               "runtime.followup_timeout_seconds"),
             _positive_int(runtime.get("context_window_tokens", 65536),
                           "runtime.context_window_tokens"),
+            runtime.get("turn_engine", "single_call"),
         )
         if runtime_settings.context_window_tokens < 1024:
             raise ValueError("runtime.context_window_tokens must be at least 1024")
+        if runtime_settings.turn_engine not in {"single_call", "multi_agent_beta"}:
+            raise ValueError("runtime.turn_engine must be single_call or multi_agent_beta")
         profile = data.get("environment", "local")
         if profile not in {"local", "online"}:
             raise ValueError("environment must be local or online")

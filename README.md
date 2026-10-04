@@ -2,7 +2,7 @@
 
 [中文](README.md) · [English](README.en.md)
 
-StoryLoop Platform 是面向 AI 互动叙事的多 Agent 运行时与玩家平台。它将自由输入、独立角色、持续变化的世界和有节奏的主线放进同一条可追溯的因果链：玩家的行动先被裁决并记录，角色再依据各自能感知到的信息回应，最终生成面向玩家的故事内容。
+StoryLoop Platform 是面向 AI 互动叙事的运行时与玩家平台。默认引擎将玩家可见历史、相关 NPC 各自的经历和世界状态组装成一个场景上下文，以一次结构化模型调用生成普通回合；后端校验并提交事件，再分别更新角色认知。原有多 Agent ReAct 引擎保留为可配置的 beta 路径。
 
 ## 解决的问题
 
@@ -16,7 +16,7 @@ StoryLoop Platform 是面向 AI 互动叙事的多 Agent 运行时与玩家平�
 | 模块 | 职责 |
 | --- | --- |
 | 剧本包与世界书 | 版本化的角色卡、初始状态、可变状态字段、可选的特殊行动规则、开场、剧情任务和 JSON 世界书；检索前按玩家或角色的可见权限过滤。 |
-| 叙事运行时 | 主控 ReAct 解释玩家输入并协调行动；每个 NPC 使用独立 AgentScope Agent；有界任务队列处理 NPC 回复、环境变化和剧情事件。剧本可选择独立 NPC 对话的交互模式，或由主控统一呈现第一人称正文的小说模式；轻量模型在回合后给出三个可点击的行动建议。 |
+| 叙事运行时 | 默认单次模型调用同时提出决策、场景正文、相关 NPC 回应、受限状态变化与三个行动建议；有界任务队列按因果顺序提交角色发言和环境事件。交互模式分开展示角色发言，小说模式统一输出第二人称正文。原多 Agent ReAct 路径可通过配置启用 beta。 |
 | 状态与时间 | 事件提交后更新快照，并生成各接收者的观察；日程剧本支持剧情节点与按行动时长流逝的故事时间。剧本可声明玩家可见数值及受限的回合变化。 |
 | 玩家平台 | React 前端与 FastAPI API 提供注册登录、剧本目录、私有剧本上传、单人存档、续玩和历史记录；SSE 推送回合阶段与可见故事片段。 |
 | 内容治理 | 作者提交不可变剧本版本；审核员查看送审内容并隔离试玩；管理员管理角色、账号、公开版本、内测邀请码与操作审计。 |
@@ -30,21 +30,21 @@ flowchart LR
     UI[React / Vite] --> API[FastAPI 玩家入口]
     API --> Portal[账号 · 存档 · 计费]
     Portal --> Runtime[游戏会话]
-    Runtime --> Main[主控 ReAct]
+    Runtime --> Context[玩家与各 NPC 的独立上下文投影]
+    Context --> Main[单次场景模型调用]
     Runtime --> Queue[有界任务队列]
-    Queue --> NPC[NPC Agents]
+    Queue --> NPC[NPC 发言与观察投递]
     Queue --> Cues[剧情与环境任务]
     Main --> Book[权限过滤的世界书]
-    NPC --> Book
     Runtime --> Store[事件 · 观察 · 快照]
     Store --> SQL[(SQLite / PostgreSQL)]
     Portal -. 玩家授权 .-> Mem0[可选玩家画像]
     Runtime -. trace / metrics .-> Langfuse[可选 Langfuse]
 ```
 
-一次回合从玩家输入开始：主控读取可用的世界知识和当前状态，决定行动与相关角色；自由行动由裁决器形成结果，持久状态变化必须通过剧本声明的字段校验；运行时提交事件、生成观察，再按因果顺序处理待办工作；叙述层汇总玩家可见的结果，并把下一步建议放在独立区域。调度按任务类型接入处理器，不依赖固定的 Agent 图。剧本包提供故事内容，平台代码负责执行、隔离与持久化。
+普通回合从玩家输入开始：上下文投影器分别读取玩家和相关角色有权知道的历史，场景模型一次返回结构化提议。持久状态变化必须通过剧本声明的字段校验；运行时提交事件、生成观察，再按因果顺序处理待办工作。剧本选择与时间推进使用脚本数据；心动留言可在一次模型调用中为多位角色生成各自的短信。调度不依赖固定 Agent 图。通过 `runtime.turn_engine=multi_agent_beta` 可保留旧版逐 Agent 调用流程；网页默认只提供 `single_call`。
 
-权威游戏数据与 Agent 上下文分开保存。`GameStore` 管理事件、观察、快照和待办工作；SQLAlchemy 仓储支持本地 SQLite 与线上 PostgreSQL。主控和每个 NPC 按各自可见的已提交历史构造上下文；接近配置的模型窗口时，旧历史压缩为按存档、角色隔离的持久摘要，近期事件保留原文。原始事件不会删除，玩家画像 Mem0 也不参与这套故事上下文。`models.context_windows` 可按模型设置窗口，`runtime.context_window_tokens` 为未配置模型的默认值；压缩模型由 `models.tasks.context_compression` 指定。世界书使用带可见范围的 JSON 条目检索，目前不是向量 RAG。模型调用通过 OpenAI 兼容接口按任务配置；浏览器会话在线上使用 `Secure`、`HttpOnly` Cookie。
+权威游戏数据与生成上下文分开保存。`GameStore` 管理事件、观察、快照和待办工作；SQLAlchemy 仓储支持本地 SQLite 与线上 PostgreSQL。默认引擎每轮从完整历史中选取近期事件与较早的相关经历，分别投影到玩家和各 NPC 的上下文，不额外调用模型压缩；旧版 beta 路径仍支持按存档、角色隔离的持久摘要。原始事件不会删除，玩家画像 Mem0 也不参与故事事实。`models.context_windows` 与 `runtime.context_window_tokens` 限制模型输入。世界书使用带可见范围的 JSON 条目检索，目前不是向量 RAG。模型调用通过 OpenAI 兼容接口按任务配置；浏览器会话在线上使用 `Secure`、`HttpOnly` Cookie。
 
 ## 项目结构
 
@@ -79,6 +79,8 @@ py -3.12 -m venv .venv
 ```
 
 使用真实模型时，创建本机配置文件，将 `models.api_key` 填为可用的百炼按量付费 Key；该文件被 Git 忽略。`config/local.json` 默认使用香港端点的 `deepseek-v4.1-flash`，Token Plan 个人版请改用专用的 `config/bailian-token-plan.json`。`STORY_BAILIAN_API_KEY` 环境变量会覆盖文件中的 Key。
+
+`config/local.json` 与 `config/online.json` 默认使用 `runtime.turn_engine: "single_call"`。需要对照旧版多 Agent 流程时，可在独立配置副本中改为 `"multi_agent_beta"`；网站不提供玩家切换入口。
 
 ```cmd
 copy config\application.local.example.json config\application.local.json
