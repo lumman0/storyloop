@@ -14,6 +14,7 @@ from story_harness.runtime.schedule import validate_scenario_cue
 from story_harness.adapters.store import GameStore
 from story_harness.world.worldbook import Worldbook
 from story_harness.world.status_fields import StatusField, parse_status_fields
+from story_harness.world.story_blueprint import StoryBlueprint
 
 
 def _required_string(raw: dict[str, object], key: str) -> str:
@@ -40,6 +41,7 @@ class ScenarioPackage:
     presentation_mode: str = "interactive"
     status_fields: tuple[StatusField, ...] = ()
     authored_prologue: str = ""
+    story_blueprint: StoryBlueprint | None = None
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -134,11 +136,21 @@ class ScenarioPackage:
         action_rules = parse_action_rules(raw.get("actions", []), state)
         mutable_fields = parse_mutable_fields(raw.get("mutable_state", []), state)
         status_fields = parse_status_fields(raw.get("status_fields", []), state)
+        blueprint = None
+        blueprint_name = raw.get("story_blueprint")
+        if blueprint_name is not None:
+            if not isinstance(blueprint_name, str) or not blueprint_name.endswith(".json"):
+                raise ValueError("story_blueprint must name a JSON file")
+            blueprint_path = (root / blueprint_name).resolve()
+            if not blueprint_path.is_relative_to(root) or blueprint_path == root:
+                raise ValueError("story_blueprint must stay inside the package")
+            blueprint = StoryBlueprint.load(blueprint_path, set(actor_names))
         return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
                    state, tuple(work), worldbook, action_rules, opening, mutable_fields,
-                   presentation_mode, status_fields, authored_prologue)
+                   presentation_mode, status_fields, authored_prologue, blueprint)
 
-    def seed_game(self, store: GameStore, game_id: str, *, include_campaign: bool = True) -> None:
+    def seed_game(self, store: GameStore, game_id: str, *, include_campaign: bool = True,
+                  setup_state: dict[str, object] | None = None) -> None:
         state = deepcopy(self.initial_state)
         if not include_campaign:
             state.pop("campaign", None)
@@ -149,4 +161,11 @@ class ScenarioPackage:
             "ticks_per_day": self.ticks_per_day,
             "presentation_mode": self.presentation_mode,
         }
+        if setup_state is not None:
+            state.update(deepcopy(setup_state))
+        if self.story_blueprint is not None:
+            state["story_progress"] = {
+                "completed": {step.id: False for step in self.story_blueprint.milestones},
+                "complete": False,
+            }
         store.create_game(Snapshot(game_id, 0, 0, state), self.initial_work)

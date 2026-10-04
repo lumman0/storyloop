@@ -506,3 +506,27 @@
 .continue-item > svg {
   color: oklch(0.7 0.06 25);
 }
+.game-story-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.game-story-setup label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-muted, #b4a8a6);
+  font-size: 0.8rem;
+}
+
+.game-story-setup select,
+.game-story-setup input {
+  width: 100%;
+  border: 1px solid rgba(233, 190, 181, 0.24);
+  border-radius: 9px;
+  background: #251b1d;
+  color: #f8f1ec;
+  padding: 10px 12px;
+  font: inherit;
+}

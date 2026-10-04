@@ -9,6 +9,11 @@ export type Game = {
   genre: string;
   theme: string;
   cover_url?: string | null;
+  story_setup?: {
+    player_options: { id: string; label: string }[];
+    tone_options: { id: string; label: string }[];
+    custom_fields: { id: string; label: string; required: boolean; max_length: number }[];
+  } | null;
 };
 export type CastMember = { id: string; name: string; portrait_url: string | null };
 export type CharacterDetail = CastMember & {
@@ -52,6 +57,7 @@ export type ReviewDetail = ReviewSubmission & {
   manifest: Record<string, unknown>;
   worldbook: Record<string, unknown>;
   campaign: Record<string, unknown> | null;
+  story_blueprint?: Record<string, unknown> | null;
 };
 export type ManagedUser = {
   player_id: string;
@@ -396,8 +402,11 @@ export const api = {
   saves: () => request<{ saves: Save[] }>("/v1/saves"),
   wallet: () => request<CreditWallet>("/v1/billing/wallet"),
   creditLedger: () => request<{ entries: CreditEntry[] }>("/v1/billing/ledger"),
-  createSave: (catalogId: string, playMode?: "campaign" | "freeform") =>
-    request<View>("/v1/saves", "POST", { catalog_id: catalogId, play_mode: playMode }),
+  createSave: (catalogId: string, playMode?: "campaign" | "freeform",
+    storySetup?: Record<string, string>) =>
+    request<View>("/v1/saves", "POST", {
+      catalog_id: catalogId, play_mode: playMode, story_setup: storySetup,
+    }),
   resume: (gameId: string) =>
     request<View>(
       `/v1/saves/${encodeURIComponent(gameId)}/resume`,

@@ -28,12 +28,17 @@ function GameCard({
   game,
   onStart,
   busy,
+  generating,
 }: {
   game: Game;
-  onStart: (id: string, mode: "campaign" | "freeform") => void;
+  onStart: (id: string, mode: "campaign" | "freeform", setup?: Record<string, string>) => void;
   busy: boolean;
+  generating: boolean;
 }) {
   const [selectedMode, setSelectedMode] = useState<"campaign" | "freeform">(game.mode);
+  const [playerStart, setPlayerStart] = useState(game.story_setup?.player_options[0]?.id || "");
+  const [tone, setTone] = useState(game.story_setup?.tone_options[0]?.id || "");
+  const [custom, setCustom] = useState<Record<string, string>>({});
   const availableModes = game.play_modes?.length ? game.play_modes : [game.mode];
   return (
     <article className="game-card">
@@ -57,14 +62,46 @@ function GameCard({
               ))}
             </div>
           )}
+          {game.story_setup && (
+            <div className="game-story-setup">
+              <label>开局方式
+                <select disabled={busy} value={playerStart}
+                  onChange={(event) => setPlayerStart(event.target.value)}>
+                  {game.story_setup.player_options.map((option) =>
+                    <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>故事风格
+                <select disabled={busy} value={tone}
+                  onChange={(event) => setTone(event.target.value)}>
+                  {game.story_setup.tone_options.map((option) =>
+                    <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
+              {playerStart === "custom" && game.story_setup.custom_fields.map((field) => (
+                <label key={field.id}>{field.label}
+                  <input disabled={busy} type="text" maxLength={field.max_length}
+                    required={field.required} value={custom[field.id] || ""}
+                    onChange={(event) => setCustom((previous) => ({
+                      ...previous, [field.id]: event.target.value,
+                    }))} />
+                </label>
+              ))}
+            </div>
+          )}
           <Button
             type="button"
             variant="secondary"
             size="small"
-            onClick={() => onStart(game.id, selectedMode)}
-            disabled={busy}
+            onClick={() => onStart(game.id, selectedMode,
+              game.story_setup ? {
+                player: playerStart, tone,
+                ...(playerStart === "custom" ? custom : {}),
+              } : undefined)}
+            disabled={busy || (playerStart === "custom" && Boolean(game.story_setup?.custom_fields
+              .some((field) => field.required && !custom[field.id]?.trim())))}
           >
-            开始旅程 <ArrowRight size={16} />
+            {generating ? "正在生成开场…" : "开始旅程"} <ArrowRight size={16} />
           </Button>
         </div>
       </div>
@@ -103,11 +140,12 @@ export function CatalogPage() {
     };
   }, [retry]);
 
-  async function start(catalogId: string, playMode: "campaign" | "freeform") {
+  async function start(catalogId: string, playMode: "campaign" | "freeform",
+    setup?: Record<string, string>) {
     setBusyId(catalogId);
     setError("");
     try {
-      const view = await api.createSave(catalogId, playMode);
+      const view = await api.createSave(catalogId, playMode, setup);
       navigate(`/play/${view.game_id}`);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -175,6 +213,7 @@ export function CatalogPage() {
                   game={game}
                   onStart={start}
                   busy={busyId !== null}
+                  generating={busyId === game.id}
                 />
               ))}
             </div>

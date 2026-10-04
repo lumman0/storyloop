@@ -63,6 +63,7 @@ class SceneTurn(BaseModel):
     options: list[ProposedNextAction] = Field(default_factory=list)
     memories: list[SharedMoment] = Field(default_factory=list)
     story_first: bool = False
+    milestones_fulfilled: list[str] = Field(default_factory=list)
 
 
 class NarrativeTurn(BaseModel):
@@ -133,6 +134,38 @@ class NarrativeTurn(BaseModel):
         )
 
 
+class SourceNarrativeTurn(NarrativeTurn):
+    """Optional progress metadata only for source-driven scenario packages."""
+
+    options: list[ProposedNextAction] = Field(min_length=3, max_length=3)
+    milestones_fulfilled: list[str] = Field(default_factory=list)
+    status_changes: list[ProposedStatusChange] = Field(default_factory=list)
+
+    @field_validator("milestones_fulfilled", mode="before")
+    @classmethod
+    def valid_milestones(cls, value: object) -> list[str]:
+        return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+    @field_validator("status_changes", mode="before")
+    @classmethod
+    def valid_status_changes(cls, value: object) -> list[ProposedStatusChange]:
+        if not isinstance(value, list):
+            return []
+        valid = []
+        for item in value:
+            try:
+                valid.append(ProposedStatusChange.model_validate(item))
+            except (TypeError, ValueError):
+                continue
+        return valid
+
+    def for_storage(self) -> SceneTurn:
+        return super().for_storage().model_copy(update={
+            "milestones_fulfilled": self.milestones_fulfilled,
+            "status_changes": self.status_changes,
+        })
+
+
 @dataclass(frozen=True)
 class SceneModelContext:
     request: dict[str, object]
@@ -184,13 +217,26 @@ class SceneContextProjector:
 
     def project(self, snapshot: Snapshot, player_text: str) -> SceneModelContext:
         actors = snapshot.data.get("actors", {})
+        generated_profiles = snapshot.data.get("actor_profiles", {})
+        if not isinstance(generated_profiles, dict):
+            generated_profiles = {}
+        def actor_name(actor_id: str) -> str:
+            profile = generated_profiles.get(actor_id)
+            return (profile.get("name") if isinstance(profile, dict)
+                    and isinstance(profile.get("name"), str) else
+                    self.package.actor_names[actor_id])
+        def actor_card(actor_id: str) -> str:
+            profile = generated_profiles.get(actor_id)
+            return (profile.get("role_card") if isinstance(profile, dict)
+                    and isinstance(profile.get("role_card"), str) else
+                    self.package.role_cards[actor_id])
         player = actors.get("player", {}) if isinstance(actors, dict) else {}
         location = player.get("location") if isinstance(player, dict) else None
         nearby = tuple(actor_id for actor_id, _ in self.package.actor_cards
                        if isinstance(actors.get(actor_id), dict)
                        and actors[actor_id].get("location") == location)
         mentioned = [actor_id for actor_id, _ in self.package.actor_cards
-                     if actor_id in player_text or self.package.actor_names[actor_id] in player_text]
+                     if actor_id in player_text or actor_name(actor_id) in player_text]
         recent_targets = [actor_id for item in reversed(self.store.player_inputs_for(snapshot.game_id)[-4:])
                           for actor_id in item.target_ids if actor_id in nearby]
         focus = tuple(dict.fromkeys((*mentioned, *recent_targets, *nearby)))[:self.max_responders]
@@ -207,8 +253,8 @@ class SceneContextProjector:
             entries = self.store.agent_context_entries(snapshot.game_id, actor_id,
                                                        checkpoint.through_version)
             npc_contexts.append({
-                "id": actor_id, "name": self.package.actor_names[actor_id],
-                "role_card": self.package.role_cards[actor_id][:1200],
+                "id": actor_id, "name": actor_name(actor_id),
+                "role_card": actor_card(actor_id)[:1200],
                 "own_summary": checkpoint.summary[:1200],
                 "own_history": self._history(entries, player_text, recent=8, older=3),
             })
@@ -216,7 +262,7 @@ class SceneContextProjector:
         story_context = (self.program.current_action_context(snapshot)
                          if self.program is not None else {})
         recent_inputs = self.store.player_inputs_for(snapshot.game_id)[-4:]
-        recent_visible = [item.content[:420] for item in
+        recent_visible = [item.content[-900:] for item in
                           self.store.observations_for(snapshot.game_id, "player")[-6:]
                           if item.channel in {"scene", "narration", "dialogue"}]
         request: dict[str, object] = {
@@ -225,7 +271,7 @@ class SceneContextProjector:
             "day": campaign.get("day") if isinstance(campaign, dict) else None,
             "time_period": self.clock.period(snapshot.tick) if self.clock else None,
             "player_profile": snapshot.data.get("player_profile", {}),
-            "nearby_people": {actor_id: self.package.actor_names[actor_id] for actor_id in nearby},
+            "nearby_people": {actor_id: actor_name(actor_id) for actor_id in nearby},
             "candidate_responders": list(focus),
             "public_setting": [item.text[:650] for item in
                                self.package.worldbook.visible_lore("player", limit=4)],
@@ -241,6 +287,32 @@ class SceneContextProjector:
             "recent_visible_beats": recent_visible[-4:],
             "player_style_preferences": list(current_player_preferences()),
         }
+        blueprint = self.package.story_blueprint
+        if blueprint is not None:
+            day = snapshot.tick // self.clock.ticks_per_day + 1 if self.clock else 1
+            request["day"] = day
+            setup = snapshot.data.get("story_setup", {})
+            tone_id = setup.get("tone") if isinstance(setup, dict) else None
+            tone = next((item.guidance for item in blueprint.setup.tone_options
+                         if item.id == tone_id), "")
+            request["source_story_facts"] = blueprint.relevant_facts(day, player_text)
+            request["source_resolutions"] = blueprint.source_resolutions
+            progress = snapshot.data.get("story_progress", {})
+            completed = progress.get("completed", {}) if isinstance(progress, dict) else {}
+            request["source_story_milestones"] = blueprint.active_milestones(
+                day, completed if isinstance(completed, dict) else {},
+            )
+            request["source_story_tone"] = tone
+            request["public_cast"] = [
+                {"id": actor_id, "name": actor_name(actor_id),
+                 "appearance": (generated_profiles.get(actor_id, {}).get("public_profile", "")
+                                if isinstance(generated_profiles.get(actor_id), dict) else "")}
+                for actor_id in nearby
+            ]
+            request["candidate_responders"] = list(nearby)
+            request["current_story_scene"] = ""
+            request["current_story_goal"] = ""
+            request["story_anchors"] = []
         if isinstance(campaign, dict):
             request["player_recorded_choices"] = campaign.get("choices", {})
             request["player_sent_messages"] = {
@@ -277,6 +349,8 @@ class SingleSceneGenerator:
     async def generate(self, game_id: str, context: SceneModelContext) -> SceneTurn:
         system = (
             "你是互动故事的叙述者。优先回应 player_action 的完整意思，写出自然、具体的故事正文；"
+            "用人物动作、场景声响、外貌细节和没有说破的反应呈现性格与关系变化，"
+            "让每段行动从上一幕的实际结果自然接上，不用固定的天气或光线句式开头。"
             "玩家想完成一段日常活动，就呈现过程和即时结果，不拆成等待下次点击的工序。"
             "novel 模式使用第二人称，把角色对白融入 prose；interactive 模式在 prose 写环境与行动，"
             "角色发言写进 replies。不要替玩家增加决定或未说的话。"
@@ -290,8 +364,25 @@ class SingleSceneGenerator:
             "replies 摘录角色实际说过的话；witnessed 只概括旁观者能感知的事实，不能写内心活动。"
             "memories 只记共同经历中值得以后提起的承诺、线索或细节，普通寒暄可以为空。"
             "正文写完后，再给出三个可选的后续行动；从已经发生的结果继续，不要求玩家重做本轮行动。"
-            "只输出 NarrativeTurn，不补充状态裁决或流程阶段。"
+            "source_story_facts 与 source_story_tone 如有提供，代表剧本原始素材与本存档风格；"
+            "source_story_milestones 是已到时机的剧情线索，不是必须机械播放的固定段落；"
+            "一次回合不必填完当天所有线索，只在玩家行动和上一幕自然引出时推进；"
+            "若正文中确实发生了某个线索事件，才把其 ID 放进 milestones_fulfilled。"
+            "先承接 recent_visible_beats 的结尾，再回应玩家此刻的完整动作；"
+            "不要把上一场尚未完成的目标当成本轮事实。"
+            "public_cast 可用于群像描写；npc_contexts 只属于对应角色，绝不可让别人知道。"
+            "若多位角色在正文说话，replies 要逐一摘录其说过的话并使用对应 actor_id，"
+            "使每个人能记住自己的发言。"
+            "day 和 time_period 是权威状态，不得在正文写出冲突的日期或时段。"
+            "只输出约定的结构化结果，不补充流程阶段播报。"
         )
+        if self.package.story_blueprint is not None:
+            system += ("status_changes 仅在玩家明显表现出相应变化时可选填写，"
+                       "不要为了填数值编造感情。原文描述互相冲突时遵循 source_resolutions。"
+                       "每回合输出三个紧接本轮结尾的不同后续行动选项。输出 SourceNarrativeTurn。")
+        else:
+            system += "输出 NarrativeTurn。"
+        schema = SourceNarrativeTurn if self.package.story_blueprint else NarrativeTurn
         prompt = await self.formatter.format(msgs=[
             Msg("system", system, "system"),
             Msg("player", json.dumps(context.request, ensure_ascii=False), "user"),
@@ -302,8 +393,8 @@ class SingleSceneGenerator:
             kind="agent", input=context.request if self.telemetry.capture_content else None,
             session_id=session_id_for_game(game_id, self.package.package_id),
         ) as span:
-            response = await self.model(prompt, structured_model=NarrativeTurn)
-            result = NarrativeTurn.model_validate(response.metadata)
+            response = await self.model(prompt, structured_model=schema)
+            result = schema.model_validate(response.metadata)
             result = result.model_copy(update={
                 "prose": result.prose.replace("\\r\\n", "\n").replace("\\n", "\n").strip(),
                 "replies": [item.model_copy(update={

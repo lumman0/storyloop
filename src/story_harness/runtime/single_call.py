@@ -68,7 +68,10 @@ class SingleCallGameSession:
             raise ValueError("single-call reply has unknown actor")
         if not isinstance(speech, str) or not speech.strip():
             raise ValueError("single-call reply is empty")
-        name = self.package.actor_names[actor_id]
+        profiles = snapshot.data.get("actor_profiles", {})
+        profile = profiles.get(actor_id, {}) if isinstance(profiles, dict) else {}
+        name = (profile.get("name") if isinstance(profile, dict)
+                and isinstance(profile.get("name"), str) else self.package.actor_names[actor_id])
         event = WorldEvent(f"{work.work_id}:spoken", "npc_spoke", actor_id,
                            work.cause_id, snapshot.tick, (),
                            {"player_message": work.payload.get("player_message", ""),
@@ -161,9 +164,17 @@ class SingleCallGameSession:
     def _validate_plan(self, before: Snapshot, plan: SceneTurn,
                        focus: tuple[str, ...], nearby: tuple[str, ...]) -> SceneTurn:
         decision = plan.decision
-        allowed = set(focus)
+        allowed = set(nearby) if self.package.story_blueprint is not None else set(focus)
+        profiles = before.data.get("actor_profiles", {})
+        if not isinstance(profiles, dict):
+            profiles = {}
+        def actor_name(actor_id: str) -> str:
+            profile = profiles.get(actor_id)
+            return (profile.get("name") if isinstance(profile, dict)
+                    and isinstance(profile.get("name"), str) else
+                    self.package.actor_names.get(actor_id, ""))
         targets = list(dict.fromkeys(actor_id for actor_id in decision.target_ids
-                                     if actor_id in allowed))[:len(focus)]
+                                     if actor_id in allowed))[:len(allowed)]
         replies = []
         for item in plan.replies:
             if (item.actor_id in allowed and item.actor_id not in {reply.actor_id for reply in replies}
@@ -178,6 +189,16 @@ class SingleCallGameSession:
             targets = targets[:1]
             replies = [item for item in replies if item.actor_id in targets]
         decision = decision.model_copy(update={"target_ids": targets})
+        milestones = []
+        if self.package.story_blueprint is not None:
+            progress = before.data.get("story_progress", {})
+            completed = progress.get("completed", {}) if isinstance(progress, dict) else {}
+            day = (before.tick // self.clock.ticks_per_day + 1 if self.clock else 1)
+            active = {item["id"] for item in self.package.story_blueprint.active_milestones(
+                day, completed if isinstance(completed, dict) else {},
+            )}
+            milestones = [item for item in dict.fromkeys(plan.milestones_fulfilled)
+                          if item in active]
         prose = plan.prose.strip()
         if decision.intent == "action":
             outcome = plan.action
@@ -203,7 +224,7 @@ class SingleCallGameSession:
         memories = []
         for item in plan.memories:
             visibly_present = (
-                self.package.actor_names.get(item.actor_id, "") in prose
+                actor_name(item.actor_id) in prose
                 or (self.package.presentation_mode == "interactive"
                     and any(reply.actor_id == item.actor_id for reply in replies))
             ) if item.actor_id in participants else False
@@ -211,10 +232,11 @@ class SingleCallGameSession:
                 prior.actor_id for prior in memories
             } and item.fact.strip():
                 memories.append(item.model_copy(update={"fact": item.fact.strip()[:180]}))
-            if len(memories) == 2:
+            if len(memories) == (len(allowed) if self.package.story_blueprint else 2):
                 break
         return plan.model_copy(update={"decision": decision, "replies": replies,
-                                       "prose": prose, "memories": memories})
+                                       "prose": prose, "memories": memories,
+                                       "milestones_fulfilled": milestones})
 
     def _commit_player(self, before: Snapshot, turn_id: str, player_text: str,
                        plan: SceneTurn, max_tick: int | None) -> Snapshot:
@@ -261,6 +283,13 @@ class SingleCallGameSession:
                 details["entry_id"] = entry.entry_id
                 if not plan.story_first:
                     prose = entry.text
+        if self.package.story_blueprint is not None and plan.milestones_fulfilled:
+            effects += tuple(Effect(("story_progress", "completed", milestone_id), True)
+                             for milestone_id in plan.milestones_fulfilled)
+            if any(step.terminal and step.id in plan.milestones_fulfilled
+                   for step in self.package.story_blueprint.milestones):
+                effects += (Effect(("story_progress", "complete"), True),)
+            details["milestones_fulfilled"] = plan.milestones_fulfilled
         event = WorldEvent(event_id, {"speech": "player_input",
                                       "inspect": "player_query",
                                       "action": "player_action"}[decision.intent],
@@ -269,7 +298,9 @@ class SingleCallGameSession:
             Observation(f"{event_id}:scene", event_id, "player", "scene", prose, tick),
         ]
         campaign = before.data.get("campaign")
-        day = campaign.get("day") if isinstance(campaign, dict) else None
+        day = (campaign.get("day") if isinstance(campaign, dict) else
+               tick // self.clock.ticks_per_day + 1
+               if self.package.story_blueprint is not None and self.clock else None)
         for memory in plan.memories:
             summary = memory.fact.strip()
             if type(day) is int and day > 0:
@@ -316,6 +347,9 @@ class SingleCallGameSession:
         raw = details.get("single_call") if isinstance(details, dict) else None
         if not isinstance(raw, dict):
             return authored
+        progress = self.store.load(game_id).data.get("story_progress", {})
+        if isinstance(progress, dict) and progress.get("complete") is True:
+            return ()
         options = raw.get("options", [])
         previous = self.store.player_inputs_for(game_id)[-4:]
         recent = [item.text for item in previous]

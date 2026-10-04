@@ -91,6 +91,8 @@ class UserScenarioService:
     def _prepare_prologue(self, staged: Path, package: ScenarioPackage,
                           program: CampaignProgram | None, title: str,
                           summary: str) -> ScenarioPackage:
+        if package.story_blueprint is not None:
+            return package
         if package.authored_prologue:
             return package
         if self.prologue_generator is None:
@@ -125,9 +127,10 @@ class UserScenarioService:
         try:
             _extract_package(archive, staged)
             package = ScenarioPackage.load(staged)
-            mode = "campaign" if (staged / "campaign.json").exists() else "freeform"
+            mode = ("campaign" if package.story_blueprint is not None
+                    or (staged / "campaign.json").exists() else "freeform")
             program = None
-            if mode == "campaign":
+            if mode == "campaign" and package.story_blueprint is None:
                 program = CampaignProgram.load(staged / "campaign.json")
                 if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
                     raise ValueError("campaign does not match scenario")
@@ -224,9 +227,10 @@ class UserScenarioService:
         try:
             _extract_package(archive, staged)
             package = ScenarioPackage.load(staged)
-            mode = "campaign" if (staged / "campaign.json").exists() else "freeform"
+            mode = ("campaign" if package.story_blueprint is not None
+                    or (staged / "campaign.json").exists() else "freeform")
             program = None
-            if mode == "campaign":
+            if mode == "campaign" and package.story_blueprint is None:
                 program = CampaignProgram.load(staged / "campaign.json")
                 if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
                     raise ValueError("campaign does not match scenario")

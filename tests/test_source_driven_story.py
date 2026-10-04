@@ -1,0 +1,133 @@
+"""A blueprint save generates its opening once and then uses one story call per turn."""
+
+import asyncio
+import json
+import os
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from story_harness.agents.scene_turn import SourceNarrativeTurn
+from story_harness.agents.story_opening import GeneratedStoryOpening
+from story_harness.portal.service import PlayerPortal
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class SourceDrivenStoryTests(unittest.TestCase):
+    def test_blueprint_save_uses_generated_opening_and_remembers_actor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            package = directory / "package"
+            shutil.copytree(ROOT / "examples/freeform", package)
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["story_blueprint"] = "story_blueprint.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            blueprint = {
+                "source_document": "Harbor source document",
+                "opening_focus": "A new visitor arrives at a harbor and pauses before speaking.",
+                "setup": {
+                    "player_options": [{"id": "random", "label": "Random player",
+                                        "guidance": "Create a visitor.", "source_ref": "Start section"}],
+                    "tone_options": [{"id": "slow", "label": "Slow story",
+                                      "guidance": "Use patient pacing.", "source_ref": "Tone section"}],
+                    "custom_fields": [],
+                },
+                "actor_slots": [{"actor_id": "dockhand", "brief": "The first local character.",
+                                 "source_ref": "Cast section"}],
+                "facts": [{"id": "harbor", "text": "The harbor is open to visitors.",
+                           "source_ref": "World section", "visibility": "public"}],
+                "milestones": [{"id": "arrival", "day": 1,
+                                "cue": "The visitor can meet a local character.",
+                                "source_ref": "Opening section", "required": True},
+                               {"id": "ending", "day": 1,
+                                "cue": "The visitor may leave the harbor after talking.",
+                                "source_ref": "Ending section", "terminal": True}],
+            }
+            (package / "story_blueprint.json").write_text(json.dumps(blueprint), encoding="utf-8")
+            program = {"id": manifest["id"], "ticks_per_day": manifest["ticks_per_day"],
+                       "final_tick": 2,
+                       "steps": [{"id": "legacy_choice", "at": 0, "kind": "choice",
+                                  "prompt": "Legacy choice", "options": [
+                                      {"id": "wait", "label": "Wait"}]},
+                                 {"id": "ending", "at": 2, "kind": "finale",
+                                  "choice_key": "legacy_choice", "threshold": 0,
+                                  "success_text": "End", "other_text": "End"}]}
+            # The blueprint route deliberately ignores legacy campaign scenes.
+            (package / "campaign.json").write_text(json.dumps(program), encoding="utf-8")
+            catalog = directory / "catalog.json"
+            catalog.write_text(json.dumps({"games": [{"id": "harbor", "title": "Harbor",
+                "mode": "campaign", "play_modes": ["campaign", "freeform"],
+                "package": "package"}]}), encoding="utf-8")
+            config_data = json.loads((ROOT / "config/local.json").read_text(encoding="utf-8"))
+            config_data["runtime"]["turn_engine"] = "multi_agent_beta"
+            config_path = directory / "config.json"
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+            opening = GeneratedStoryOpening.model_validate({
+                "prose": "你沿着港口走来，听见绳索轻轻敲在木桩上。码头工正整理工具，抬头看向你。"
+                         "远处的船还没有靠岸，你可以先观察，也可以走过去打招呼。"
+                         "海风穿过堆放的木箱，带来一点盐味。你停在告示牌旁，"
+                         "看见阿岚把一截松开的绳头重新绕好，等你决定要不要开口。",
+                "player_profile": {"name": "访客", "appearance": "背着行囊"},
+                "actors": [{"actor_id": "dockhand", "name": "阿岚",
+                            "role_card": "阿岚在码头工作多年，记得自己见过的人和船。她说话谨慎，熟悉港口每天的变化。",
+                            "public_profile": "穿着旧外套，正整理绳索。"}],
+                "options": [{"label": "打招呼", "input": "我向阿岚打招呼。"},
+                            {"label": "看船", "input": "我看看远处的船。"},
+                            {"label": "问路", "input": "我问阿岚去哪找旅店。"}],
+            })
+            requests = []
+
+            async def fake_opening(_self, _game_id, _package, _title, _setup):
+                return opening
+
+            async def fake_turn(_self, _game_id, context):
+                requests.append(context.request)
+                return SourceNarrativeTurn.model_validate({
+                    "prose": "你走向阿岚，先问候了一声。她把绳索放好，说：“早，船还没进港。”",
+                    "replies": [{"actor_id": "dockhand", "speech": "早，船还没进港。"}],
+                    "participants": ["dockhand"], "delivery": "targets",
+                    "milestones_fulfilled": ["arrival"] if len(requests) == 1 else ["ending"],
+                    "options": [{"label": "问船期", "input": "我问阿岚船什么时候到。"},
+                                {"label": "看告示", "input": "我去看告示板。"},
+                                {"label": "继续闲聊", "input": "我和阿岚聊聊港口生活。"}],
+                }).for_storage()
+
+            with patch.dict(os.environ, {"STORY_BAILIAN_API_KEY": "offline-test"}), \
+                    patch("story_harness.agents.story_opening.StoryOpeningGenerator.generate",
+                          fake_opening), \
+                    patch("story_harness.agents.scene_turn.SingleSceneGenerator.generate",
+                          fake_turn):
+                portal = PlayerPortal(catalog, config_path,
+                                      str(directory / "game.sqlite3"))
+                token = portal.register("source-player", "password-123")["token"]
+                first = asyncio.run(portal.create_save(token, "harbor", "campaign",
+                                                       {"player": "random", "tone": "slow"}))
+                self.assertEqual(first["opening"], opening.prose)
+                self.assertIsNone(first["interaction"])
+                self.assertEqual(len(first["action_options"]), 3)
+                save_id = first["game_id"]
+                self.assertEqual(asyncio.run(portal.resume_save(token, save_id))["opening"], "")
+                turn = asyncio.run(portal.turn(token, save_id, "我向阿岚打招呼。", "turn-1"))
+                self.assertIn("早，船还没进港", turn["body"])
+                self.assertEqual(requests[0]["source_story_tone"], "Use patient pacing.")
+                self.assertIn("远处的船还没有靠岸", str(requests[0]["recent_visible_beats"]))
+                self.assertEqual(requests[0]["npc_contexts"][0]["name"], "阿岚")
+                self.assertTrue(any("船还没进港" in entry.content for entry in
+                                    portal.store.agent_context_entries(save_id, "dockhand")))
+                self.assertTrue(portal.store.load(save_id).data["story_progress"]["completed"]["arrival"])
+                second = asyncio.run(portal.turn(token, save_id, "船来了么？", "turn-2"))
+                self.assertEqual(second["day"], 1)
+                self.assertTrue(second["complete"])
+                self.assertEqual(second["action_options"], [])
+                self.assertIn("船还没进港", str(requests[1]["npc_contexts"][0]["own_history"]))
+                self.assertIn("你走向阿岚", str(requests[1]["recent_visible_beats"]))
+                self.assertEqual([item["id"] for item in requests[1]["source_story_milestones"]],
+                                 ["ending"])
+                with self.assertRaisesRegex(ValueError, "story is complete"):
+                    asyncio.run(portal.turn(token, save_id, "再来一轮", "turn-3"))
+                portal.close()

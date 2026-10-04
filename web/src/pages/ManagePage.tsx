@@ -129,6 +129,7 @@ export function ManagePage({ session }: { session: Session }) {
             <details open><summary>剧本结构</summary><pre>{JSON.stringify(detail.manifest, null, 2)}</pre></details>
             <details><summary>世界书与角色卡</summary><pre>{JSON.stringify(detail.worldbook, null, 2)}</pre></details>
             {detail.campaign && <details><summary>剧情日程</summary><pre>{JSON.stringify(detail.campaign, null, 2)}</pre></details>}
+            {detail.story_blueprint && <details><summary>原文依据与剧情线索</summary><pre>{JSON.stringify(detail.story_blueprint, null, 2)}</pre></details>}
             <label className="manage-reason-label" htmlFor="review-reason">审核意见；驳回或管理员审核自己的剧本时必填</label>
             <textarea id="review-reason" value={reason} maxLength={1000} rows={3} onChange={(event) => setReason(event.target.value)} />
             <div className="manage-actions">

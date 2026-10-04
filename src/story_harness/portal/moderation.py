@@ -116,8 +116,12 @@ class ScenarioModerationService:
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
         worldbook = json.loads((root / manifest["worldbook"]).read_text(encoding="utf-8"))
         campaign = (json.loads((root / "campaign.json").read_text(encoding="utf-8"))
-                    if listing.mode == "campaign" else None)
-        return {**row, "manifest": manifest, "worldbook": worldbook, "campaign": campaign}
+                    if listing.mode == "campaign" and (root / "campaign.json").is_file()
+                    else None)
+        blueprint = (json.loads((root / manifest["story_blueprint"]).read_text(encoding="utf-8"))
+                     if isinstance(manifest.get("story_blueprint"), str) else None)
+        return {**row, "manifest": manifest, "worldbook": worldbook,
+                "campaign": campaign, "story_blueprint": blueprint}
 
     def preview_listing(self, reviewer_id: str, submission_id: str,
                         package_hash: str | None = None) -> GameListing:

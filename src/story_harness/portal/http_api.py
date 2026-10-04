@@ -51,6 +51,7 @@ class AccountBody(BaseModel):
 class SaveBody(BaseModel):
     catalog_id: str
     play_mode: Literal["campaign", "freeform"] | None = None
+    story_setup: dict[str, str] | None = None
 
 
 class SaveSettingsBody(BaseModel):
@@ -476,7 +477,8 @@ def create_app(portal: PlayerPortal) -> FastAPI:
     @app.post("/v1/saves", status_code=201)
     async def create_save(body: SaveBody, auth: str = Depends(token)) -> dict:
         try:
-            return await portal.create_save(auth, body.catalog_id, body.play_mode)
+            return await portal.create_save(auth, body.catalog_id, body.play_mode,
+                                            body.story_setup)
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 

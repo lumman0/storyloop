@@ -19,10 +19,14 @@ from story_harness.world.scenario import ScenarioPackage
 def _package_fingerprint(package_path: Path, mode: str) -> str:
     manifest = json.loads((package_path / "manifest.json").read_text(encoding="utf-8"))
     files = [package_path / "manifest.json", package_path / manifest["worldbook"]]
-    if mode == "campaign":
+    if isinstance(manifest.get("story_blueprint"), str):
+        files.append(package_path / manifest["story_blueprint"])
+    if mode == "campaign" and not manifest.get("story_blueprint"):
         files.append(package_path / "campaign.json")
     digest = hashlib.sha256()
     for file in files:
+        if not file.resolve().is_relative_to(package_path.resolve()):
+            raise ValueError("scenario package file escaped package root")
         content = file.read_bytes()
         digest.update(str(file.relative_to(package_path)).encode("utf-8"))
         digest.update(len(content).to_bytes(8, "big"))
@@ -133,7 +137,7 @@ class GameCatalog:
                 for actor_id, description in public_profiles.items()
             ):
                 raise ValueError("catalog public_profiles must describe known actors")
-            if item["mode"] == "campaign":
+            if item["mode"] == "campaign" and package.story_blueprint is None:
                 program = CampaignProgram.load(package_path / "campaign.json")
                 if program.program_id != package.package_id or program.ticks_per_day != package.ticks_per_day:
                     raise ValueError("catalog campaign does not match scenario")
