@@ -56,10 +56,11 @@ class SourceDrivenStoryTests(unittest.TestCase):
                              "一阵海风吹过来，远处的钟声响起，你站在入口看着两条不同的路。"
                              "工作人员正等着你决定从哪里开始，今日的船班也写在墙上。"
                              "你看见一艘船正在靠近港口，码头工人开始清理泊位，等着第一位乘客下船。",
-                    "player_profile": {"name": "访客"},
+                    "player_profile": {"姓名": "访客", "所在大学": "海洋大学"},
                     "actors": [{"actor_id": actor_id, "name": name,
                                 "role_card": "这是一位在港口工作多年的角色，有自己的经历与说话方式。",
-                                "public_profile": "身穿外套，正忙着自己的工作。"}
+                                "public_profile": "身穿外套，正忙着自己的工作。"
+                                if actor_id == "first" else "尚未登场"}
                                for actor_id, name in zip(("first", "second"), names)],
                     "options": [{"label": "问路", "input": "我向工作人员问路。"},
                                 {"label": "看船", "input": "我走向码头看船。"},
@@ -72,6 +73,8 @@ class SourceDrivenStoryTests(unittest.TestCase):
             "retry", package, "Harbor", {"player": "random", "tone": "slow"}))
         self.assertEqual(model.calls, 2)
         self.assertEqual([actor.name for actor in opening.actors], ["阿岚", "小舟"])
+        self.assertEqual(opening.player_profile["name"], "访客")
+        self.assertEqual(opening.player_profile["school"], "海洋大学")
 
     def test_name_on_table_does_not_identify_a_stranger(self):
         prose = "桌上的名牌写着顾云舒。一个陌生女人从楼梯下来，朝你点头。"

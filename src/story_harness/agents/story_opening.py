@@ -7,7 +7,7 @@ from collections import Counter
 
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
@@ -19,7 +19,7 @@ class OpeningActor(BaseModel):
     actor_id: str
     name: str = Field(min_length=1, max_length=40)
     role_card: str = Field(min_length=20, max_length=1000)
-    public_profile: str = Field(min_length=10, max_length=400)
+    public_profile: str = Field(min_length=1, max_length=400)
 
 
 class OpeningOption(BaseModel):
@@ -34,12 +34,24 @@ class GeneratedStoryOpening(BaseModel):
     options: list[OpeningOption] = Field(min_length=3, max_length=3)
     encounters: list[PlayerEncounter] = Field(default_factory=list)
 
-    @field_validator("player_profile")
+    @field_validator("player_profile", mode="before")
     @classmethod
-    def named_player(cls, value: dict[str, str]) -> dict[str, str]:
-        if not value.get("name", "").strip():
+    def named_player(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        aliases = {
+            "姓名": "name", "年龄": "age", "学校": "school", "大学": "school",
+            "所在大学": "school", "专业": "major", "学历层次": "education",
+            "外貌气质": "appearance", "外貌": "appearance",
+            "性格关键词": "personality", "才艺方向": "talent",
+        }
+        normalized = {key: item for key, item in value.items() if key not in aliases}
+        for key, item in value.items():
+            if key in aliases:
+                normalized.setdefault(aliases[key], item)
+        if not isinstance(normalized.get("name"), str) or not normalized["name"].strip():
             raise ValueError("generated player profile requires a name")
-        return value
+        return normalized
 
     def save_state(self, setup: dict[str, str]) -> dict[str, object]:
         profile = dict(self.player_profile)
@@ -125,13 +137,33 @@ class StoryOpeningGenerator:
                     Msg("source", json.dumps(request, ensure_ascii=False), "user"),
                 ])
                 response = await self.model(prompt, structured_model=GeneratedStoryOpening)
-                opening = GeneratedStoryOpening.model_validate(response.metadata)
+                try:
+                    opening = GeneratedStoryOpening.model_validate(response.metadata)
+                except ValidationError as error:
+                    if attempt == 0:
+                        fields = [".".join(str(part) for part in issue["loc"])
+                                  for issue in error.errors()]
+                        retry_note = ("上次结果不符合结构化字段要求，请完整重新生成；"
+                                      f"有问题的字段：{fields}。"
+                                      "player_profile 必须含 name；晚登场人物的 public_profile 可以写'尚未登场'。")
+                        continue
+                    span.metric("story.opening_model_calls", 2.0)
+                    raise ValueError("generated opening is invalid after retry") from error
                 expected = {slot.actor_id for slot in blueprint.actor_slots}
                 actual = [actor.actor_id for actor in opening.actors]
                 if len(actual) != len(expected) or set(actual) != expected:
+                    if attempt == 0:
+                        retry_note = "上次结果遗漏或重复了 actor_id，请严格为每个 actor_slot 各生成一位演员。"
+                        continue
+                    span.metric("story.opening_model_calls", 2.0)
                     raise ValueError("generated opening did not cover every actor slot")
                 if (setup["player"] == "custom" and setup.get("name")
                         and opening.player_profile["name"] != setup["name"]):
+                    if attempt == 0:
+                        retry_note = ("上次擅自修改了玩家填写的姓名，请完整重新生成，"
+                                      f"player_profile.name 必须是 {setup['name']}。")
+                        continue
+                    span.metric("story.opening_model_calls", 2.0)
                     raise ValueError("generated opening changed the player's chosen name")
                 counts = Counter(actor.name for actor in opening.actors)
                 duplicates = sorted(name for name, count in counts.items() if count > 1)
