@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
@@ -89,6 +90,7 @@ class StoryOpeningGenerator:
         system = (
             "你是互动故事的主叙述者。根据剧本原始文档整理出的资料，为这个新存档生成一次开场。"
             "生成玩家角色卡与全部嘉宾角色卡；每个 actor_slot 恰好生成一个演员，actor_id 原样返回。"
+            "玩家与全部嘉宾必须各有不同的姓名；先为每个 actor_id 分配唯一姓名，不能出现重名。"
             "随机开局时创造具体而不雷同的人物；自定义开局时严格保留玩家给出的身份。"
             "角色卡可包含角色自己的秘密，但 public_profile 只包含此刻玩家能看到的外貌和举止。"
             "prose 用第二人称写一段连贯的序章，以当前可行动的场面结束。"
@@ -110,30 +112,43 @@ class StoryOpeningGenerator:
             "不要三个选项都停留在观察同一物件，玩家也能自由输入。"
             "不要使用系统模板、属性表或剧情流程播报。输出 GeneratedStoryOpening。"
         )
-        prompt = await self.formatter.format(msgs=[
-            Msg("system", system, "system"),
-            Msg("source", json.dumps(request, ensure_ascii=False), "user"),
-        ])
         with self.telemetry.span(
             "source-story-opening", {"game_id": game_id,
                                      "scenario_id": package.package_id},
             kind="agent", input=request if self.telemetry.capture_content else None,
             session_id=session_id_for_game(game_id, package.package_id),
         ) as span:
-            response = await self.model(prompt, structured_model=GeneratedStoryOpening)
-            opening = GeneratedStoryOpening.model_validate(response.metadata)
-            expected = {slot.actor_id for slot in blueprint.actor_slots}
-            actual = [actor.actor_id for actor in opening.actors]
-            if len(actual) != len(expected) or set(actual) != expected:
-                raise ValueError("generated opening did not cover every actor slot")
-            if len({actor.name for actor in opening.actors}) != len(actual):
-                raise ValueError("generated opening has duplicate actor names")
-            if (setup["player"] == "custom" and setup.get("name")
-                    and opening.player_profile["name"] != setup["name"]):
-                raise ValueError("generated opening changed the player's chosen name")
-            if opening.player_profile["name"] in {actor.name for actor in opening.actors}:
-                raise ValueError("generated player and actor names must differ")
-            span.metric("story.opening_model_calls", 1.0)
-            if self.telemetry.capture_content:
-                span.update(output=opening.model_dump())
-            return opening
+            retry_note = ""
+            for attempt in range(2):
+                prompt = await self.formatter.format(msgs=[
+                    Msg("system", system + retry_note, "system"),
+                    Msg("source", json.dumps(request, ensure_ascii=False), "user"),
+                ])
+                response = await self.model(prompt, structured_model=GeneratedStoryOpening)
+                opening = GeneratedStoryOpening.model_validate(response.metadata)
+                expected = {slot.actor_id for slot in blueprint.actor_slots}
+                actual = [actor.actor_id for actor in opening.actors]
+                if len(actual) != len(expected) or set(actual) != expected:
+                    raise ValueError("generated opening did not cover every actor slot")
+                if (setup["player"] == "custom" and setup.get("name")
+                        and opening.player_profile["name"] != setup["name"]):
+                    raise ValueError("generated opening changed the player's chosen name")
+                counts = Counter(actor.name for actor in opening.actors)
+                duplicates = sorted(name for name, count in counts.items() if count > 1)
+                player_conflict = opening.player_profile["name"] in counts
+                if duplicates or player_conflict:
+                    if attempt == 0:
+                        retry_note = (
+                            "上次输出出现姓名冲突，请重新生成全部结果。"
+                            f"重复的嘉宾姓名：{duplicates}；"
+                            f"玩家与嘉宾同名：{player_conflict}。"
+                            "逐一核对每个 actor_id 的姓名与玩家姓名均不相同。"
+                        )
+                        continue
+                    span.metric("story.opening_model_calls", 2.0)
+                    raise ValueError("generated opening still has duplicate names after retry")
+                span.metric("story.opening_model_calls", float(attempt + 1))
+                if self.telemetry.capture_content:
+                    span.update(output=opening.model_dump())
+                return opening
+            raise RuntimeError("opening generation exhausted retries")

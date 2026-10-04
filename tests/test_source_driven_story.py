@@ -7,21 +7,72 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from story_harness.agents.scene_turn import SourceNarrativeTurn
-from story_harness.agents.story_opening import GeneratedStoryOpening
+from story_harness.agents.story_opening import GeneratedStoryOpening, StoryOpeningGenerator
 from story_harness.portal.http_api import create_app
 from story_harness.portal.service import PlayerPortal
 from story_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
+from story_harness.world.story_blueprint import StoryBlueprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class SourceDrivenStoryTests(unittest.TestCase):
+    def test_opening_retries_once_when_generated_names_collide(self):
+        blueprint = StoryBlueprint.model_validate({
+            "source_document": "Test source",
+            "opening_focus": "A visitor reaches the harbor and waits at its gate.",
+            "setup": {
+                "player_options": [{"id": "random", "label": "Random", "guidance": "Visitor",
+                                    "source_ref": "Source"}],
+                "tone_options": [{"id": "slow", "label": "Slow", "guidance": "Patient",
+                                  "source_ref": "Source"}],
+            },
+            "actor_slots": [
+                {"actor_id": "first", "brief": "A harbor worker with a warm greeting.",
+                 "source_ref": "Source"},
+                {"actor_id": "second", "brief": "Another worker who manages boats.",
+                 "source_ref": "Source"},
+            ],
+            "facts": [{"id": "harbor", "text": "Visitors arrive by boat.",
+                       "source_ref": "Source", "visibility": "public"}],
+        })
+
+        class FakeModel:
+            def __init__(self):
+                self.calls = 0
+
+            async def __call__(self, _prompt, *, structured_model):
+                self.calls += 1
+                names = ["阿岚", "阿岚" if self.calls == 1 else "小舟"]
+                return SimpleNamespace(metadata={
+                    "prose": "你走进港口，船还没有靠岸。码头上有人招手，告示牌旁有人搬运木箱。"
+                             "一阵海风吹过来，远处的钟声响起，你站在入口看着两条不同的路。"
+                             "工作人员正等着你决定从哪里开始，今日的船班也写在墙上。"
+                             "你看见一艘船正在靠近港口，码头工人开始清理泊位，等着第一位乘客下船。",
+                    "player_profile": {"name": "访客"},
+                    "actors": [{"actor_id": actor_id, "name": name,
+                                "role_card": "这是一位在港口工作多年的角色，有自己的经历与说话方式。",
+                                "public_profile": "身穿外套，正忙着自己的工作。"}
+                               for actor_id, name in zip(("first", "second"), names)],
+                    "options": [{"label": "问路", "input": "我向工作人员问路。"},
+                                {"label": "看船", "input": "我走向码头看船。"},
+                                {"label": "看告示", "input": "我查看墙上的告示。"}],
+                })
+
+        model = FakeModel()
+        package = SimpleNamespace(story_blueprint=blueprint, package_id="test")
+        opening = asyncio.run(StoryOpeningGenerator(model).generate(
+            "retry", package, "Harbor", {"player": "random", "tone": "slow"}))
+        self.assertEqual(model.calls, 2)
+        self.assertEqual([actor.name for actor in opening.actors], ["阿岚", "小舟"])
+
     def test_name_on_table_does_not_identify_a_stranger(self):
         prose = "桌上的名牌写着顾云舒。一个陌生女人从楼梯下来，朝你点头。"
         encounters = accepted_encounters([
