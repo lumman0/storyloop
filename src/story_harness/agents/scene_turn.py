@@ -265,6 +265,7 @@ class SingleSceneGenerator:
             "普通行动不需要预设 action_id。玩家主动加入、准备、制作或完成一件事时是 action，"
             "不能只把实际行动写成寒暄。按玩家输入的范围完成一段有起承转合的场景："
             "玩家说要做一件完整的事，就在本轮呈现其过程与即时结果；只说做其中一步，才停在那一步。"
+            "玩家明确写出的连续行动都要在 prose 正文里实际发生，不能只在 action.player_result 或 options 中暗示已完成。"
             "不要为了状态字段把日常活动拆成必须由玩家逐一点击的工序。"
             "只有 mutable_state 明列的路径和 allowed_next_values 可以放进 action.effects；"
             "日常活动可只记录为本轮事件而没有 effects；不能把未成功的动作写成已经完成。"
