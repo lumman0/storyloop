@@ -27,7 +27,7 @@ from story_harness.agents.scene_turn import SceneContextProjector, SingleSceneGe
 from story_harness.agents.scene_messages import SingleCallMessageWriter
 from story_harness.agents.npc_agent import NpcAgentPool
 from story_harness.core.billing import collect_usage
-from story_harness.core.contracts import Observation, WorldEvent
+from story_harness.core.contracts import Observation, Snapshot, WorldEvent
 from story_harness.portal.catalog import GameCatalog, GameListing
 from story_harness.portal.access import AccessService
 from story_harness.portal.invitations import InvitationService
@@ -330,6 +330,23 @@ class PlayerPortal:
             profile = generated.get(actor_id)
             return (profile.get("name") if isinstance(profile, dict)
                     and isinstance(profile.get("name"), str) else package.actor_names[actor_id])
+        knowledge = snapshot.data.get("player_knowledge")
+        if package.story_blueprint is not None and isinstance(knowledge, dict):
+            named = knowledge.get("named_actor_ids", [])
+            visible = ({actor_id for actor_id in named if actor_id in package.actor_names}
+                       if isinstance(named, list) else set())
+        else:
+            visible = self._legacy_visible_cast(game_id, item, package, visible_name, snapshot)
+        return [{"id": actor_id, "name": visible_name(actor_id),
+                 "portrait_url": (f"/v1/saves/{game_id}/cast/{quote(actor_id, safe='')}/portrait"
+                                  if actor_id in (item.portrait_art or {})
+                                  and package.story_blueprint is None else None)}
+                for actor_id, _ in package.actor_cards
+                if actor_id in visible]
+
+    def _legacy_visible_cast(self, game_id: str, item: GameListing,
+                             package: ScenarioPackage, visible_name,
+                             snapshot: Snapshot) -> set[str]:
         visible: set[str] = set()
         campaign = snapshot.data.get("campaign")
         if isinstance(campaign, dict):
@@ -359,12 +376,7 @@ class PlayerPortal:
                            for turn in self.accounts.list_turns(game_id))
             visible.update(actor_id for actor_id, _ in package.actor_cards
                            if any(visible_name(actor_id) in passage for passage in passages))
-        return [{"id": actor_id, "name": visible_name(actor_id),
-                 "portrait_url": (f"/v1/saves/{game_id}/cast/{quote(actor_id, safe='')}/portrait"
-                                  if actor_id in (item.portrait_art or {})
-                                  and package.story_blueprint is None else None)}
-                for actor_id, _ in package.actor_cards
-                if actor_id in visible]
+        return visible
 
     def character_detail(self, token: str, game_id: str, actor_id: str) -> dict:
         member = next((actor for actor in self.cast(token, game_id) if actor["id"] == actor_id), None)

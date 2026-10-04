@@ -16,6 +16,7 @@ from story_harness.core.contracts import Effect, Observation, PendingWork, Snaps
 from story_harness.core.open_actions import validate_open_effects
 from story_harness.core.perception import physical_observations
 from story_harness.runtime.game_session import TurnOutcome
+from story_harness.runtime.player_knowledge import accepted_encounters, merge_knowledge
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.runner import RunResult, TurnRunner, WorkHandler, WorkResult
 from story_harness.runtime.schedule import scenario_cue
@@ -72,14 +73,19 @@ class SingleCallGameSession:
         profile = profiles.get(actor_id, {}) if isinstance(profiles, dict) else {}
         name = (profile.get("name") if isinstance(profile, dict)
                 and isinstance(profile.get("name"), str) else self.package.actor_names[actor_id])
+        knowledge = snapshot.data.get("player_knowledge")
+        named = knowledge.get("named_actor_ids", []) if isinstance(knowledge, dict) else []
+        player_label = (name if not isinstance(knowledge, dict) or actor_id in named
+                        else "一位嘉宾")
         event = WorldEvent(f"{work.work_id}:spoken", "npc_spoke", actor_id,
                            work.cause_id, snapshot.tick, (),
                            {"player_message": work.payload.get("player_message", ""),
-                            "speech": speech, "speaker_id": actor_id, "speaker_name": name})
+                            "speech": speech, "speaker_id": actor_id,
+                            "speaker_name": player_label})
         observations: list[Observation] = []
         if self.package.presentation_mode == "interactive":
             observations.append(Observation(f"{event.event_id}:player-heard", event.event_id,
-                                            "player", "dialogue", f"【{name}】\n{speech}", snapshot.tick))
+                                            "player", "dialogue", f"【{player_label}】\n{speech}", snapshot.tick))
         if not work.payload.get("private", False):
             actors = snapshot.data.get("actors", {})
             speaker_state = actors.get(actor_id, {}) if isinstance(actors, dict) else {}
@@ -217,6 +223,10 @@ class SingleCallGameSession:
                     prose = plan.action.player_result
         if not prose:
             prose = "你停下来，留意眼前的变化。"
+        encounters = (accepted_encounters(
+            plan.encounters, prose,
+            {actor_id: actor_name(actor_id) for actor_id in allowed},
+        ) if self.package.story_blueprint is not None else [])
         memorable = (decision.intent == "speech" or
                      (decision.intent == "action" and
                       (plan.story_first or plan.action.status == "occurred")))
@@ -236,6 +246,7 @@ class SingleCallGameSession:
                 break
         return plan.model_copy(update={"decision": decision, "replies": replies,
                                        "prose": prose, "memories": memories,
+                                       "encounters": encounters,
                                        "milestones_fulfilled": milestones})
 
     def _commit_player(self, before: Snapshot, turn_id: str, player_text: str,
@@ -290,6 +301,12 @@ class SingleCallGameSession:
                    for step in self.package.story_blueprint.milestones):
                 effects += (Effect(("story_progress", "complete"), True),)
             details["milestones_fulfilled"] = plan.milestones_fulfilled
+        knowledge = before.data.get("player_knowledge")
+        if isinstance(knowledge, dict) and plan.encounters:
+            updated_knowledge = merge_knowledge(knowledge, plan.encounters)
+            if updated_knowledge != knowledge:
+                effects += (Effect(("player_knowledge",), updated_knowledge),)
+                details["player_encounters"] = [item.model_dump() for item in plan.encounters]
         event = WorldEvent(event_id, {"speech": "player_input",
                                       "inspect": "player_query",
                                       "action": "player_action"}[decision.intent],

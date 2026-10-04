@@ -15,12 +15,27 @@ from story_harness.agents.scene_turn import SourceNarrativeTurn
 from story_harness.agents.story_opening import GeneratedStoryOpening
 from story_harness.portal.http_api import create_app
 from story_harness.portal.service import PlayerPortal
+from story_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class SourceDrivenStoryTests(unittest.TestCase):
+    def test_name_on_table_does_not_identify_a_stranger(self):
+        prose = "桌上的名牌写着顾云舒。一个陌生女人从楼梯下来，朝你点头。"
+        encounters = accepted_encounters([
+            PlayerEncounter(actor_id="female_a", evidence="名牌写着顾云舒",
+                            name_learned=True),
+        ], prose, {"female_a": "顾云舒"})
+        self.assertEqual(encounters, [])
+        seen = accepted_encounters([
+            PlayerEncounter(actor_id="female_a", evidence="一个陌生女人从楼梯下来",
+                            name_learned=False),
+        ], prose, {"female_a": "顾云舒"})
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].name_learned)
+
     def test_blueprint_save_uses_generated_opening_and_remembers_actor(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
@@ -91,9 +106,11 @@ class SourceDrivenStoryTests(unittest.TestCase):
             async def fake_turn(_self, _game_id, context):
                 requests.append(context.request)
                 return SourceNarrativeTurn.model_validate({
-                    "prose": "你走向阿岚，先问候了一声。她把绳索放好，说：“早，船还没进港。”",
-                    "replies": [{"actor_id": "dockhand", "speech": "早，船还没进港。"}],
+                    "prose": "你走向码头工，先问候了一声。她把绳索放好，说：“我叫阿岚，船还没进港。”",
+                    "replies": [{"actor_id": "dockhand", "speech": "我叫阿岚，船还没进港。"}],
                     "participants": ["dockhand"], "delivery": "targets",
+                    "encounters": [{"actor_id": "dockhand", "evidence": "我叫阿岚",
+                                    "name_learned": True}],
                     "milestones_fulfilled": ["arrival"] if len(requests) == 1 else ["ending"],
                     "options": [{"label": "问船期", "input": "我问阿岚船什么时候到。"},
                                 {"label": "看告示", "input": "我去看告示板。"},
@@ -114,6 +131,7 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 self.assertIsNone(first["interaction"])
                 self.assertEqual(len(first["action_options"]), 3)
                 save_id = first["game_id"]
+                self.assertEqual(portal.cast(token, save_id), [])
                 stranger = portal.register("other-player", "password-123")["token"]
                 with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
                     own_card = client.get(f"/v1/saves/{save_id}/player-card", headers={
@@ -128,8 +146,10 @@ class SourceDrivenStoryTests(unittest.TestCase):
                     }).status_code, 404)
                 self.assertEqual(asyncio.run(portal.resume_save(token, save_id))["opening"], "")
                 turn = asyncio.run(portal.turn(token, save_id, "我向阿岚打招呼。", "turn-1"))
-                self.assertIn("早，船还没进港", turn["body"])
+                self.assertIn("我叫阿岚，船还没进港", turn["body"])
+                self.assertEqual([actor["name"] for actor in portal.cast(token, save_id)], ["阿岚"])
                 self.assertEqual(requests[0]["source_story_tone"], "Use patient pacing.")
+                self.assertEqual(requests[0]["player_identity_knowledge"]["named_actor_ids"], [])
                 self.assertIn("远处的船还没有靠岸", str(requests[0]["recent_visible_beats"]))
                 self.assertEqual(requests[0]["npc_contexts"][0]["name"], "阿岚")
                 self.assertTrue(any("船还没进港" in entry.content for entry in
@@ -140,7 +160,8 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 self.assertTrue(second["complete"])
                 self.assertEqual(second["action_options"], [])
                 self.assertIn("船还没进港", str(requests[1]["npc_contexts"][0]["own_history"]))
-                self.assertIn("你走向阿岚", str(requests[1]["recent_visible_beats"]))
+                self.assertEqual(requests[1]["player_identity_knowledge"]["named_actor_ids"], ["dockhand"])
+                self.assertIn("你走向码头工", str(requests[1]["recent_visible_beats"]))
                 self.assertEqual([item["id"] for item in requests[1]["source_story_milestones"]],
                                  ["ending"])
                 with self.assertRaisesRegex(ValueError, "story is complete"):

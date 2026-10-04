@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
+from story_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters, merge_knowledge
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -30,6 +31,7 @@ class GeneratedStoryOpening(BaseModel):
     player_profile: dict[str, str]
     actors: list[OpeningActor]
     options: list[OpeningOption] = Field(min_length=3, max_length=3)
+    encounters: list[PlayerEncounter] = Field(default_factory=list)
 
     @field_validator("player_profile")
     @classmethod
@@ -50,6 +52,10 @@ class GeneratedStoryOpening(BaseModel):
                 "name": actor.name, "role_card": actor.role_card,
                 "public_profile": actor.public_profile,
             } for actor in self.actors},
+            "player_knowledge": merge_knowledge({}, accepted_encounters(
+                self.encounters, self.prose,
+                {actor.actor_id: actor.name for actor in self.actors},
+            )),
         }
 
 
@@ -85,13 +91,23 @@ class StoryOpeningGenerator:
             "生成玩家角色卡与全部嘉宾角色卡；每个 actor_slot 恰好生成一个演员，actor_id 原样返回。"
             "随机开局时创造具体而不雷同的人物；自定义开局时严格保留玩家给出的身份。"
             "角色卡可包含角色自己的秘密，但 public_profile 只包含此刻玩家能看到的外貌和举止。"
-            "prose 用第二人称写一段连贯、有动作和场景细节的序章，以当前可行动的场面结束。"
+            "prose 用第二人称写一段连贯的序章，以当前可行动的场面结束。"
             "自然交代玩家的可见身份和为何来到此处；用行李、镜头、陌生人的短暂反应等具体细节"
             "承载陌生人初见的气氛，不把人物性格写成标签清单。"
+            "如果开场要求玩家遵守规则或作选择，先由可信的场内来源讲清选择的目的、做法与后果，"
+            "不要让玩家在不明白原因时选。故事开场宜紧凑，细节只保留能交代人物、规则或推动事件的部分；"
+            "一般以几段有内容的文字交代完整开局，避免为了文采延长每个微小动作；"
+            "不要把几个没有结果的观察小动作写成长篇。"
+            "玩家尚未见过或听过自我介绍的嘉宾，先用可见外貌、位置、举止称呼；"
+            "作者知道的演员姓名不等于玩家知道。桌上印着姓名的名牌并不能把名字与陌生人的脸对应起来。"
+            "若开场已有嘉宾出现，在 encounters 写下玩家确实看见该人的原文短句；"
+            "只有自我介绍、他人明确介绍或随身身份标识把名字与本人对应时，name_learned 才为 true，"
+            "evidence 必须是 prose 中出现的原文片段。"
             "只依据 source_facts、source_resolutions 和 opening_focus，"
             "当原文说法冲突时遵循 source_resolutions；不擅自公布尚未公开的身份或未来事件；"
             "不替玩家说话、作关键选择或直接跳过当天。"
-            "给出三个紧贴开场事件的可选行动，玩家也能自由输入。"
+            "给出三个从开场直接进入故事的不同可选行动，其中至少两个能带来新的事件或人物接触；"
+            "不要三个选项都停留在观察同一物件，玩家也能自由输入。"
             "不要使用系统模板、属性表或剧情流程播报。输出 GeneratedStoryOpening。"
         )
         prompt = await self.formatter.format(msgs=[
