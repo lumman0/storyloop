@@ -66,6 +66,11 @@ class ProposedNextAction(BaseModel):
     input: str
 
 
+class SharedMoment(BaseModel):
+    actor_id: str
+    fact: str = Field(min_length=1)
+
+
 class SceneTurn(BaseModel):
     decision: MainDecision
     prose: str = Field(min_length=1)
@@ -73,6 +78,7 @@ class SceneTurn(BaseModel):
     action: ProposedAction = Field(default_factory=ProposedAction)
     status_changes: list[ProposedStatusChange] = Field(default_factory=list)
     options: list[ProposedNextAction] = Field(default_factory=list)
+    memories: list[SharedMoment] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -257,9 +263,12 @@ class SingleSceneGenerator:
             "decision.intent 是 speech、inspect 或 action；一句话或简短问答 duration=brief，"
             "用餐等持续活动为 standard，整段长活动为 extended，明确睡觉为 rest。"
             "普通行动不需要预设 action_id。玩家主动加入、准备、制作或完成一件事时是 action，"
-            "不能只把实际行动写成寒暄；有可用 mutable_state 时应推进到当前允许的下一阶段。"
+            "不能只把实际行动写成寒暄。按玩家输入的范围完成一段有起承转合的场景："
+            "玩家说要做一件完整的事，就在本轮呈现其过程与即时结果；只说做其中一步，才停在那一步。"
+            "不要为了状态字段把日常活动拆成必须由玩家逐一点击的工序。"
             "只有 mutable_state 明列的路径和 allowed_next_values 可以放进 action.effects；"
-            "不能把未成功的动作写成已经完成。status_changes 的 delta 不得超过对应 max_delta。"
+            "日常活动可只记录为本轮事件而没有 effects；不能把未成功的动作写成已经完成。"
+            "status_changes 的 delta 不得超过对应 max_delta。"
             "prose 必须是本轮具体、连贯、有代入感的故事回应，使用第二人称‘你’，不要重复前文的固定景物。"
             "初见场景用可见外貌、得体寒暄、小动作和停顿形成自然的陌生人氛围，"
             "别让每个人一开口就生硬划界限；不要代替玩家作出心理决定。"
@@ -272,8 +281,11 @@ class SingleSceneGenerator:
             "interactive 模式下 prose 只写环境和行动，NPC 的发言只写进 replies，避免重复显示。"
             "不要泄露隐藏剧情、凭空新增人物或已发生事件。没有足够信息就简短写，不能凑字数。"
             "options 仅依据本轮可见剧情与 current_story_goal 提供三条不同、具体且能推进互动的行动；"
-            "如果 action.effects 推进了活动阶段，options 必须从推进后的阶段出发，"
-            "至少一条能接续当前活动；不要照抄 authored_action_leads 或 recent_suggested_options。"
+            "options 要从本轮已经发生的结果出发，不能再要求玩家重做已完成的事；"
+            "不要照抄 authored_action_leads 或 recent_suggested_options。"
+            "memories 默认为空；仅当玩家与某位在场角色共同经历了之后值得提起的细节、承诺、"
+            "冲突或线索时，才给该角色写一条不超过180字的可观察事实，最多两位角色。"
+            "日常备菜、普通寒暄不单独生成记忆。不能把猜测的心意或未说出口的想法写成事实。"
             "按钮 input 使用第一人称玩家意图，不写系统命令，也不重复 recent_player_actions。"
             "只输出符合 SceneTurn 的结构化结果，不调用工具。"
         )

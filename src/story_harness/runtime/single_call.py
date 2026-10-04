@@ -195,7 +195,20 @@ class SingleCallGameSession:
                 prose = plan.action.player_result
         if not prose:
             prose = "你停下来，留意眼前的变化。"
-        return plan.model_copy(update={"decision": decision, "replies": replies, "prose": prose})
+        memorable = decision.intent == "speech" or (
+            decision.intent == "action" and plan.action.status == "occurred"
+        )
+        participants = set(targets) & set(nearby) if memorable else set()
+        memories = []
+        for item in plan.memories:
+            if item.actor_id in participants and item.actor_id not in {
+                prior.actor_id for prior in memories
+            } and item.fact.strip():
+                memories.append(item.model_copy(update={"fact": item.fact.strip()[:180]}))
+            if len(memories) == 2:
+                break
+        return plan.model_copy(update={"decision": decision, "replies": replies,
+                                       "prose": prose, "memories": memories})
 
     def _commit_player(self, before: Snapshot, turn_id: str, player_text: str,
                        plan: SceneTurn, max_tick: int | None) -> Snapshot:
@@ -246,6 +259,16 @@ class SingleCallGameSession:
         observations: list[Observation] = [
             Observation(f"{event_id}:scene", event_id, "player", "scene", prose, tick),
         ]
+        campaign = before.data.get("campaign")
+        day = campaign.get("day") if isinstance(campaign, dict) else None
+        for memory in plan.memories:
+            summary = memory.fact.strip()
+            if type(day) is int and day > 0:
+                summary = f"第{day}天：{summary}"
+            observations.append(Observation(
+                f"{event_id}:memory:{memory.actor_id}", event_id,
+                memory.actor_id, "shared_experience", summary, tick,
+            ))
         if decision.intent == "speech":
             hearers = (tuple(actor_id for actor_id, state in actors.items()
                              if actor_id != "player" and isinstance(state, dict)

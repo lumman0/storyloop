@@ -78,7 +78,35 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.store.event_exists("game", "turn-1:input:reply:dockhand:spoken"))
         own_context = self.store.agent_context_entries("game", "dockhand")
         self.assertTrue(any("今天有船靠岸" in item.content for item in own_context))
+        self.assertFalse(any(item.channel == "shared_experience" for item in own_context))
         self.assertEqual(len(session.proposed_options("game", "turn-1")), 3)
+
+    async def test_notable_shared_moment_enters_only_participant_context(self):
+        generator = FakeGenerator(a_turn(
+            decision={"intent": "action", "target_ids": ["dockhand"]},
+            prose="你和码头工一起把木箱搬到岸边，放下时相视一笑。",
+            action={"status": "occurred", "player_result": "木箱搬到了岸边",
+                    "sensory": "两人共同搬动木箱", "effects": []},
+            memories=[
+                {"actor_id": "dockhand", "fact": "第一天和玩家共同搬动木箱，放下时相视一笑。"},
+                {"actor_id": "unknown", "fact": "没有在场的人不应获得这段经历。"},
+            ],
+        ))
+        session = self.session(generator)
+
+        first = await session.run_turn("game", "我和码头工一起搬木箱", "turn-1")
+        await session.run_turn("game", "我和码头工一起搬木箱", "turn-1")
+
+        memories = [item for item in self.store.observations_for("game", "dockhand")
+                    if item.channel == "shared_experience"]
+        self.assertEqual([item.content for item in memories],
+                         ["第一天和玩家共同搬动木箱，放下时相视一笑。"])
+        self.assertFalse(any(item.channel == "shared_experience"
+                             for item in self.store.observations_for("game", "player")))
+        self.assertTrue(any(item.channel == "shared_experience"
+                            for item in self.store.agent_context_entries("game", "dockhand")))
+        self.assertEqual(generator.calls, 1)
+        self.assertEqual([item.kind for item in first.segments], ["scene"])
 
     async def test_interactive_mode_keeps_npc_reply_as_separate_visible_segment(self):
         package = replace(self.package, presentation_mode="interactive")
