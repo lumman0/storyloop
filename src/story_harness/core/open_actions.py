@@ -21,6 +21,12 @@ def _read_path(state: dict[str, object], path: tuple[str, ...]) -> object:
 class MutableField:
     path: tuple[str, ...]
     values: tuple[object, ...]
+    transitions: tuple[tuple[object, tuple[object, ...]], ...] = ()
+
+    def next_values(self, current: object) -> tuple[object, ...]:
+        if not self.transitions:
+            return self.values
+        return next((choices for source, choices in self.transitions if source == current), ())
 
 
 def parse_mutable_fields(raw: object, initial_state: dict[str, object]) -> tuple[MutableField, ...]:
@@ -46,7 +52,23 @@ def parse_mutable_fields(raw: object, initial_state: dict[str, object]) -> tuple
                 or any(type(value) is not type(current) for value in raw_values)
                 or current not in raw_values):
             raise ValueError("mutable state values must include the current value and keep its type")
-        fields.append(MutableField(path, tuple(raw_values)))
+        raw_transitions = item.get("transitions", [])
+        if not isinstance(raw_transitions, list):
+            raise ValueError("mutable state transitions must be a list")
+        transitions: list[tuple[object, tuple[object, ...]]] = []
+        for transition in raw_transitions:
+            if not isinstance(transition, dict) or set(transition) != {"from", "to"}:
+                raise ValueError("mutable state transition requires from and to")
+            source, targets = transition["from"], transition["to"]
+            if (type(source) is not type(current) or source not in raw_values
+                    or any(prior == source for prior, _ in transitions)
+                    or not isinstance(targets, list) or not targets
+                    or any(type(target) is not type(current) or target not in raw_values
+                           or target == source for target in targets)
+                    or len(targets) != len(set(targets))):
+                raise ValueError("mutable state transition values must be declared and distinct")
+            transitions.append((source, tuple(targets)))
+        fields.append(MutableField(path, tuple(raw_values), tuple(transitions)))
         seen.add(path)
     return tuple(fields)
 
@@ -61,7 +83,7 @@ def validate_open_effects(effects: tuple[Effect, ...], fields: tuple[MutableFiel
         current = _read_path(current_state, effect.path)
         field = allowed[effect.path]
         if (type(effect.value) is not type(current)
-                or effect.value not in field.values):
+                or effect.value not in field.next_values(current)):
             raise ValueError("action proposed a state value outside the declared field")
         seen.add(effect.path)
 

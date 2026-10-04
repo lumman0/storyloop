@@ -155,18 +155,31 @@ class SceneContextProjector:
             except ValueError:
                 continue
             mutable.append({"path": list(field.path), "current": current,
-                            "allowed_values": list(field.values)})
+                            "allowed_next_values": list(field.next_values(current))})
         story_context = (self.program.current_action_context(snapshot)
                          if self.program is not None else {})
+        recent_inputs = self.store.player_inputs_for(snapshot.game_id)[-4:]
+        recent_options = []
+        for player_input in recent_inputs[-2:]:
+            details = self.store.event_details(snapshot.game_id, player_input.event_id) or {}
+            stored_turn = details.get("single_call")
+            if isinstance(stored_turn, dict) and isinstance(stored_turn.get("options"), list):
+                recent_options.extend(stored_turn["options"][:3])
+        recent_visible = [item.content[:420] for item in
+                          self.store.observations_for(snapshot.game_id, "player")[-6:]
+                          if item.channel in {"scene", "narration", "dialogue"}]
         request: dict[str, object] = {
             "player_action": player_text, "presentation_mode": self.package.presentation_mode,
             "location": location, "tick": snapshot.tick,
             "day": campaign.get("day") if isinstance(campaign, dict) else None,
             "time_period": self.clock.period(snapshot.tick) if self.clock else None,
+            "player_profile": snapshot.data.get("player_profile", {}),
             "nearby_people": {actor_id: self.package.actor_names[actor_id] for actor_id in nearby},
             "candidate_responders": list(focus),
             "public_setting": [item.text[:650] for item in
                                self.package.worldbook.visible_lore("player", limit=4)],
+            "public_rules": [item.text[:700] for item in
+                             self.package.worldbook.visible_rules("player", limit=4)],
             "player_summary": player_checkpoint.summary[:1200],
             "player_history": player_history,
             "npc_contexts": npc_contexts,
@@ -176,8 +189,9 @@ class SceneContextProjector:
             "current_story_goal": story_context.get("goal", ""),
             "story_anchors": story_context.get("anchors", []),
             "authored_action_leads": story_context.get("leads", []),
-            "recent_player_actions": [item.text[:200] for item in
-                                      self.store.player_inputs_for(snapshot.game_id)[-4:]],
+            "recent_player_actions": [item.text[:200] for item in recent_inputs],
+            "recent_visible_beats": recent_visible[-4:],
+            "recent_suggested_options": recent_options[-6:],
             "player_style_preferences": list(current_player_preferences()),
         }
         if isinstance(campaign, dict):
@@ -195,6 +209,10 @@ class SceneContextProjector:
                 largest["own_history"].pop(0)
             elif request["public_setting"]:
                 request["public_setting"].pop()
+            elif request["recent_visible_beats"]:
+                request["recent_visible_beats"].pop(0)
+            elif request["recent_suggested_options"]:
+                request["recent_suggested_options"].pop(0)
             elif npc_contexts and any(item["role_card"] for item in npc_contexts):
                 for item in npc_contexts:
                     item["role_card"] = item["role_card"][:max(0, len(item["role_card"]) // 2)]
@@ -216,19 +234,28 @@ class SingleSceneGenerator:
             "你是文游的单次场景主控。一次完成决策、相关角色回应、玩家可见正文、状态变化提议和三个可选后续行动。"
             "输入中的 npc_contexts 是彼此独立的角色视角：角色只能依据自己的 role_card、own_history、"
             "own_summary 和本场公开事实行动；绝不让一名角色说出另一名角色的私人经历或秘密。"
+            "player_profile 是主角已经确定的身份；public_rules 是剧本约束，尤其是身份公布时机，"
+            "不能因为 role_card 里有资料就提前让角色说出尚未公开的年龄、职业或秘密。"
             "只从 candidate_responders 选择最多三位立即回应；未被点名的群体场景也只让少数人说话。"
             "玩家的行动只以 player_action 为准，不代替玩家增加话语、决定或情绪。"
             "decision.intent 是 speech、inspect 或 action；一句话或简短问答 duration=brief，"
             "用餐等持续活动为 standard，整段长活动为 extended，明确睡觉为 rest。"
-            "普通行动不需要预设 action_id。只有 mutable_state 明列的路径和值可以放进 action.effects；"
+            "普通行动不需要预设 action_id。玩家主动加入、准备、制作或完成一件事时是 action，"
+            "不能只把实际行动写成寒暄；有可用 mutable_state 时应推进到当前允许的下一阶段。"
+            "只有 mutable_state 明列的路径和 allowed_next_values 可以放进 action.effects；"
             "不能把未成功的动作写成已经完成。status_changes 的 delta 不得超过对应 max_delta。"
             "prose 必须是本轮具体、连贯、有代入感的故事回应，使用第二人称‘你’，不要重复前文的固定景物。"
+            "初见场景用可见外貌、得体寒暄、小动作和停顿形成自然的陌生人氛围，"
+            "别让每个人一开口就生硬划界限；不要代替玩家作出心理决定。"
+            "结合 recent_visible_beats 避开已用过的道具、句式和意象，不能把同一件事再发生一次。"
             "若行动花了时间，要在正文中自然写出光线、活动或时段如何变化，让玩家感到进程在继续，"
             "不要只展示生硬的时间数字。"
             "novel 模式下 prose 自然整合角色的对白，replies 仍单独列出以便保存角色经历；"
             "interactive 模式下 prose 只写环境和行动，NPC 的发言只写进 replies，避免重复显示。"
             "不要泄露隐藏剧情、凭空新增人物或已发生事件。没有足够信息就简短写，不能凑字数。"
             "options 仅依据本轮可见剧情与 current_story_goal 提供三条不同、具体且能推进互动的行动；"
+            "如果 action.effects 推进了活动阶段，options 必须从推进后的阶段出发，"
+            "至少一条能接续当前活动；不要照抄 authored_action_leads 或 recent_suggested_options。"
             "按钮 input 使用第一人称玩家意图，不写系统命令，也不重复 recent_player_actions。"
             "只输出符合 SceneTurn 的结构化结果，不调用工具。"
         )

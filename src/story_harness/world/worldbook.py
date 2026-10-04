@@ -108,3 +108,10 @@ class Worldbook:
             raise ValueError("limit cannot be negative")
         return tuple(entry for entry in self._entries.values()
                      if entry.kind == "lore" and self._can_read(entry, viewer, frozenset()))[:limit]
+
+    def visible_rules(self, viewer: str, limit: int = 4) -> tuple[WorldbookEntry, ...]:
+        """Return script-declared public constraints separately from setting prose."""
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        return tuple(entry for entry in self._entries.values()
+                     if entry.kind == "rule" and self._can_read(entry, viewer, frozenset()))[:limit]

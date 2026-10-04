@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.core.contracts import Effect, WorldEvent
+from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
 from story_harness.runtime.player_input import submit_player_input
 from story_harness.runtime.runner import TurnRunner, WorkResult
 from story_harness.world.scenario import ScenarioPackage
@@ -14,6 +14,19 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
 class ScenarioFlowTests(unittest.TestCase):
+    def test_background_cue_accepts_declared_prior_phases(self) -> None:
+        state = {"world": {"phase": "preparing"}, "actors": {"player": {"location": "villa"}}}
+        work = PendingWork("meal-ready", "scenario_cue", 3, 10, None, {
+            "event_kind": "meal_served", "summary": "晚餐摆上桌",
+            "when_path": ["world", "phase"],
+            "when_values": ["not_started", "planning", "preparing", "cooking"],
+            "effect_path": ["world", "phase"], "effect_value": "served",
+            "location": "villa", "sensory": "大家把晚餐端上桌。",
+        })
+        result = scenario_cue(Snapshot("game", 0, 3, state), work)
+
+        self.assertEqual(result.event.effects[0].value, "served")
+
     def test_both_packages_advance_background_during_play(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteGameStore(str(Path(directory) / "games.sqlite3"))

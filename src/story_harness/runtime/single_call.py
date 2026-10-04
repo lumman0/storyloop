@@ -24,12 +24,11 @@ from story_harness.runtime.turn_progress import TurnProgress, emit
 from story_harness.world.scenario import ScenarioPackage
 
 
-def validated_options(raw: list[dict], recent: tuple[str, ...] = (),
-                      authored: tuple[ActionOption, ...] = ()) -> tuple[ActionOption, ...]:
-    """Use already generated actions; never make a follow-up model request."""
+def validated_options(raw: list[dict], recent: tuple[str, ...] = ()) -> tuple[ActionOption, ...]:
+    """Keep only distinct generated actions; stale scene leads cannot refill a turn."""
     selected: list[ActionOption] = []
     used = {item.strip() for item in recent}
-    for candidate in (*raw, *(item.model_dump() for item in authored)):
+    for candidate in raw:
         try:
             item = ActionOption.model_validate(candidate)
         except Exception:
@@ -281,7 +280,17 @@ class SingleCallGameSession:
         details = next((self.store.event_details(game_id, f"{turn_id}:{kind}")
                         for kind in ("input", "query", "action")
                         if self.store.event_exists(game_id, f"{turn_id}:{kind}")), None)
-        raw = details.get("single_call", {}) if isinstance(details, dict) else {}
-        options = raw.get("options", []) if isinstance(raw, dict) else []
-        recent = tuple(item.text for item in self.store.player_inputs_for(game_id)[-4:])
-        return validated_options(options if isinstance(options, list) else [], recent, authored)
+        raw = details.get("single_call") if isinstance(details, dict) else None
+        if not isinstance(raw, dict):
+            return authored
+        options = raw.get("options", [])
+        previous = self.store.player_inputs_for(game_id)[-4:]
+        recent = [item.text for item in previous]
+        for item in previous[-2:-1]:
+            prior = self.store.event_details(game_id, item.event_id) or {}
+            scene = prior.get("single_call")
+            if isinstance(scene, dict) and isinstance(scene.get("options"), list):
+                for option in scene["options"]:
+                    if isinstance(option, dict):
+                        recent.extend(str(option.get(key, "")) for key in ("input", "label"))
+        return validated_options(options if isinstance(options, list) else [], tuple(recent))

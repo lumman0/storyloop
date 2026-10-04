@@ -59,6 +59,13 @@ class NovelTurnNarrator:
         dialogue_only = bool(beats) and all(
             beat["kind"] in {"dialogue", "time"} for beat in beats
         )
+        source_length = sum(len(beat["text"]) for beat in beats)
+        target_length = (
+            "80至140字" if dialogue_only else
+            "300至480字" if source_length >= 520 else
+            "200至340字" if source_length >= 260 else
+            "80至160字" if len(beats) <= 1 else "150至300字"
+        )
         request = {
             "player_action": (context.player_text[:1000]
                               if not context.player_text.startswith("/") else ""),
@@ -68,12 +75,13 @@ class NovelTurnNarrator:
             "current_goal": context.current_goal[:300],
             "public_setting": [item.text[:900] for item in
                                self.package.worldbook.visible_lore("player", limit=4)],
+            "public_rules": [item.text[:900] for item in
+                             self.package.worldbook.visible_rules("player", limit=4)],
+            "player_profile": self.package.initial_state.get("player_profile", {}),
             "scenario_opening": self.package.opening[:900] if context.opening else "",
             "visible_beats": beats[-16:],
             "dialogue_only": dialogue_only,
-            "target_length": "80至140字" if dialogue_only else (
-                "80至160字" if len(beats) <= 1 else "150至300字"
-            ),
+            "target_length": target_length,
             "recent_player_visible_prose": recent,
             "avoid_repeated_imagery": repeated_imagery(recent),
             "player_style_preferences": list(current_player_preferences()),
@@ -84,6 +92,10 @@ class NovelTurnNarrator:
             "严格根据 target_length 控制篇幅；信息少就写短，绝不用虚构动作或风景凑字数。"
             "按可见结果的发生顺序自然串起行动、环境、"
             "时间流逝和NPC回应；可依据公开设定描绘环境氛围，NPC的话可以引用，但不能新增台词或改写其事实含义。"
+            "多人初见时保留有辨识度的可见外貌、礼貌寒暄与停顿，不要把每个人压成姓名清单；"
+            "遵守 public_rules 的公开时点，角色尚未公开的年龄、职业等信息不得在正文里提前揭示；"
+            "player_profile 只用于正确叙述主角已知身份，不能扩写成未发生的行动；"
+            "用双方可观察的语气和动作呈现初见的局促或好奇，不替玩家断言心动与否。"
             "如果 visible_beats 中有 time，利用光线、环境与已经发生的事侧写时段变化；"
             "傍晚或夜深时可让叙述自然显出一天将结束，但不能替玩家决定睡觉或跳天。"
             "不要把第几天、几点或耗时提示写成独立的系统播报；这些数值由界面进度区记录。"

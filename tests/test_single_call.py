@@ -10,6 +10,9 @@ from story_harness.adapters.store import SQLiteGameStore
 from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn
 from story_harness.agents.scene_messages import MessageScene
 from story_harness.core.contracts import Observation, WorldEvent
+from story_harness.core.open_actions import parse_mutable_fields, validate_open_effects
+from story_harness.core.contracts import Effect
+from story_harness.agents.action_advisor import ActionOption
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.single_call import SingleCallGameSession
 from story_harness.runtime.story_clock import StoryClock
@@ -145,6 +148,31 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.event_details("game", "turn-1:action")["outcome"], "attempted")
         self.assertEqual(generator.calls, 1)
 
+    async def test_completed_activity_does_not_refill_old_scene_options(self):
+        generator = FakeGenerator(a_turn(options=[]))
+        session = self.session(generator)
+        await session.run_turn("game", "我开始备菜", "turn-1")
+        old_lead = ActionOption(label="开始备菜", input="我开始备菜。")
+
+        self.assertEqual(session.proposed_options("game", "turn-1", (old_lead,)), ())
+
+    async def test_projector_includes_player_identity_and_public_rules(self):
+        book = Worldbook(self.package.package_id, self.package.version,
+                         [*self.package.worldbook._entries.values(),
+                          WorldbookEntry("filming_rule", "第一天只公布名字。", "public",
+                                         frozenset(), "rule")])
+        state = deepcopy(self.package.initial_state)
+        state["player_profile"] = {"name": "林晚"}
+        package = replace(self.package, worldbook=book, initial_state=state)
+        package.seed_game(self.store, "profile-game")
+
+        context = SceneContextProjector(self.store, package).project(
+            self.store.load("profile-game"), "你好")
+
+        self.assertEqual(context.request["player_profile"]["name"], "林晚")
+        self.assertIn("第一天只公布名字。", context.request["public_rules"])
+
+
     async def test_campaign_skips_second_presentation_call_for_free_action(self):
         program = CampaignProgram.from_dict({
             "id": self.package.package_id, "ticks_per_day": 4, "final_tick": 4,
@@ -223,6 +251,24 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("我也想再聊聊", outcome.text)
         self.assertTrue(any(item.content == "你好" for item in
                             self.store.observations_for("message-game", "dockhand")))
+
+
+class ActivityTransitionTests(unittest.TestCase):
+    def test_declared_activity_rejects_skipping_stages(self):
+        state = {"world": {"meal_phase": "preparing"}}
+        fields = parse_mutable_fields([{
+            "path": ["world", "meal_phase"],
+            "values": ["preparing", "cooking", "served"],
+            "transitions": [
+                {"from": "preparing", "to": ["cooking"]},
+                {"from": "cooking", "to": ["served"]},
+            ],
+        }], state)
+
+        self.assertEqual(fields[0].next_values("preparing"), ("cooking",))
+        validate_open_effects((Effect(("world", "meal_phase"), "cooking"),), fields, state)
+        with self.assertRaises(ValueError):
+            validate_open_effects((Effect(("world", "meal_phase"), "served"),), fields, state)
 
 
 if __name__ == "__main__":

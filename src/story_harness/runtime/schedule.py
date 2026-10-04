@@ -73,9 +73,14 @@ def validate_scenario_cue(state: dict[str, object], payload: dict[str, object]) 
             raise ValueError("scenario cue announcement requires sensory summary")
     if "when_path" in payload:
         condition_path = _path(payload["when_path"], "when_path")
-        if "when_value" not in payload:
-            raise ValueError("scenario cue requires when_value")
-        _read(state, condition_path)
+        current = _read(state, condition_path)
+        if ("when_value" in payload) == ("when_values" in payload):
+            raise ValueError("scenario cue requires exactly one of when_value or when_values")
+        if "when_values" in payload:
+            values = payload["when_values"]
+            if (not isinstance(values, list) or not values
+                    or any(type(value) is not type(current) for value in values)):
+                raise ValueError("scenario cue when_values must match the state field")
 
 
 def scenario_cue(snapshot: Snapshot, work: PendingWork) -> WorkResult:
@@ -87,7 +92,10 @@ def scenario_cue(snapshot: Snapshot, work: PendingWork) -> WorkResult:
     effects = _cue_effects(snapshot.data, payload)
     if "when_path" in payload:
         condition_path = _path(payload["when_path"], "when_path")
-        if _read(snapshot.data, condition_path) != payload["when_value"]:
+        current = _read(snapshot.data, condition_path)
+        accepted = (payload["when_values"] if "when_values" in payload
+                    else [payload["when_value"]])
+        if current not in accepted:
             return WorkResult(None, (), ())
     details: dict[str, object] = {"summary": summary, "scheduled_work_id": work.work_id}
     if "location" in payload:
