@@ -165,12 +165,18 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         state["player_profile"] = {"name": "林晚"}
         package = replace(self.package, worldbook=book, initial_state=state)
         package.seed_game(self.store, "profile-game")
+        before = self.store.load("profile-game")
+        self.store.commit("profile-game", before.version,
+                          WorldEvent("recent-scene", "scene", None, None, 0, ()),
+                          (Observation("recent-scene:player", "recent-scene", "player",
+                                       "scene", "上午的光照在窗外雪坡上。", 0),), ())
 
         context = SceneContextProjector(self.store, package).project(
             self.store.load("profile-game"), "你好")
 
         self.assertEqual(context.request["player_profile"]["name"], "林晚")
         self.assertIn("第一天只公布名字。", context.request["public_rules"])
+        self.assertIn("室内光线", context.request["avoid_repeated_scenery"])
 
 
     async def test_campaign_skips_second_presentation_call_for_free_action(self):

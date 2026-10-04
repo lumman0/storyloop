@@ -24,6 +24,21 @@ from story_harness.world.scenario import ScenarioPackage
 from story_harness.world.status_fields import _value_at
 
 
+_RECURRING_SCENERY = {
+    "窗与玻璃": ("窗外", "玻璃"),
+    "雪景": ("雪光", "雪坡", "雪景", "落雪"),
+    "室内光线": ("上午的光", "阳光", "灯光", "光线"),
+    "室内暖意": ("暖气", "热气", "壁炉"),
+}
+
+
+def recent_scenery(passages: list[str]) -> list[str]:
+    """Name scenery used in recent prose so the next turn can choose a new focus."""
+    source = "\n".join(passages[-3:])
+    return [name for name, phrases in _RECURRING_SCENERY.items()
+            if any(phrase in source for phrase in phrases)]
+
+
 class SceneReply(BaseModel):
     actor_id: str
     speech: str = Field(min_length=1)
@@ -191,6 +206,7 @@ class SceneContextProjector:
             "authored_action_leads": story_context.get("leads", []),
             "recent_player_actions": [item.text[:200] for item in recent_inputs],
             "recent_visible_beats": recent_visible[-4:],
+            "avoid_repeated_scenery": recent_scenery(recent_visible[-4:]),
             "recent_suggested_options": recent_options[-6:],
             "player_style_preferences": list(current_player_preferences()),
         }
@@ -248,7 +264,9 @@ class SingleSceneGenerator:
             "初见场景用可见外貌、得体寒暄、小动作和停顿形成自然的陌生人氛围，"
             "别让每个人一开口就生硬划界限；不要代替玩家作出心理决定。"
             "结合 recent_visible_beats 避开已用过的道具、句式和意象，不能把同一件事再发生一次。"
-            "若行动花了时间，要在正文中自然写出光线、活动或时段如何变化，让玩家感到进程在继续，"
+            "严格避开 avoid_repeated_scenery 列出的景物类型，本轮不要换近义词继续写它们。"
+            "若行动花了时间，优先通过活动结果、人物进出与接下来的安排侧写进程；"
+            "仅当时段明显变化或光线直接影响行动时才描写光线，"
             "不要只展示生硬的时间数字。"
             "novel 模式下 prose 自然整合角色的对白，replies 仍单独列出以便保存角色经历；"
             "interactive 模式下 prose 只写环境和行动，NPC 的发言只写进 replies，避免重复显示。"
