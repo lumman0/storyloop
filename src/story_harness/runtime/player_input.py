@@ -27,8 +27,8 @@ def submit_player_input(
         raise ValueError(f"unsupported speech audience: {audience}")
     if len(set(target_ids)) != len(target_ids):
         raise ValueError("duplicate player input target")
-    if type(duration_ticks) is not int or duration_ticks < 1:
-        raise ValueError("duration_ticks must be positive")
+    if type(duration_ticks) is not int or duration_ticks < 0:
+        raise ValueError("duration_ticks must be a nonnegative integer")
     before = store.load(game_id)
     actors = before.data.get("actors")
     if not isinstance(actors, dict):

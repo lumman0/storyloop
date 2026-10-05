@@ -31,7 +31,7 @@ class PublishedPackageStore(ScenarioPackageStore, Protocol):
         ...
 
     def remove(self, reference: str) -> None:
-        """Discard a package when metadata persistence fails."""
+        """Discard an unreferenced package after rollback or queued metadata deletion."""
         ...
 
 

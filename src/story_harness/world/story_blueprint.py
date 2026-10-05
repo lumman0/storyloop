@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -94,12 +95,22 @@ class ActorSlot(BaseModel):
     source_ref: str = Field(min_length=2, max_length=160)
 
 
+class OpeningAction(BaseModel):
+    label: str = Field(min_length=2, max_length=50)
+    input: str = Field(min_length=2, max_length=500)
+
+
 class StoryBlueprint(BaseModel):
     source_document: str = Field(min_length=3, max_length=200)
     source_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     opening_focus: str = Field(min_length=10, max_length=2500)
     setup: StorySetup
     actor_slots: list[ActorSlot] = Field(default_factory=list, max_length=30)
+    player_profiles: list[dict[str, str]] = Field(default_factory=list, max_length=20)
+    player_profile_pools: dict[str, list[dict[str, str]]] = Field(default_factory=dict, max_length=8)
+    player_intro_template: str | None = Field(default=None, min_length=1, max_length=2000)
+    player_intro_variables: list[str] = Field(default_factory=list, max_length=20)
+    opening_options: list[OpeningAction] = Field(default_factory=list, max_length=3)
     facts: list[SourceFact] = Field(min_length=1, max_length=100)
     milestones: list[StoryMilestone] = Field(default_factory=list, max_length=100)
     source_resolutions: list[str] = Field(default_factory=list, max_length=30)
@@ -112,6 +123,23 @@ class StoryBlueprint(BaseModel):
                 raise ValueError("story blueprint IDs must be unique")
         if sum(step.terminal for step in self.milestones) > 1:
             raise ValueError("story blueprint supports one terminal milestone")
+        if (len(set(self.player_intro_variables)) != len(self.player_intro_variables)
+                or any(not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", item)
+                       for item in self.player_intro_variables)):
+            raise ValueError("player intro variables must be unique simple identifiers")
+        if any(not 1 <= len(pool) <= 20 for pool in self.player_profile_pools.values()):
+            raise ValueError("prepared player profile pool requires 1–20 profiles")
+        for profiles in (self.player_profiles, *self.player_profile_pools.values()):
+            names = []
+            for profile in profiles:
+                if (not isinstance(profile.get("name"), str) or not profile["name"].strip()
+                        or any(not isinstance(key, str) or not isinstance(value, str)
+                               or not 0 < len(key) <= 64 or len(value) > 500
+                               for key, value in profile.items())):
+                    raise ValueError("prepared player profile requires bounded text and a name")
+                names.append(profile["name"].strip())
+            if len(set(names)) != len(names):
+                raise ValueError("prepared player profile names must be unique within each pool")
         return self
 
     @classmethod

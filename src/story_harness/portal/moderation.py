@@ -11,6 +11,7 @@ from sqlalchemy import Engine, text
 
 from story_harness.portal.access import AccessDenied, AccessService, audit
 from story_harness.portal.catalog import GameListing
+from story_harness.portal.scenario_lifecycle import lock_scenario
 from story_harness.portal.user_scenarios import UserScenarioService
 
 
@@ -23,10 +24,7 @@ class ScenarioModerationService:
 
     def submit(self, author_id: str, scenario_id: str) -> dict:
         with self.engine.begin() as db:
-            scenario = db.execute(text("SELECT * FROM user_scenarios WHERE scenario_id=:id"),
-                                  {"id": scenario_id}).mappings().first()
-            if scenario is None:
-                raise KeyError("scenario not found")
+            scenario = lock_scenario(db, scenario_id)
             if scenario["owner_id"] != author_id:
                 raise PermissionError("scenario belongs to another author")
             version = db.execute(text("""SELECT * FROM user_scenario_versions

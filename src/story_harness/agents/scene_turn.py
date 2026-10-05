@@ -21,6 +21,7 @@ from story_harness.runtime.player_knowledge import PlayerEncounter
 from story_harness.runtime.player_preferences import current_player_preferences
 from story_harness.runtime.story_clock import StoryClock
 from story_harness.world.scenario import ScenarioPackage
+from story_harness.world.status_fields import project_status_fields
 
 
 class SceneReply(BaseModel):
@@ -35,7 +36,7 @@ class ProposedEffect(BaseModel):
 
 class ProposedStatusChange(BaseModel):
     id: str
-    delta: int
+    delta: int = Field(strict=True)
 
 
 class ProposedAction(BaseModel):
@@ -75,6 +76,7 @@ class NarrativeTurn(BaseModel):
     replies: list[SceneReply] = Field(default_factory=list)
     options: list[ProposedNextAction] = Field(default_factory=list)
     memories: list[SharedMoment] = Field(default_factory=list)
+    status_changes: list[ProposedStatusChange] = Field(default_factory=list)
     participants: list[str] = Field(default_factory=list)
     interaction: Literal["speech", "inspect", "action"] = "speech"
     duration: Literal["brief", "standard", "extended", "rest"] = "brief"
@@ -131,6 +133,7 @@ class NarrativeTurn(BaseModel):
             ),
             prose=self.prose, replies=self.replies,
             options=self.options, memories=self.memories,
+            status_changes=self.status_changes,
             action=ProposedAction(sensory=self.witnessed),
             story_first=True,
         )
@@ -141,7 +144,6 @@ class SourceNarrativeTurn(NarrativeTurn):
 
     options: list[ProposedNextAction] = Field(min_length=3, max_length=3)
     milestones_fulfilled: list[str] = Field(default_factory=list)
-    status_changes: list[ProposedStatusChange] = Field(default_factory=list)
     encounters: list[PlayerEncounter] = Field(default_factory=list)
 
     @field_validator("encounters", mode="before")
@@ -162,19 +164,6 @@ class SourceNarrativeTurn(NarrativeTurn):
     def valid_milestones(cls, value: object) -> list[str]:
         return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
-    @field_validator("status_changes", mode="before")
-    @classmethod
-    def valid_status_changes(cls, value: object) -> list[ProposedStatusChange]:
-        if not isinstance(value, list):
-            return []
-        valid = []
-        for item in value:
-            try:
-                valid.append(ProposedStatusChange.model_validate(item))
-            except (TypeError, ValueError):
-                continue
-        return valid
-
     def for_storage(self) -> SceneTurn:
         return super().for_storage().model_copy(update={
             "milestones_fulfilled": self.milestones_fulfilled,
@@ -191,7 +180,14 @@ class SceneModelContext:
 
 
 class SceneContextProjector:
-    """Read independent, recipient-scoped histories without a compression call."""
+    """Project recipient-scoped history for a bounded set of responders.
+
+    Public cast descriptions may cover additional people, but structured replies
+    and memories are restricted to focus_actor_ids with projected role context.
+    Remaining T07 work includes configurable source-fact/milestone budgets and
+    prepublication validation of oversized required context. A single model sees
+    multiple NPC contexts; this does not provide hard isolation between calls.
+    """
 
     def __init__(self, store: GameStore, package: ScenarioPackage,
                  *, max_responders: int = 3, context_window_tokens: int = 65536,
@@ -245,7 +241,8 @@ class SceneContextProjector:
         def actor_card(actor_id: str) -> str:
             profile = generated_profiles.get(actor_id)
             return (profile.get("role_card") if isinstance(profile, dict)
-                    and isinstance(profile.get("role_card"), str) else
+                    and isinstance(profile.get("role_card"), str)
+                    and profile["role_card"].strip() else
                     self.package.role_cards[actor_id])
         player = actors.get("player", {}) if isinstance(actors, dict) else {}
         location = player.get("location") if isinstance(player, dict) else None
@@ -253,8 +250,10 @@ class SceneContextProjector:
                        if isinstance(actors.get(actor_id), dict)
                        and actors[actor_id].get("location") == location)
         mentioned = [actor_id for actor_id, _ in self.package.actor_cards
-                     if actor_id in player_text or actor_name(actor_id) in player_text]
-        recent_targets = [actor_id for item in reversed(self.store.player_inputs_for(snapshot.game_id)[-4:])
+                     if (actor_id in player_text or actor_name(actor_id) in player_text)
+                     and (self.package.story_blueprint is None or actor_id in nearby)]
+        recent_inputs = self.store.player_inputs_for(snapshot.game_id, limit=4)
+        recent_targets = [actor_id for item in reversed(recent_inputs)
                           for actor_id in item.target_ids if actor_id in nearby]
         focus = tuple(dict.fromkeys((*mentioned, *recent_targets, *nearby)))[:self.max_responders]
 
@@ -266,21 +265,23 @@ class SceneContextProjector:
         )
         npc_contexts: list[dict[str, object]] = []
         for actor_id in focus:
+            role_card = actor_card(actor_id).strip()[:1200]
+            if not role_card:
+                raise ValueError("responder role card is required")
             checkpoint = self.store.agent_context_checkpoint(snapshot.game_id, actor_id)
             entries = self.store.agent_context_entries(snapshot.game_id, actor_id,
                                                        checkpoint.through_version)
             npc_contexts.append({
                 "id": actor_id, "name": actor_name(actor_id),
-                "role_card": actor_card(actor_id)[:1200],
+                "role_card": role_card,
                 "own_summary": checkpoint.summary[:1200],
                 "own_history": self._history(entries, player_text, recent=8, older=3),
             })
         campaign = snapshot.data.get("campaign")
         story_context = (self.program.current_action_context(snapshot)
                          if self.program is not None else {})
-        recent_inputs = self.store.player_inputs_for(snapshot.game_id)[-4:]
         recent_visible = [item.content[-900:] for item in
-                          self.store.observations_for(snapshot.game_id, "player")[-6:]
+                          self.store.observations_for(snapshot.game_id, "player", limit=6)
                           if item.channel in {"scene", "narration", "dialogue"}]
         request: dict[str, object] = {
             "player_action": player_text, "presentation_mode": self.package.presentation_mode,
@@ -304,6 +305,14 @@ class SceneContextProjector:
             "recent_visible_beats": recent_visible[-4:],
             "player_style_preferences": list(current_player_preferences()),
         }
+        updatable = {field.field_id: field for field in self.package.status_fields
+                     if field.automatically_updated}
+        request["status_fields"] = [
+            {**row, "description": updatable[row["id"]].description,
+             "max_delta": updatable[row["id"]].max_delta}
+            for row in project_status_fields(self.package.status_fields, snapshot.data)
+            if row["id"] in updatable
+        ]
         blueprint = self.package.story_blueprint
         if blueprint is not None:
             knowledge = snapshot.data.get("player_knowledge", {})
@@ -338,7 +347,6 @@ class SceneContextProjector:
                 for actor_id in nearby
             ]
             request["nearby_people"] = {}
-            request["candidate_responders"] = list(nearby)
             request["current_story_scene"] = ""
             request["current_story_goal"] = ""
             request["story_anchors"] = []
@@ -359,9 +367,14 @@ class SceneContextProjector:
                 request["public_setting"].pop()
             elif request["recent_visible_beats"]:
                 request["recent_visible_beats"].pop(0)
-            elif npc_contexts and any(item["role_card"] for item in npc_contexts):
+            elif npc_contexts:
+                if not any(len(item["role_card"]) > 160 for item in npc_contexts):
+                    raise ValueError("configured context window cannot preserve responder role cards")
                 for item in npc_contexts:
-                    item["role_card"] = item["role_card"][:max(0, len(item["role_card"]) // 2)]
+                    # Role identity is mandatory; never reduce a permitted
+                    # responder's context to an empty card to fit the budget.
+                    if len(item["role_card"]) > 160:
+                        item["role_card"] = item["role_card"][:max(160, len(item["role_card"]) // 2)]
             else:
                 raise ValueError("player action exceeds the configured context window")
         return SceneModelContext(request, nearby, focus)
@@ -398,7 +411,9 @@ class SingleSceneGenerator:
             "replies 摘录角色实际说过的话；witnessed 只概括旁观者能感知的事实，不能写内心活动。"
             "memories 只记共同经历中值得以后提起的承诺、线索或细节，普通寒暄可以为空。"
             "正文写完后，再给出三个可选的后续行动；从已经发生的结果继续，不要求玩家重做本轮行动。"
-            "选项应连接当前冲突、人物和近期节目安排，至少两个通向不同的新互动或事件；"
+            "status_fields 给出可提议变化的数值 ID、当前值、含义、范围和单回合最大改变量；"
+            "status_changes 只使用这些 ID 与整数 delta，依据本轮实际经历提出变化，不编造隐藏字段。"
+            "选项应连接当前冲突、人物和近期剧情安排，至少两个通向不同的新互动或事件；"
             "如果上一幕刚完成一个选择，就让故事转到该选择带来的下一场面，别让玩家重复确认。"
             "不要连续几轮围绕同一件已处理的小物件打转，也不要凭空引入正文没有出现的道具。"
             "source_story_facts 与 source_story_tone 如有提供，代表剧本原始素材与本存档风格；"

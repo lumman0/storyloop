@@ -3,25 +3,30 @@ import { ArrowRight } from "lucide-react";
 import type { Interaction } from "../lib/api";
 import { Button } from "./ui/button";
 import { playerFacingText } from "../lib/playerText";
+import { choiceCommand, isTurnInputTooLong, limitChoiceNote } from "../lib/turnInput";
 
 export function ChoicePanel({
   interaction,
   busy,
   onChoose,
   error,
+  initialInput = "",
 }: {
   interaction: Interaction;
   busy: boolean;
   onChoose: (text: string) => Promise<boolean>;
   error: string;
+  initialInput?: string;
 }) {
   const [selected, setSelected] = useState("");
   const [note, setNote] = useState("");
   useEffect(() => {
-    setSelected("");
-    setNote("");
-  }, [interaction.id]);
+    const restored = /^\/choose ([^\s]+)(?: ([\s\S]*))?$/.exec(initialInput);
+    setSelected(restored?.[1] ?? "");
+    setNote(restored?.[2] ?? "");
+  }, [interaction.id, initialInput]);
   const option = interaction.options.find((item) => item.id === selected);
+  const inputTooLong = !!option && isTurnInputTooLong(choiceCommand(option.id, note));
 
   if (interaction.kind === "continue") {
     return (
@@ -42,11 +47,12 @@ export function ChoicePanel({
       !option ||
       !option.enabled ||
       (option.requires_text && !note.trim()) ||
+      inputTooLong ||
       busy
     )
       return;
     const sent = await onChoose(
-      `/choose ${option.id}${note.trim() ? ` ${note.trim()}` : ""}`,
+      choiceCommand(option.id, note),
     );
     if (sent) setNote("");
   }
@@ -94,14 +100,13 @@ export function ChoicePanel({
           {option.requires_text ? "写下你的留言" : "想补充的话（可选）"}
           <textarea
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => setNote(limitChoiceNote(option.id, event.target.value))}
             placeholder={
               option.requires_text
                 ? "说出你想让对方知道的事…"
                 : "也可以直接确认选择"
             }
             rows={3}
-            maxLength={10000}
             disabled={busy}
             required={option.requires_text}
           />
@@ -109,14 +114,14 @@ export function ChoicePanel({
       )}
       <Button
         type="submit"
-        disabled={!option || busy || (option.requires_text && !note.trim())}
+        disabled={!option || !option.enabled || busy || inputTooLong || (option.requires_text && !note.trim())}
       >
         {busy ? "正在继续…" : "确认选择"}
         <ArrowRight size={16} />
       </Button>
-      {error && (
+      {(inputTooLong || error) && (
         <p className="form-error" role="alert">
-          {error}
+          {inputTooLong ? "留言过长，请缩短后确认选择。" : error}
         </p>
       )}
     </form>

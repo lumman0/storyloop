@@ -137,14 +137,21 @@ class SQLGameStore:
         except IntegrityError as error:
             raise ValueError(str(error)) from error
 
-    def observations_for(self, game_id: str, recipient_id: str) -> list[Observation]:
+    def observations_for(self, game_id: str, recipient_id: str,
+                         *, limit: int | None = None) -> list[Observation]:
+        if limit is not None and (type(limit) is not int or limit < 1):
+            raise ValueError("history limit must be a positive integer")
+        order = ("e.state_version,o.created_order,o.observation_id" if limit is None else
+                 "e.state_version DESC,o.created_order DESC,o.observation_id DESC LIMIT :limit")
         with self.engine.connect() as db:
             rows = db.execute(text("""SELECT o.observation_id,o.event_id,o.recipient_id,
                 o.channel,o.content,o.tick FROM observations AS o
                 JOIN events AS e ON e.game_id=o.game_id AND e.event_id=o.event_id
                 WHERE o.game_id=:game_id AND o.recipient_id=:recipient_id
-                ORDER BY e.state_version,o.created_order,o.observation_id"""),
-                {"game_id": game_id, "recipient_id": recipient_id}).mappings().all()
+                ORDER BY """ + order),
+                {"game_id": game_id, "recipient_id": recipient_id, "limit": limit}).mappings().all()
+        if limit is not None:
+            rows.reverse()
         return [Observation(**dict(row)) for row in rows]
 
     def dialogue_history_for_actor(self, game_id: str, actor_id: str) -> list[tuple[str, str]]:
@@ -156,13 +163,18 @@ class SQLGameStore:
         return [(value["player_message"], value["speech"])
                 for value in (json.loads(row["details"]) for row in rows)]
 
-    def player_inputs_for(self, game_id: str) -> list[PlayerInput]:
+    def player_inputs_for(self, game_id: str, *, limit: int | None = None) -> list[PlayerInput]:
+        if limit is not None and (type(limit) is not int or limit < 1):
+            raise ValueError("history limit must be a positive integer")
+        order = "state_version" if limit is None else "state_version DESC LIMIT :limit"
         with self.engine.connect() as db:
             rows = db.execute(text("""SELECT event_id,kind,tick,details FROM events
                 WHERE game_id=:game_id AND kind IN
                 ('player_input','player_query','player_action','action_rejected')
-                AND actor_id='player' ORDER BY state_version"""),
-                {"game_id": game_id}).mappings().all()
+                AND actor_id='player' ORDER BY """ + order),
+                {"game_id": game_id, "limit": limit}).mappings().all()
+        if limit is not None:
+            rows.reverse()
         result: list[PlayerInput] = []
         for row in rows:
             details = json.loads(row["details"])

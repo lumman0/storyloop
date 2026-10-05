@@ -16,6 +16,49 @@ ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；
 
 维护官方剧本时，若包里尚无序章，可在加入目录前运行 `python -m story_harness.cli.prepare_prologue 剧本目录 --config 配置文件 --title 剧本名`。该命令把生成结果写入 `manifest.json`；再次执行会直接跳过模型调用。作者上传接口在生成失败时不发布版本，保留原 ZIP 可重试。`models.tasks.prologue` 可以单独选择模型，未配置时沿用 `narration`。
 
+## 准备式开场与身份模板
+
+源驱动剧本在 `manifest.json` 声明 `story_blueprint` JSON 文件，并在 `authored_prologue` 中保留 `{{player_intro}}`；可另用 `{{player_name}}`。开场正文、三条 `opening_options`、完整的 NPC 角色卡和公开人物介绍在上传阶段校验。建档时只做本地身份选择与文本替换，不调用开场模型；已经保存的序章与旧存档不会因新增模板字段而重写。
+
+玩家身份的题材由 `story_blueprint.json` 内的 `player_intro_template` 决定，`player_intro_variables` 是作者明确允许使用的变量名单。以下是科幻剧本中的相关字段，其他既有蓝本字段仍需填写：
+
+```json
+{
+  "player_intro_template": "你是{{name}}，作为{{role}}登上{{ship}}。",
+  "player_intro_variables": ["name", "role", "ship"],
+  "player_profile_pools": {
+    "engineer": [{"name": "艾然", "role": "工程师", "ship": "曙光号"}]
+  },
+  "setup": {
+    "player_options": [
+      {"id": "engineer", "label": "随机工程师", "guidance": "选择准备好的工程师身份", "source_ref": "开场设定"},
+      {"id": "custom", "label": "自定身份", "guidance": "采用玩家填写的身份", "source_ref": "开场设定"}
+    ],
+    "tone_options": [{"id": "slow", "label": "缓慢探索", "guidance": "以观察和交流推进", "source_ref": "叙事基调"}],
+    "custom_fields": [
+      {"id": "name", "label": "姓名", "required": true, "max_length": 30},
+      {"id": "role", "label": "职务", "required": true, "max_length": 80},
+      {"id": "ship", "label": "飞船", "required": true, "max_length": 80}
+    ]
+  }
+}
+```
+
+每个非 `custom` 选项 ID 对应一个同名身份池，随机选择仅发生在所选池内；不能把“工程师”和“经理”等不同选项都指向一个无区分的默认身份池。身份池中的对象和定制身份均形成 `player_profile` 文本字段，例如 `name`、`role`、`ship`。每个身份必须有非空 `name`，且不得与 NPC 姓名冲突；模板用到的每个字段必须在所有可选身份中非空。若提供 `custom` 选项，模板引用的字段与 `name` 都必须声明为必填的 `custom_fields`，问题在上传校验阶段报告。
+
+模板只接受 `{{name}}` 这样的简单变量：标识符以小写字母开头，只包含小写字母、数字和下划线，且必须出现在白名单中。平台不执行表达式、属性访问、下标、函数或模板代码；未知变量和不完整的双花括号会导致校验失败。替换只执行一次，身份字段中出现的花括号或类似代码的字符串会作为普通文本保留。
+
+题材内容写在模板中，例如以下公开合成示例；年龄、大学或参加节目都不是平台默认身份：
+
+| 题材 | 模板 | 身份字段示例 |
+| --- | --- | --- |
+| 恋综 | `你是{{name}}，是应邀参加节目的大学生。` | `name=艾然` |
+| 奇幻 | `你是{{name}}，来自{{realm}}的{{role}}。` | `name=艾然, realm=星谷, role=法师` |
+| 悬疑 | `你是{{name}}，调查{{case}}的{{role}}。` | `name=艾然, case=失窃案, role=侦探` |
+| 职场 | `你是{{name}}，作为{{role}}进入{{company}}。` | `name=艾然, role=设计师, company=青石公司` |
+
+兼容规则：旧蓝本缺少新增字段时仍可加载，旧存档仍读取原包与原序章。只有一个非定制选项的旧包仍可沿用平铺的 `player_profiles`，没有身份模板时使用中性的“你是姓名……”介绍，并仅按已提供的年龄、学校、专业补充文字。旧包若有多个非定制选项，却没有按 ID 分组的身份池，仍可加载并续玩已有存档；新建准备式开场与上传版本须补齐映射，避免忽略玩家选择。新增约束不放在全局加载器中拒绝所有旧包。
+
 玩家可以尝试未在 `actions` 中列出的行动。`actions` 仅用于特殊的预设状态转换；重要物品或位置若需要被自由行动持续改变，可在 `manifest.json` 声明允许修改的**状态字段**，而不是列举所有动词。例如：
 
 ```json

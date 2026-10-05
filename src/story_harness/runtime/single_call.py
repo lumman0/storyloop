@@ -23,6 +23,7 @@ from story_harness.runtime.schedule import scenario_cue
 from story_harness.runtime.story_clock import StoryClock
 from story_harness.runtime.turn_progress import TurnProgress, emit
 from story_harness.world.scenario import ScenarioPackage
+from story_harness.world.status_fields import status_effects
 
 
 def validated_options(raw: list[dict], recent: tuple[str, ...] = ()) -> tuple[ActionOption, ...]:
@@ -169,8 +170,11 @@ class SingleCallGameSession:
 
     def _validate_plan(self, before: Snapshot, plan: SceneTurn,
                        focus: tuple[str, ...], nearby: tuple[str, ...]) -> SceneTurn:
+        # Reject impossible numeric proposals before persisting their prose.
+        status_effects(self.package.status_fields, before,
+                       [change.model_dump() for change in plan.status_changes])
         decision = plan.decision
-        allowed = set(nearby) if self.package.story_blueprint is not None else set(focus)
+        allowed = set(focus)
         profiles = before.data.get("actor_profiles", {})
         if not isinstance(profiles, dict):
             profiles = {}

@@ -19,6 +19,7 @@ from story_harness.portal.service import PlayerPortal
 from story_harness.portal.access import AccessDenied
 from story_harness.portal.sql_repository import SESSION_TTL_SECONDS
 from story_harness.portal.user_scenarios import MAX_ARCHIVE_BYTES
+from story_harness.portal.turn_errors import TurnRecoveryRequired, turn_failure
 
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,8 @@ class InvitationIssueBody(BaseModel):
 
 
 def _http_error(error: Exception) -> HTTPException:
+    if isinstance(error, TurnRecoveryRequired):
+        return HTTPException(status_code=409, detail=str(error))
     if isinstance(error, AccessDenied):
         return HTTPException(status_code=403, detail=str(error))
     if isinstance(error, PermissionError):
@@ -103,7 +106,8 @@ def _http_error(error: Exception) -> HTTPException:
     raise error
 
 
-def create_app(portal: PlayerPortal) -> FastAPI:
+def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
+               turn_cancel_timeout: float = 5) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         worker = (asyncio.create_task(portal.run_memory_worker())
@@ -111,6 +115,21 @@ def create_app(portal: PlayerPortal) -> FastAPI:
         try:
             yield
         finally:
+            _app.state.accepting_turns = False
+            active = set(_app.state.active_turn_tasks)
+            if active:
+                _, remaining = await asyncio.wait(active, timeout=turn_shutdown_timeout)
+                if remaining:
+                    logger.warning("cancelling %d overdue turn tasks during shutdown", len(remaining))
+                    for task in remaining:
+                        task.cancel()
+                    _, remaining = await asyncio.wait(remaining, timeout=turn_cancel_timeout)
+                if remaining:
+                    # Closing shared stores while work is still using them is
+                    # unsafe. Fail shutdown visibly; the process supervisor owns
+                    # forced termination of a non-cooperative model/client.
+                    logger.critical("turn tasks ignored cancellation; shared resources remain open")
+                    raise RuntimeError("turn tasks did not stop before shutdown deadline")
             if worker is not None:
                 worker.cancel()
                 with suppress(asyncio.CancelledError):
@@ -119,6 +138,12 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
     app.state.active_turn_tasks = set()
+    app.state.accepting_turns = True
+
+    def stopping_failure(request_id: str | None) -> dict:
+        message = "服务正在重启，这条行动尚未开始，请稍后再提交。"
+        return {"code": "SERVICE_STOPPING", "message": message, "detail": message,
+                "retryable": False, "commit_state": "not_started", "request_id": request_id}
     online_cookie = portal.config.profile == "online"
     cookie_name = "__Host-storyloop" if online_cookie else "storyloop-session"
 
@@ -458,7 +483,10 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
     @app.get("/v1/saves")
     def saves(auth: str = Depends(token)) -> dict:
-        return {"saves": portal.saves(auth)}
+        try:
+            return {"saves": portal.saves(auth)}
+        except (ValueError, PermissionError) as error:
+            raise _http_error(error) from error
 
     @app.get("/v1/billing/wallet")
     def wallet(auth: str = Depends(token)) -> dict:
@@ -514,14 +542,37 @@ def create_app(portal: PlayerPortal) -> FastAPI:
 
     @app.post("/v1/saves/{game_id}/turns")
     async def turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> dict:
+        if not app.state.accepting_turns:
+            return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
+        task = asyncio.current_task()
+        app.state.active_turn_tasks.add(task)
         try:
             return await portal.turn(auth, game_id, body.text, body.request_id)
         except (ValueError, KeyError, PermissionError) as error:
-            raise _http_error(error) from error
+            failure = turn_failure(error, body.request_id)
+            return JSONResponse(status_code=_http_error(error).status_code,
+                                content={"detail": failure["message"], **failure})
+        except TRANSIENT_MODEL_ERRORS as error:
+            logger.warning("model unavailable during portal turn: %s", type(error).__name__)
+            mapped = _model_http_error(error)
+            failure = turn_failure(error, body.request_id, message=str(mapped.detail),
+                                   code="MODEL_UNAVAILABLE")
+            return JSONResponse(status_code=mapped.status_code,
+                                content={"detail": failure["message"], **failure})
+        finally:
+            app.state.active_turn_tasks.discard(task)
 
     @app.post("/v1/saves/{game_id}/turns/stream")
     async def stream_turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> StreamingResponse:
+        if not app.state.accepting_turns:
+            return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
+
         async def events():
+            # Headers and iteration are separate scheduling points. Recheck so
+            # a response created just before shutdown cannot launch late work.
+            if not app.state.accepting_turns:
+                yield f'data: {json.dumps({"type": "error", **stopping_failure(body.request_id)}, ensure_ascii=False)}\n\n'
+                return
             queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
             async def report(event: dict) -> None:
@@ -532,13 +583,16 @@ def create_app(portal: PlayerPortal) -> FastAPI:
                     view = await portal.turn(auth, game_id, body.text, body.request_id, progress=report)
                     await report({"type": "complete", "view": view})
                 except (ValueError, KeyError, PermissionError) as error:
-                    await report({"type": "error", "message": str(error)})
+                    await report({"type": "error", **turn_failure(error, body.request_id)})
                 except TRANSIENT_MODEL_ERRORS as error:
                     logger.warning("model unavailable during streamed turn: %s", type(error).__name__)
-                    await report({"type": "error", "message": _model_failure_message(error)})
-                except Exception:
+                    await report({"type": "error", **turn_failure(
+                        error, body.request_id, message=_model_failure_message(error),
+                        code="MODEL_UNAVAILABLE")})
+                except Exception as error:
                     logger.exception("streamed turn failed")
-                    await report({"type": "error", "message": "请求未能完成，请稍后重试。"})
+                    await report({"type": "error", **turn_failure(
+                        error, body.request_id, message="请求未能完成，请稍后重试。")})
                 finally:
                     await queue.put(None)
 
@@ -568,4 +622,4 @@ def serve(portal: PlayerPortal, host: str = "127.0.0.1", port: int = 8765) -> No
         raise ValueError("local portal HTTP login must bind to localhost")
     import uvicorn
 
-    uvicorn.run(create_app(portal), host=host, port=port)
+    uvicorn.run(create_app(portal), host=host, port=port, timeout_graceful_shutdown=30)

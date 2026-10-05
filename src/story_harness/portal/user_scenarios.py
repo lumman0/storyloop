@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import logging
 import re
 import shutil
 import stat
@@ -17,8 +16,11 @@ from sqlalchemy import Engine, text
 
 from story_harness.portal.catalog import GameCatalog, GameListing, _package_fingerprint
 from story_harness.portal.scenario_storage import LocalPublishedPackageStore, PublishedPackageStore
+from story_harness.portal.scenario_lifecycle import lock_scenario
+from story_harness.portal.package_cleanup import PackageCleanup
 from story_harness.runtime.campaign import CampaignProgram
 from story_harness.world.scenario import ScenarioPackage
+from story_harness.world.prepared_opening import validate_prepared_opening
 from story_harness.world.prologue import save_prologue
 
 
@@ -27,7 +29,6 @@ MAX_UNPACKED_BYTES = 8 * 1024 * 1024
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_FILES = 16
 MAX_SCENARIOS_PER_AUTHOR = 20
-logger = logging.getLogger(__name__)
 
 
 class _OneScenarioSource:
@@ -86,19 +87,25 @@ class UserScenarioService:
         self.engine = engine
         self.directory = Path(directory).resolve()
         self.package_store = package_store or LocalPublishedPackageStore(self.directory)
+        self.cleanup = PackageCleanup(engine, self.package_store)
         self.prologue_generator = prologue_generator
 
     def _prepare_prologue(self, staged: Path, package: ScenarioPackage,
                           program: CampaignProgram | None, title: str,
                           summary: str) -> ScenarioPackage:
         if package.story_blueprint is not None:
-            return package
+            validate_prepared_opening(package, require_prologue=False)
         if package.authored_prologue:
+            if package.story_blueprint is not None:
+                validate_prepared_opening(package)
             return package
         if self.prologue_generator is None:
             raise ValueError("scenario prologue generator is unavailable")
         prose = self.prologue_generator(package, program, title, summary).strip()
-        return save_prologue(staged, prose)
+        prepared = save_prologue(staged, prose)
+        if prepared.story_blueprint is not None:
+            validate_prepared_opening(prepared)
+        return prepared
 
     @staticmethod
     def _public_row(row) -> dict:
@@ -190,10 +197,7 @@ class UserScenarioService:
 
     def publish(self, owner_id: str, scenario_id: str) -> dict:
         with self.engine.begin() as db:
-            scenario = db.execute(text("SELECT * FROM user_scenarios WHERE scenario_id=:id"),
-                                  {"id": scenario_id}).mappings().first()
-            if scenario is None:
-                raise KeyError("scenario not found")
+            scenario = lock_scenario(db, scenario_id)
             if scenario["owner_id"] != owner_id:
                 raise PermissionError("scenario belongs to another author")
             version = db.execute(text("""SELECT * FROM user_scenario_versions
@@ -250,6 +254,9 @@ class UserScenarioService:
             self.package_store.publish(reference, staged)
             package_written = True
             with self.engine.begin() as db:
+                scenario = lock_scenario(db, scenario_id)
+                if scenario["owner_id"] != owner_id:
+                    raise PermissionError("scenario belongs to another author")
                 db.execute(text("""UPDATE user_scenarios SET title=:title,summary=:summary
                     WHERE scenario_id=:id AND owner_id=:owner"""),
                     {"title": title, "summary": summary, "id": scenario_id, "owner": owner_id})
@@ -259,20 +266,19 @@ class UserScenarioService:
                     {"version": version_id, "id": scenario_id, "package_id": package.package_id,
                      "package_version": package.version, "hash": fingerprint,
                      "ref": reference, "created": time.time_ns()})
-            return next(item for item in self.list_mine(owner_id) if item["id"] == scenario_id)
         except Exception:
             if package_written:
                 self.package_store.remove(reference)
             raise
         finally:
             shutil.rmtree(staged, ignore_errors=True)
+        # The metadata transaction committed. A response lookup failure must not
+        # compensate by deleting a package that is now referenced by the database.
+        return next(item for item in self.list_mine(owner_id) if item["id"] == scenario_id)
 
     def delete_draft(self, owner_id: str, scenario_id: str) -> dict:
         with self.engine.begin() as db:
-            scenario = db.execute(text("SELECT * FROM user_scenarios WHERE scenario_id=:id"),
-                                  {"id": scenario_id}).mappings().first()
-            if scenario is None:
-                raise KeyError("scenario not found")
+            scenario = lock_scenario(db, scenario_id)
             if scenario["owner_id"] != owner_id:
                 raise PermissionError("scenario belongs to another author")
             if scenario["published_version_id"] is not None:
@@ -282,16 +288,14 @@ class UserScenarioService:
                 raise ValueError("submitted scenario cannot be deleted")
             versions = db.execute(text("""SELECT package_ref FROM user_scenario_versions
                 WHERE scenario_id=:id"""), {"id": scenario_id}).mappings().all()
+            for version in versions:
+                self.cleanup.enqueue(db, version["package_ref"])
             db.execute(text("DELETE FROM user_scenario_versions WHERE scenario_id=:id"),
                        {"id": scenario_id})
             db.execute(text("DELETE FROM user_scenarios WHERE scenario_id=:id"),
                        {"id": scenario_id})
         for version in versions:
-            try:
-                self.package_store.remove(version["package_ref"])
-            except OSError:
-                logger.warning("orphaned draft package after metadata deletion: %s",
-                               version["package_ref"], exc_info=True)
+            self.cleanup.retry(version["package_ref"])
         return {"status": "deleted"}
 
     def _listing(self, scenario, version, *, title: str | None = None,

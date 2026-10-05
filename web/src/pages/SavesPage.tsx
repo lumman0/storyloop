@@ -68,7 +68,7 @@ export function SavesPage() {
                   </Link>
                 </Button>
               ) : (
-                <span className="unavailable">剧本不可用</span>
+                <span className="unavailable">{save.unavailable_reason || "剧本不可用"}</span>
               )}
             </div>
           ))}

@@ -42,6 +42,7 @@ class ScenarioPackage:
     status_fields: tuple[StatusField, ...] = ()
     authored_prologue: str = ""
     story_blueprint: StoryBlueprint | None = None
+    actor_public_profiles: dict[str, str] | None = None
 
     @property
     def role_cards(self) -> dict[str, str]:
@@ -90,6 +91,7 @@ class ScenarioPackage:
             raise ValueError("actors must be a list")
         actors: list[tuple[str, str]] = []
         actor_names: dict[str, str] = {}
+        actor_public_profiles: dict[str, str] = {}
         for item in raw_actors:
             if not isinstance(item, dict):
                 raise ValueError("actor declaration must be an object")
@@ -102,6 +104,12 @@ class ScenarioPackage:
                 raise ValueError(f"actor {actor_id} cannot read card {card_id}")
             actors.append((actor_id, card_id))
             actor_names[actor_id] = name.strip()
+            public_profile = item.get("public_profile")
+            if public_profile is not None:
+                if (not isinstance(public_profile, str) or not public_profile.strip()
+                        or len(public_profile) > 400):
+                    raise ValueError("actor public_profile must be short nonempty text")
+                actor_public_profiles[actor_id] = public_profile.strip()
         if len({actor_id for actor_id, _ in actors}) != len(actors):
             raise ValueError("duplicate actor ID")
 
@@ -147,7 +155,8 @@ class ScenarioPackage:
             blueprint = StoryBlueprint.load(blueprint_path, set(actor_names))
         return cls(package_id, version, time_unit, ticks_per_day, tuple(actors), actor_names,
                    state, tuple(work), worldbook, action_rules, opening, mutable_fields,
-                   presentation_mode, status_fields, authored_prologue, blueprint)
+                   presentation_mode, status_fields, authored_prologue, blueprint,
+                   actor_public_profiles)
 
     def seed_game(self, store: GameStore, game_id: str, *, include_campaign: bool = True,
                   setup_state: dict[str, object] | None = None) -> None:

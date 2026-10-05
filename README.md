@@ -48,6 +48,8 @@ flowchart LR
 
 ## 项目结构
 
+当前模块职责、主要执行路径与尚未拆分的边界见[架构说明](docs/architecture.md)。
+
 ```text
 src/story_harness/
   core/       事件、状态转换、观察与计费契约
@@ -65,18 +67,37 @@ deploy/ecs/   单机 ECS Docker Compose 部署配置
 
 ## 快速开始
 
+本工作区的正式代码根目录是 `D:/ai/storyloop-secure-session`，请在该目录创建独立 `.venv`。旧目录的用途、待归并改动和外部启动入口见[工作区清单](docs/workspace-map.md)。启动前清除终端继承的 `PYTHONPATH`，避免导入另一工作树。
+
 需要 Python 3.12+ 和 Node.js 20.19+。以下命令适用于 Windows CMD 与 PowerShell，在仓库根目录执行：
 
 ```cmd
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[agents,portal]"
+.\.venv\Scripts\python.exe scripts\check_environment.py --config config\local.json
 ```
+
+检查必须成功，并且 `python` 和 `story_harness` 都指向当前工作树；脚本报告 Git HEAD、配置路径和存储驱动，不读取或输出数据库连接密码、模型 Key。它只检查版本入口，不验证完整配置、数据库或模型连通性。`git_sha` 是提交版本，未提交的改动需另行核对。
 
 先运行无需模型 Key 的离线示例：
 
 ```cmd
 .\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
 ```
+
+开发回归使用当前工作树的独立解释器；`pytest` 同时收集现有 unittest 类和函数式回归测试：
+
+```cmd
+.\.venv\Scripts\python.exe -m pip install -e ".[agents,portal,observability,player-memory,test]"
+.\.venv\Scripts\python.exe -m pytest tests -q
+cd web
+node --experimental-strip-types --test tests/*.test.mjs
+npm run build
+```
+
+前端测试直接加载 TypeScript，需 Node.js 22.6+（本轮使用 24.16.0）；构建仍按上方 Vite 运行要求。离线测试不需要真实模型 Key，线上 PostgreSQL 验证需另行配置隔离测试库。
+
+需要复现依赖和浏览器验收时，使用仓库 `uv.lock` 与前端锁文件，具体命令见[可复现验证](docs/verification.md)。CI 配置同时保留 Windows/Linux 后端验证和模拟 API 的浏览器交互测试；远程 CI 与 PostgreSQL 的实际执行结果需分别确认。
 
 使用真实模型时，创建本机配置文件，将 `models.api_key` 填为可用的百炼按量付费 Key；该文件被 Git 忽略。`config/local.json` 默认使用香港端点的 `deepseek-v4.1-flash`，Token Plan 个人版请改用专用的 `config/bailian-token-plan.json`。`STORY_BAILIAN_API_KEY` 环境变量会覆盖文件中的 Key。
 

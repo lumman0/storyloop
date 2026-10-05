@@ -20,7 +20,6 @@ from story_harness.agents.scene_narrator import CampaignSceneNarrator
 from story_harness.agents.heart_message_writer import NpcHeartMessageWriter
 from story_harness.agents.novel_narrator import NovelTurnNarrator
 from story_harness.agents.prologue_generator import ModelPrologueGenerator
-from story_harness.agents.story_opening import StoryOpeningGenerator
 from story_harness.agents.action_advisor import ActionOption, ActionOptionAdvisor
 from story_harness.agents.status_adjudicator import ModelStatusAdjudicator
 from story_harness.agents.scene_turn import SceneContextProjector, SingleSceneGenerator
@@ -39,6 +38,8 @@ from story_harness.portal.player_memory import Mem0PlayerMemory, PlayerMemory
 from story_harness.portal.player_memory_jobs import MemoryBatch, SQLPlayerMemoryJobs
 from story_harness.portal.sql_billing import SQLBillingRepository
 from story_harness.portal.user_scenarios import UserScenarioService
+from story_harness.portal.turn_errors import TurnInputError, TurnRecoveryRequired
+from story_harness.portal.turn_settlements import SQLTurnSettlements, TurnSettlement
 from story_harness.portal.presentation import campaign_interaction
 from story_harness.runtime.campaign import CampaignProgram, CampaignSession
 from story_harness.runtime.game_session import GameSession
@@ -54,6 +55,7 @@ from story_harness.runtime.story_clock import StoryClock
 from story_harness.runtime.status_update import settle_status
 from story_harness.runtime.player_preferences import player_preferences_scope
 from story_harness.world.scenario import ScenarioPackage
+from story_harness.world.prepared_opening import render_prepared_opening
 from story_harness.world.status_fields import StatusField, project_status_fields
 
 
@@ -90,6 +92,7 @@ class PlayerPortal:
         self.engine = self.config.create_database(db_path)
         self.store = self.config.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
+        self.turn_settlements = SQLTurnSettlements(self.engine)
         self.save_generation_settings = SQLSaveGenerationSettings(self.engine)
         self.access = AccessService(self.engine)
         self.invitations = InvitationService(self.engine, self.access)
@@ -340,7 +343,7 @@ class PlayerPortal:
         return [{"id": actor_id, "name": visible_name(actor_id),
                  "portrait_url": (f"/v1/saves/{game_id}/cast/{quote(actor_id, safe='')}/portrait"
                                   if actor_id in (item.portrait_art or {})
-                                  and package.story_blueprint is None else None)}
+                                  else None)}
                 for actor_id, _ in package.actor_cards
                 if actor_id in visible]
 
@@ -543,7 +546,8 @@ class PlayerPortal:
         for record in self.accounts.list_saves(player_id):
             try:
                 item = self._verified_listing(record)
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, PermissionError, FileNotFoundError):
+                # Authentication was resolved above; this is access to one save's content.
                 item = None
             snapshot = self.store.load(record.game_id)
             campaign = snapshot.data.get("campaign")
@@ -551,6 +555,7 @@ class PlayerPortal:
                            "title": item.title if item else record.catalog_id,
                            "mode": (record.play_mode or item.mode) if item else record.play_mode,
                            "available": item is not None,
+                           "unavailable_reason": None if item else "剧本已不可用，或你已失去访问权限。",
                            "tick": snapshot.tick,
                            "day": campaign.get("day") if isinstance(campaign, dict) else None,
                            "complete": bool(campaign.get("ending")) if isinstance(campaign, dict) else False})
@@ -816,13 +821,9 @@ class PlayerPortal:
         if blueprint is None:
             raise ValueError("source-driven save requires a story blueprint")
         setup = blueprint.setup.resolve(story_setup)
-        task = "prologue" if "prologue" in self.config.task_models else "narration"
-        opening = await StoryOpeningGenerator(
-            self.config.create_model(task, dict(os.environ), self.telemetry),
-            self.telemetry,
-        ).generate(game_id, package, item.title, setup)
+        opening = render_prepared_opening(package, setup)
         package.seed_game(self.store, game_id, include_campaign=False,
-                          setup_state=opening.save_state(setup))
+                          setup_state=opening.state)
         seeded = self.store.load(game_id)
         self.store.commit(game_id, seeded.version,
                           WorldEvent("opening:generated", "story_opening", "system",
@@ -851,7 +852,6 @@ class PlayerPortal:
         selected_mode = play_mode or item.mode
         if selected_mode not in item.supported_play_modes:
             raise ValueError("this game does not support the selected play mode")
-        self._require_model_key()
         package = self._package_for_mode(ScenarioPackage.load(item.package_path), selected_mode)
         game_id = uuid4().hex
         if package.story_blueprint is not None:
@@ -862,6 +862,7 @@ class PlayerPortal:
                                       selected_mode)
             self.accounts.store_intro(game_id, result)
             return result
+        self._require_model_key()
         package.seed_game(self.store, game_id, include_campaign=selected_mode == "campaign")
         self.accounts.create_save(player_id, item.game_id, game_id,
                                   item.package_id, item.package_version, item.fingerprint,
@@ -962,22 +963,30 @@ class PlayerPortal:
         mode = record.play_mode or item.mode
         preview = self.moderation.preview_for(game_id, player_id) is not None
         if not isinstance(text, str) or not text.strip():
-            raise ValueError("turn text is required")
+            raise TurnInputError("turn text is required")
         if len(text) > 10_000:
-            raise ValueError("turn text is too long")
+            raise TurnInputError("turn text is too long")
         request_id = request_id or uuid4().hex
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request_id):
             raise ValueError("request_id must contain 1–64 URL-safe characters")
         cached = self.accounts.get_turn_response(game_id, request_id, text)
         if cached is not None:
             return cached
+        prepared = self.turn_settlements.get(game_id, request_id, text)
+        if prepared is not None:
+            return self._settle_prepared_turn(player_id, game_id, request_id, text, item, prepared)
         turn_id = f"portal-{request_id}"
         progress_state = self.store.load(game_id).data.get("story_progress", {})
         committed_same_turn = any(self.store.event_exists(game_id, f"{turn_id}:{kind}")
-                                  for kind in ("input", "query", "action"))
+                                  for kind in ("input", "query", "action", "continue",
+                                               "choice", "advance", "completed"))
+        if committed_same_turn and not preview:
+            # Until model-call journaling exists, earlier interrupted turns cannot
+            # be reconstructed with a fresh (empty) usage collector and billed as zero.
+            raise TurnRecoveryRequired("行动已提交，但计量恢复记录不完整，请联系管理员恢复此回合。")
         if (isinstance(progress_state, dict) and progress_state.get("complete") is True
                 and not committed_same_turn):
-            raise ValueError("this story is complete")
+            raise TurnInputError("this story is complete")
         if preview and self.moderation.preview_turn_count(game_id) >= 12:
             raise ValueError("review preview has reached its 12-turn limit")
         if self.billing is not None and not preview:
@@ -1077,24 +1086,30 @@ class PlayerPortal:
                                   action_options=action_options, clock=clock,
                                   status_fields=package.status_fields, time_unit=package.time_unit)
         if self.billing is not None and not preview:
-            with self.telemetry.span(
-                "billing-settlement",
-                {"game_id": game_id, "request_id": request_id,
-                 "model_calls": len(meter.records),
-                 "pricing_version": self.billing.policy.pricing_version},
-                session_id=session_id_for_game(game_id, item.package_id),
-            ) as span:
-                billed = self.billing.settle_turn(player_id, game_id, request_id,
-                                                  text, view, meter.records)
-                span.metric("story.credits_charged", billed["billing"]["charged_milli_points"] / 1000)
-                span.metric("story.input_tokens", float(billed["billing"]["input_tokens"]))
-                span.metric("story.output_tokens", float(billed["billing"]["output_tokens"]))
-                self._queue_memory_input(player_id, game_id, request_id, text)
-                return billed
+            prepared = self.turn_settlements.prepare(game_id, request_id, text, view,
+                                                     meter.records, self.billing.policy)
+            return self._settle_prepared_turn(player_id, game_id, request_id, text, item, prepared)
         self.accounts.store_turn_response(game_id, request_id, text, view)
         if not preview:
             self._queue_memory_input(player_id, game_id, request_id, text)
         return view
+
+    def _settle_prepared_turn(self, player_id: str, game_id: str, request_id: str,
+                              player_text: str, item: GameListing, prepared: TurnSettlement) -> dict:
+        billing = self.billing or SQLBillingRepository(self.engine, prepared.policy, self.accounts)
+        with self.telemetry.span(
+            "billing-settlement",
+            {"game_id": game_id, "request_id": request_id,
+             "model_calls": len(prepared.usage), "pricing_version": prepared.policy.pricing_version},
+            session_id=session_id_for_game(game_id, item.package_id),
+        ) as span:
+            billed = billing.settle_turn(player_id, game_id, request_id, player_text,
+                                         prepared.response, prepared.usage, policy=prepared.policy)
+            span.metric("story.credits_charged", billed["billing"]["charged_milli_points"] / 1000)
+            span.metric("story.input_tokens", float(billed["billing"]["input_tokens"]))
+            span.metric("story.output_tokens", float(billed["billing"]["output_tokens"]))
+            self._queue_memory_input(player_id, game_id, request_id, player_text)
+            return billed
 
     async def _recover_freeform(self, item: GameListing, package: ScenarioPackage,
                                 game_id: str, text: str, turn_id: str,

@@ -80,10 +80,12 @@ class SQLBillingRepository:
         ]
 
     def settle_turn(self, player_id: str, game_id: str, request_id: str,
-                    player_text: str, response: dict, usage: list[ModelUsage]) -> dict:
+                    player_text: str, response: dict, usage: list[ModelUsage], *,
+                    policy: BillingPolicy | None = None) -> dict:
         """Store the player response and one debit in the same SQL transaction."""
         self.ensure_wallet(player_id)
-        usage_cost = self.policy.price_milli_points(usage)
+        policy = policy or self.policy
+        usage_cost = policy.price_milli_points(usage)
         raw_usage = [item.to_dict() for item in usage]
         entry_id = f"turn:{game_id}:{request_id}"
         try:
@@ -122,7 +124,7 @@ class SQLBillingRepository:
                             :usage_cost,:balance,:pricing_version,:usage_json,:created_order)"""),
                     {"entry_id": entry_id, "player_id": player_id, "game_id": game_id,
                      "request_id": request_id, "delta": -charged, "usage_cost": usage_cost,
-                     "balance": after, "pricing_version": self.policy.pricing_version,
+                     "balance": after, "pricing_version": policy.pricing_version,
                      "usage_json": json.dumps(raw_usage, ensure_ascii=False),
                      "created_order": time.time_ns()})
             return billed

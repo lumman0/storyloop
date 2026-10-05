@@ -43,12 +43,14 @@ class ModelPrologueGenerator:
         request = {
             "title": title,
             "summary": summary,
-            "opening": package.opening[:3500],
+            "opening": (package.story_blueprint.opening_focus[:3500]
+                        if package.story_blueprint is not None else package.opening[:3500]),
             "opening_scenes": opening_scenes,
             "public_setting": [entry.text[:1200] for entry in
                                package.worldbook.visible_lore("player", limit=6)],
             "player_profile": player_state,
-            "presentation_mode": "novel" if program is not None else "interactive",
+            "presentation_mode": ("novel" if program is not None
+                                  or package.story_blueprint is not None else "interactive"),
         }
         system = (
             "你为文游剧本撰写固定的玩家可见序章。只依据所给公开资料和开场场景，"
@@ -76,6 +78,8 @@ class ModelPrologueGenerator:
             prose = prose.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
             if not prose:
                 raise ValueError("prologue model returned empty text")
+            if package.story_blueprint is not None:
+                prose = "{{player_intro}}\n\n" + prose
             if self.telemetry.capture_content:
                 span.update(output=prose)
             return prose

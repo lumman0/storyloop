@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../src/lib/pendingTurn.ts";
+import * as pending from "../src/lib/pendingTurn.ts";
+const { clearPendingTurn, readPendingTurn, savePendingTurn } = pending;
 
 function memoryStorage() {
   const values = new Map();
@@ -32,4 +33,25 @@ test("blocked browser storage does not prevent sending a turn", () => {
   assert.doesNotThrow(() => savePendingTurn("game-a", { id: "request-1", text: "你好" }, blocked));
   assert.equal(readPendingTurn("game-a", blocked), null);
   assert.doesNotThrow(() => clearPendingTurn("game-a", blocked));
+});
+
+test("manual recovery state survives refresh without discarding the original request", () => {
+  const storage = memoryStorage();
+  const turn = { id: "request-1", text: "我走向门口", retryable: false, error: "需要人工恢复" };
+  savePendingTurn("game-a", turn, storage);
+  assert.deepEqual(readPendingTurn("game-a", storage), turn);
+});
+
+test("only matching explicitly unstarted requests unlock editing and clear persisted pending", () => {
+  const storage = memoryStorage();
+  savePendingTurn("game-a", { id: "request-1", text: "long message" }, storage);
+  for (const failure of [undefined, {commit_state: "unknown", request_id: "request-1"},
+    {commit_state: "committed", request_id: "request-1"},
+    {commit_state: "not_started", request_id: "another-request"}]) {
+    assert.equal(pending.discardUnstartedTurn("game-a", "request-1", failure, storage), false);
+    assert.equal(readPendingTurn("game-a", storage).id, "request-1");
+  }
+  assert.equal(pending.discardUnstartedTurn("game-a", "request-1",
+    {commit_state: "not_started", request_id: "request-1"}, storage), true);
+  assert.equal(readPendingTurn("game-a", storage), null);
 });

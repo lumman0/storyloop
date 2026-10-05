@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, FileArchive, FileUp, LockKeyhole } from "lucide-react";
-import { api, type UserScenario } from "../lib/api";
+import { api, type ReviewSubmission, type UserScenario } from "../lib/api";
+import { scenarioSubmissionState } from "../lib/submissionLifecycle";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
@@ -10,6 +11,7 @@ const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
 export function UploadPage() {
   const [scenarios, setScenarios] = useState<UserScenario[]>([]);
+  const [submissions, setSubmissions] = useState<ReviewSubmission[]>([]);
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -24,8 +26,11 @@ export function UploadPage() {
 
   useEffect(() => {
     let active = true;
-    api.myScenarios()
-      .then((result) => { if (active) { setScenarios(result.scenarios); setLoadError(""); } })
+    setLoading(true);
+    Promise.all([api.myScenarios(), api.mySubmissions()])
+      .then(([result, history]) => { if (active) {
+        setScenarios(result.scenarios); setSubmissions(history.submissions); setLoadError("");
+      } })
       .catch((cause) => { if (active) setLoadError(errorMessage(cause)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -91,7 +96,7 @@ export function UploadPage() {
     setError(""); setSuccess("");
     try {
       await api.withdrawSubmission(id);
-      setSuccess("已撤回审核申请。修改后可上传新版本。");
+      setSuccess("已撤回审核申请。尚未送审的新版本现在可以提交；已送审过的版本需要重新上传。");
       setReload((value) => value + 1);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusyId(null); }
@@ -183,21 +188,23 @@ export function UploadPage() {
             <Notice message={loadError} onRetry={() => { setLoading(true); setReload((value) => value + 1); }} />
           ) : scenarios.length ? (
             <div className="upload-items">
-              {scenarios.map((item) => (
+              {scenarios.map((item) => {
+                const review = scenarioSubmissionState(item, submissions);
+                return (
                 <article className="upload-item" key={item.id}>
                   <div className="upload-item-icon"><FileArchive size={21} aria-hidden="true" /></div>
                   <div className="upload-item-body">
                     <div className="upload-item-title">
                       <h3>{item.title}</h3>
                       <span className={item.status === "published" ? "upload-status published" : "upload-status"}>
-                        {item.public_state === "active" ? "公开可玩" : item.review_status === "pending" ? "公开审核中"
-                          : item.review_status === "rejected" ? "审核未通过"
-                          : item.status === "published" ? "私有试玩" : "私有草稿"}
+                        {item.status === "published" ? "私有试玩已开启" : "私有草稿"}
                       </span>
                     </div>
                     {item.summary && <p>{item.summary}</p>}
-                    <small>{item.mode === "campaign" ? "章节故事" : "自由探索"} · 包版本 {item.package_version}</small>
-                    {item.review_reason && <p className="upload-review-note">审核意见：{item.review_reason}</p>}
+                    <small>{item.mode === "campaign" ? "章节故事" : "自由探索"} · 最新上传版本 {item.package_version}（{item.version_id.slice(0, 8)}）</small>
+                    {item.status === "published" && <p className="upload-review-note">私有试玩使用上次开启的版本；上传新版本后，点击“更新私有试玩”再体验新版。</p>}
+                    {item.public_state && <p className="upload-review-note">公共目录：{item.public_state === "active" ? "已审核版本公开可玩" : item.public_state === "retired" ? "已停止新玩家进入" : "已下架"}。新上传版本需单独审核。</p>}
+                    {review.pending && <p className="upload-review-note">版本 {review.pending.package_version}（{review.pending.version_id.slice(0, 8)}）正在审核；提交其他版本前需先撤回这次申请。</p>}
                     <div className="upload-item-actions">
                       {item.status === "draft" && (
                         <Button type="button" size="small" onClick={() => publish(item.id)} disabled={busyId !== null}>
@@ -205,18 +212,18 @@ export function UploadPage() {
                         </Button>
                       )}
                       {item.status === "published" && (
+                        <Button type="button" size="small" onClick={() => publish(item.id)} disabled={busyId !== null}>
+                          更新私有试玩
+                        </Button>
+                      )}
+                      {item.status === "published" && (
                         <Button type="button" size="small" variant="secondary" onClick={() => play(item.id)} disabled={busyId !== null}>
                           {busyId === item.id ? "正在进入…" : "开始试玩"} <ArrowRight size={15} />
                         </Button>
                       )}
-                      {!item.review_status && (
-                        <Button type="button" size="small" variant="secondary" onClick={() => submit(item.id)} disabled={busyId !== null}>
-                          提交公开审核
-                        </Button>
-                      )}
-                      {item.review_status === "pending" && item.submission_id && (
-                        <Button type="button" size="small" variant="ghost" onClick={() => withdraw(item.submission_id!)} disabled={busyId !== null}>
-                          撤回申请
+                      {!review.latest && (
+                        <Button type="button" size="small" variant="secondary" onClick={() => submit(item.id)} disabled={busyId !== null || !review.canSubmit}>
+                          提交最新版本审核
                         </Button>
                       )}
                       <input type="file" accept=".zip,application/zip" id={`version-${item.id}`}
@@ -226,15 +233,26 @@ export function UploadPage() {
                         onClick={() => document.getElementById(`version-${item.id}`)?.click()}>
                         上传新版本
                       </Button>
-                      {item.status === "draft" && !item.review_status && (
+                      {item.status === "draft" && review.canDelete && (
                         <Button type="button" size="small" variant="ghost" onClick={() => removeDraft(item.id)} disabled={busyId !== null}>
                           删除草稿
                         </Button>
                       )}
                     </div>
+                    {review.submissions.length > 0 && <div className="upload-review-note">
+                      <h4>送审记录</h4>
+                      {review.submissions.map((submission) => <div key={submission.submission_id}>
+                        <p>版本 {submission.package_version}（{submission.version_id.slice(0, 8)}） ·
+                          {{ pending: "审核中", approved: "已通过", rejected: "未通过", withdrawn: "已撤回" }[submission.status]}
+                          {submission.version_id === item.version_id ? " · 最新上传版本" : ""}</p>
+                        {submission.reason && <p>审核意见：{submission.reason}</p>}
+                        {submission.status === "pending" && <Button type="button" size="small" variant="ghost"
+                          onClick={() => withdraw(submission.submission_id)} disabled={busyId !== null}>撤回该版本申请</Button>}
+                      </div>)}
+                    </div>}
                   </div>
                 </article>
-              ))}
+              ); })}
             </div>
           ) : (
             <div className="upload-empty">还没有剧本。选择一个 ZIP 剧本包，上传后会先保存为私有草稿。</div>

@@ -108,6 +108,17 @@ class BillingPolicy:
     pricing_version: str
     rates: Mapping[str, ModelRate] = field(repr=False)
 
+    def to_dict(self) -> dict:
+        """Freeze prices as decimal strings so retries never adopt a new tariff."""
+        return {"welcome_points": self.welcome_points, "points_per_rmb": self.points_per_rmb,
+                "pricing_version": self.pricing_version,
+                "models": {name: {
+                    "input_rmb_per_million": str(rate.input_rmb_per_million),
+                    "output_rmb_per_million": str(rate.output_rmb_per_million),
+                    "cached_input_rmb_per_million": str(rate.cached_input_rmb_per_million),
+                    "multiplier": str(rate.multiplier),
+                } for name, rate in self.rates.items()}}
+
     @classmethod
     def from_dict(cls, value: object, models: Mapping[str, str]) -> BillingPolicy | None:
         if value is None:
