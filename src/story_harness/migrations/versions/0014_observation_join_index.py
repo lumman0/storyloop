@@ -1,17 +1,4 @@
-"""Bound per-event observation lookups in actor context history joins."""
-
-from alembic import op
-
-revision = "0014_observation_join_index"
-down_revision = "0013_package_cleanup"
-branch_labels = None
-depends_on = None
-
-
-def upgrade() -> None:
-    op.create_index("observations_game_event_recipient", "observations",
-                    ["game_id", "event_id", "recipient_id"])
-
-
-def downgrade() -> None:
-    op.drop_index("observations_game_event_recipient", table_name="observations")
+"""Compatibility alias; implementation lives in storyloop-platform."""
+import importlib as _importlib
+import sys as _sys
+_sys.modules[__name__] = _importlib.import_module('storyloop_platform.migrations.versions.0014_observation_join_index')

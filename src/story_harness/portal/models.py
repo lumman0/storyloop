@@ -1,15 +1,4 @@
-"""Records shared by portal repository implementations."""
-
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class SaveRecord:
-    game_id: str
-    player_id: str
-    catalog_id: str
-    package_id: str
-    package_version: str
-    package_hash: str
-    created_at: int
-    play_mode: str | None = None
+"""Compatibility alias; implementation lives in storyloop-platform."""
+import importlib as _importlib
+import sys as _sys
+_sys.modules[__name__] = _importlib.import_module('storyloop_platform.portal.models')
