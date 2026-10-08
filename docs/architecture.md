@@ -2,7 +2,7 @@
 
 StoryLoop 是一个 React + FastAPI 的模块化单体。前端负责玩家、创作者和审核界面；单个后端进程负责业务编排，SQL 数据库保存权威状态，剧本文件按不可变版本保存。当前仍建议单 API worker。
 
-模型和可选多 Agent 引擎使用 AgentScope 2.0.9。默认 `single_call` 通过 AgentScope 2 的模型与结构化输出接口生成回合；`multi_agent_beta` 使用 2.x 的 `Agent`、工具与权限接口。项目自身继续负责游戏状态、权限投影和回合结算。
+当前唯一回合引擎 `single_call` 通过 AgentScope 2.0.9 的模型与结构化输出接口生成回合，配置加载会拒绝其他引擎值。旧版多 Agent 引擎保存在历史 Git 标签 `multi-agent-beta-archive-2026-10-r1` 中。项目自身继续负责游戏状态、权限投影和回合结算；旧存档的 `npc_reply` 待办由平台兼容适配器处理，该适配器不属于未来公开的 harness 库。
 
 ```mermaid
 flowchart TD
@@ -10,14 +10,10 @@ flowchart TD
     HTTP --> Portal[PlayerPortal 业务编排]
     Portal --> Content[上传 / 版本 / 发布 / 审核]
     Portal --> Turns[回合执行与存档]
-    Turns --> Single[默认 single_call 引擎]
-    Turns --> Beta[multi_agent_beta 引擎]
+    Turns --> Single[single_call 引擎]
     Single --> Context[角色与玩家上下文投影]
-    Beta --> Agents[主控 / NPC / 调度任务]
     Context --> Models[AgentScope / 模型适配]
-    Agents --> Models
     Single --> State[状态校验 / 事件 / 观察 / 快照]
-    Beta --> State
     Turns --> Settlement[结算快照 / 钱包 / 幂等回执]
     Content --> Packages[不可变剧本包目录]
     Content --> DB[(SQLAlchemy / SQLite 或 PostgreSQL)]
@@ -55,7 +51,7 @@ flowchart TD
 
 结算快照、生命周期锁、文件清理、失败契约已独立成模块；前端审核详情与待确认请求也有独立状态逻辑。数据库是游戏事实和账务的权威来源，Mem0 玩家偏好不改写世界事实。
 
-PlayerPortal 仍承担较多业务编排，尚未完整拆成存档服务、内容服务和回合应用服务。默认单次调用与 beta 多 Agent 引擎仍有契约差异；一个模型同时看到多名角色上下文不构成角色间的硬隔离。
+PlayerPortal 仍承担较多业务编排，尚未完整拆成存档服务、内容服务和回合应用服务。旧版 beta 代码仍保留作历史参考，平台仅装配单次调用引擎，并按需装配旧待办兼容适配器；一个模型同时看到多名角色上下文不构成角色间的硬隔离。
 
 结算快照只覆盖完整回合生成后的恢复窗口，尚未实现逐次模型结果和用量 journal；早期阶段缺少计量证据时会要求人工恢复。现有锁和快照也不代表已经支持多实例并发执行。
 

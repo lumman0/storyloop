@@ -2,7 +2,7 @@
 
 [中文](README.md) · [English](README.en.md)
 
-StoryLoop Platform is a runtime and player platform for AI interactive fiction. Its default engine assembles player-visible history, each relevant NPC's own experience, and world state into one scene context. One structured model call generates an ordinary turn; the backend validates and commits events, then updates each character's knowledge separately. The former multi-agent ReAct engine remains available as a configurable beta path.
+StoryLoop Platform is a runtime and player platform for AI interactive fiction. Its only current engine, `single_call`, assembles player-visible history, each relevant NPC's own experience, and world state into one scene context. One structured model call generates an ordinary turn; the backend validates and commits events, then updates each character's knowledge separately. The former multi-agent ReAct engine is archived for historical reference.
 
 ## Problems it addresses
 
@@ -16,7 +16,7 @@ StoryLoop Platform is a runtime and player platform for AI interactive fiction. 
 | Component | Responsibility |
 | --- | --- |
 | Scenario packages and worldbook | Versioned character cards, initial state, mutable state fields, optional scripted action rules, opening text, scheduled work, and a JSON worldbook filtered by player or actor visibility before retrieval. |
-| Narrative runtime | One structured model call proposes the decision, scene prose, relevant NPC replies, bounded status changes, and three follow-up actions. A bounded work queue commits character speech and environment events. Interactive mode displays separate NPC dialogue; novel mode presents second-person prose. The former multi-agent ReAct engine remains configurable as beta. |
+| Narrative runtime | One structured model call proposes the decision, scene prose, relevant NPC replies, bounded status changes, and three follow-up actions. A bounded work queue commits character speech and environment events. Interactive mode displays separate NPC dialogue; novel mode presents second-person prose. Persisted NPC work is handled by the platform compatibility adapter. |
 | State and time | Committed events update snapshots and produce recipient-specific observations; campaign scenarios combine scheduled milestones with elapsed time based on action duration. Scenarios may declare player-visible status fields and bounded per-turn changes. |
 | Player platform | React and FastAPI provide accounts, a catalog, private scenario uploads, single-player saves, resume, and history; SSE streams turn stages and committed visible story segments. |
 | Content moderation | Authors submit immutable scenario versions; reviewers inspect submissions and play isolated previews; administrators manage roles, account status, public releases, private-test invitations, and audit records. |
@@ -42,9 +42,9 @@ flowchart LR
     Runtime -. traces / metrics .-> Langfuse[Optional Langfuse]
 ```
 
-On an ordinary turn, a context projector reads the histories visible to the player and to each relevant character. The scene model returns one structured proposal. Durable state changes pass validation against scenario-declared fields before the runtime commits events and delivers recipient-specific observations. Scripted choices and time advances remain data-driven. One model request can write messages for several characters at a heart-message gate. Set `runtime.turn_engine` to `multi_agent_beta` in a separate configuration to use the former per-agent path; the web profile defaults to `single_call`.
+On an ordinary turn, a context projector reads the histories visible to the player and to each relevant character. The scene model returns one structured proposal. Durable state changes pass validation against scenario-declared fields before the runtime commits events and delivers recipient-specific observations. Scripted choices and time advances remain data-driven. One model request can write messages for several characters at a heart-message gate. The only current engine is `single_call`; persisted `npc_reply` work is still processed by a platform compatibility adapter.
 
-Authoritative game data is separate from generation context. `GameStore` manages events, observations, snapshots, and pending work; SQLAlchemy repositories use SQLite locally and PostgreSQL online. The default engine selects recent and relevant older committed events separately for the player and each NPC without another compression call. The beta path retains actor-scoped persistent summaries. Source events are never deleted. Optional Mem0 player profiles remain separate from game facts. Set context limits with `models.context_windows` and `runtime.context_window_tokens`. The worldbook currently uses visibility-scoped JSON entry retrieval rather than vector RAG. Models are routed per task through an OpenAI-compatible API. Online browser sessions use `Secure`, `HttpOnly` cookies.
+Authoritative game data is separate from generation context. `GameStore` manages events, observations, snapshots, and pending work; SQLAlchemy repositories use SQLite locally and PostgreSQL online. The current engine selects recent and relevant older committed events separately for the player and each NPC without another compression call. Source events are never deleted. Optional Mem0 player profiles remain separate from game facts. Set context limits with `models.context_windows` and `runtime.context_window_tokens`. The worldbook currently uses visibility-scoped JSON entry retrieval rather than vector RAG. Models are routed per task through an OpenAI-compatible API. Online browser sessions use `Secure`, `HttpOnly` cookies.
 
 ## Repository layout
 
@@ -80,7 +80,7 @@ Run an offline example without a model key:
 
 For live models, create a local credentials file and set `models.api_key` to a pay-as-you-go Bailian key. Git ignores the file. `config/local.json` defaults to `deepseek-v4.1-flash` on the Hong Kong endpoint; use `config/bailian-token-plan.json` for the separate Token Plan profile. `STORY_BAILIAN_API_KEY` overrides the file when present.
 
-`config/local.json` and `config/online.json` set `runtime.turn_engine` to `single_call`. For comparison, change a separate config copy to `multi_agent_beta`; the website has no player-facing engine switch.
+`config/local.json` and `config/online.json` set `runtime.turn_engine` to `single_call`. Configuration loading rejects other engine values. The former multi-agent path is preserved for historical reference in Git tag `multi-agent-beta-archive-2026-10-r1`.
 
 ```cmd
 copy config\application.local.example.json config\application.local.json

@@ -158,7 +158,7 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 "mode": "campaign", "play_modes": ["campaign", "freeform"],
                 "package": "package"}]}), encoding="utf-8")
             config_data = json.loads((ROOT / "config/local.json").read_text(encoding="utf-8"))
-            config_data["runtime"]["turn_engine"] = "multi_agent_beta"
+            config_data["runtime"]["turn_engine"] = "single_call"
             config_path = directory / "config.json"
             config_path.write_text(json.dumps(config_data), encoding="utf-8")
             requests = []

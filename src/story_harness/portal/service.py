@@ -47,7 +47,6 @@ from story_harness.runtime.presentation import StorySegment, segment_for_observa
 from story_harness.runtime.novel_presentation import present_freeform_novel
 from story_harness.portal.character_cards import shared_actor_memories
 from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
-from story_harness.runtime.react_factory import make_react_session
 from story_harness.runtime.npc_work import make_npc_reply_handler
 from story_harness.runtime.single_call import SingleCallGameSession
 from story_harness.runtime.turn_progress import TurnProgress, emit
@@ -627,45 +626,41 @@ class PlayerPortal:
         clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick,
                             overnight_requires_rest=overnight_requires_rest)
                  if package.ticks_per_day is not None else None)
-        if self.config.runtime.turn_engine == "single_call" or package.story_blueprint is not None:
-            model_task = ("single_turn" if "single_turn" in self.config.task_models
-                          else "main_react")
-            legacy_reply = None
-            if any(work.kind == "npc_reply" for work in self.store.pending_work(game_id)):
-                legacy_pool = NpcAgentPool(
-                    self.store,
-                    lambda _game_id, _actor_id: self.config.create_model(
-                        "npc_reply", values, self.telemetry,
-                        temperature=settings.temperature,
-                    ),
-                    max_iters=self.config.runtime.npc_max_iters,
-                    worldbook=package.worldbook, telemetry=self.telemetry,
-                    story_clock=clock,
-                    context_window_tokens=settings.context_window_tokens,
-                )
-                legacy_reply = make_npc_reply_handler(legacy_pool, package.role_cards,
-                                                      package.actor_names)
-            session = SingleCallGameSession(
-                self.store, package,
-                SingleSceneGenerator(
-                    self.config.create_model(model_task, values, self.telemetry,
-                                             temperature=settings.temperature),
-                    package, self.telemetry,
+        model_task = ("single_turn" if "single_turn" in self.config.task_models
+                      else "main_react")
+        # Platform compatibility for persisted beta work; keep out of the future harness library.
+        legacy_reply = None
+        if any(work.kind == "npc_reply" for work in self.store.pending_work(game_id)):
+            legacy_pool = NpcAgentPool(
+                self.store,
+                lambda _game_id, _actor_id: self.config.create_model(
+                    "npc_reply", values, self.telemetry,
+                    temperature=settings.temperature,
                 ),
-                SceneContextProjector(
-                    self.store, package,
-                    max_responders=self.config.runtime.max_npc_replies,
-                    context_window_tokens=settings.context_window_tokens,
-                    clock=clock, program=program,
-                ),
-                clock=clock, max_steps=self.config.runtime.max_steps,
-                telemetry=self.telemetry,
-                legacy_npc_reply=legacy_reply,
+                max_iters=self.config.runtime.npc_max_iters,
+                worldbook=package.worldbook, telemetry=self.telemetry,
+                story_clock=clock,
+                context_window_tokens=settings.context_window_tokens,
             )
-        else:
-            session = make_react_session(self.config, package, self.store, values, self.telemetry,
-                                         story_clock=clock, temperature=settings.temperature,
-                                         context_window_tokens=settings.context_window_tokens)
+            legacy_reply = make_npc_reply_handler(legacy_pool, package.role_cards,
+                                                  package.actor_names)
+        session = SingleCallGameSession(
+            self.store, package,
+            SingleSceneGenerator(
+                self.config.create_model(model_task, values, self.telemetry,
+                                         temperature=settings.temperature),
+                package, self.telemetry,
+            ),
+            SceneContextProjector(
+                self.store, package,
+                max_responders=self.config.runtime.max_npc_replies,
+                context_window_tokens=settings.context_window_tokens,
+                clock=clock, program=program,
+            ),
+            clock=clock, max_steps=self.config.runtime.max_steps,
+            telemetry=self.telemetry,
+            legacy_npc_reply=legacy_reply,
+        )
         self._react_sessions[key] = session
         if len(self._react_sessions) > 128:
             self._react_sessions.pop(next(iter(self._react_sessions)))

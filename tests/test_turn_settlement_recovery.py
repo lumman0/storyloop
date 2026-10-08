@@ -136,3 +136,53 @@ def test_prepared_turn_cannot_change_input_and_can_settle_after_billing_disabled
     assert result["billing"]["input_tokens"] == 1000
     assert result["billing"]["charged_points"] == "0.101"
     assert session.calls == 1
+
+
+def test_platform_always_assembles_single_call_session(portal):
+    from story_harness.runtime.single_call import SingleCallGameSession
+    from story_harness.world.scenario import ScenarioPackage
+
+    package = ScenarioPackage.load(ROOT / "examples/freeform")
+    package.seed_game(portal.store, "assembly")
+    item = SimpleNamespace(package_path=str(ROOT / "examples/freeform"), turns_per_story_tick=1)
+    # An old in-memory configuration cannot select new beta execution.
+    portal.config = replace(portal.config, runtime=replace(portal.config.runtime,
+                                                          turn_engine="multi_agent_beta"))
+    assert isinstance(portal._react(item, package, "assembly"), SingleCallGameSession)
+
+
+def test_platform_recovers_legacy_npc_reply_once(portal, monkeypatch):
+    from story_harness.agents.npc_agent import NpcAgentPool
+    from story_harness.core.contracts import PendingWork
+    from story_harness.runtime.single_call import SingleCallGameSession
+    from story_harness.world.scenario import ScenarioPackage
+
+    package = ScenarioPackage.load(ROOT / "examples/freeform")
+    package.seed_game(portal.store, "legacy-work")
+    before = portal.store.load("legacy-work")
+    event = WorldEvent("legacy-input", "player_spoke", "player", None, before.tick, (),
+                       {"text": "hello"})
+    work = PendingWork("legacy-reply", "npc_reply", before.tick, 10, event.event_id,
+                       {"actor_id": "dockhand", "player_message": "hello"})
+    portal.store.commit("legacy-work", before.version, event, (), (work,))
+    calls = []
+    confirmations = []
+
+    async def prepare_response(self, game_id, actor_id, role_card, player_message, **kwargs):
+        calls.append((game_id, actor_id, player_message, kwargs["current_input_event_id"]))
+        return SimpleNamespace(speech="The old reply survives.",
+                               confirm=lambda: confirmations.append(work.work_id),
+                               abort=lambda: None)
+
+    monkeypatch.setattr(NpcAgentPool, "prepare_response", prepare_response)
+    item = SimpleNamespace(package_path=str(ROOT / "examples/freeform"), turns_per_story_tick=1)
+    session = portal._react(item, package, "legacy-work")
+    assert isinstance(session, SingleCallGameSession)
+    asyncio.run(session.run_ready_work("legacy-work"))
+    asyncio.run(session.run_ready_work("legacy-work"))
+    assert calls == [("legacy-work", "dockhand", "hello", "legacy-input")]
+    assert confirmations == ["legacy-reply"]
+    assert all(item.kind != "npc_reply" for item in portal.store.pending_work("legacy-work"))
+    assert portal.store.event_exists("legacy-work", "legacy-reply:spoken")
+    assert any("The old reply survives." in item.content
+               for item in portal.store.observations_for("legacy-work", "player"))
