@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
 from story_harness.agents.npc_agent import NpcAgentPool
 from story_harness.runtime.npc_work import make_npc_reply_handler

@@ -20,8 +20,8 @@ class HarnessConfigTests(unittest.TestCase):
             self.assertIn("deepseek-v4.1-flash", config.billing_policy.rates)
             self.assertEqual(config.runtime.turn_engine, "single_call")
             model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-key"})
-            self.assertEqual(model.generate_kwargs, {"extra_body": {"enable_thinking": False}})
-            self.assertTrue(model._structured_output_fallback)
+            self.assertEqual(model.extra_body, {"enable_thinking": False})
+            self.assertEqual(model.tool_choice_policy, "auto_only")
 
     def test_default_routes_are_loaded_without_a_secret(self) -> None:
         config = HarnessConfig.load(DEFAULT)

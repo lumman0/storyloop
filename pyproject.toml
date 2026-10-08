@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 agents = [
-  "agentscope==1.0.21",
+  "agentscope==2.0.9",
   "SQLAlchemy[asyncio]>=2.0,<3",
   "mcp==1.30.0",
   "tqdm==4.70.1",

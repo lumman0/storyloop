@@ -6,11 +6,16 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
+from types import SimpleNamespace
 
+from agentscope.credential import OpenAICredential
+from agentscope.message import Msg as AgentScopeMsg, SystemMsg, UserMsg
 from agentscope.model import OpenAIChatModel
+from agentscope.tool import ToolChoice
 from httpx2 import Timeout
 
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
+from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.core.billing import record_model_usage
 
 
@@ -30,36 +35,97 @@ class CompatibleOpenAIChatModel(OpenAIChatModel):
         self.telemetry = telemetry or LangfuseTelemetry()
         self.task = task
         super().__init__(*args, **kwargs)
-        if structured_output_transport == "tool_call":
-            # AgentScope 1.0.21 exposes no public setting for this route.
-            # The dependency is pinned; keep the provider-specific hook here.
-            self._structured_output_fallback = True
+
+    @property
+    def model_name(self) -> str:
+        return self.model
+
+    @staticmethod
+    def _messages(messages: list) -> list[AgentScopeMsg]:
+        converted = []
+        for item in messages:
+            if isinstance(item, AgentScopeMsg):
+                converted.append(item)
+            elif isinstance(item, dict):
+                content = item.get("content", "")
+                if isinstance(content, list):
+                    content = "\n".join(part.get("text", "") for part in content
+                                        if isinstance(part, dict))
+                if item.get("role") == "system":
+                    converted.append(SystemMsg(name=item.get("name", "system"), content=content or ""))
+                else:
+                    converted.append(UserMsg(name=item.get("name", "user"), content=content or ""))
+            else:
+                raise TypeError("model messages must be AgentScope messages or OpenAI message dicts")
+        return converted
+
+    def _record_usage(self, response: object) -> None:
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            record_model_usage(self.model, self.task, usage)
+
+    async def _call_api(self, model_name: str, messages: list, tools=None,
+                        tool_choice=None, **kwargs: object):
+        if self.tool_choice_policy == "auto_only" and tool_choice is not None:
+            if tool_choice.mode not in ("auto", "none"):
+                tool_choice = ToolChoice(mode="auto")
+        return await super()._call_api(model_name, messages, tools, tool_choice, **kwargs)
+
+    async def generate_structured_output(self, messages: list, structured_model: type, **kwargs: object):
+        messages = self._messages(messages)
+        with self.telemetry.span(
+            f"model:{self.task}", {"task": self.task,
+                                  "structured_model": structured_model.__name__},
+            kind="generation", model=self.model,
+            input=messages if self.telemetry.capture_content else None,
+        ) as generation:
+            try:
+                response = await super().generate_structured_output(
+                    messages, structured_model, **kwargs,
+                )
+            except Exception as error:
+                generation.update(level="ERROR", status_message=type(error).__name__)
+                raise
+            self._record_usage(response)
+            if response.usage is not None:
+                generation.update(usage_details={"input": response.usage.input_tokens,
+                                                 "output": response.usage.output_tokens})
+            if self.telemetry.capture_content:
+                generation.update(output=response.content)
+            return response
 
     async def __call__(
         self,
-        messages: list[dict],
+        messages: list,
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
         structured_model: type | None = None,
         **kwargs: object,
     ):
-        if self.tool_choice_policy == "auto_only" and structured_model is None:
-            if tool_choice not in (None, "auto", "none"):
-                tool_choice = "auto"
+        if structured_model is not None:
+            response = await self.generate_structured_output(messages, structured_model, **kwargs)
+            return SimpleNamespace(metadata=response.content, usage=response.usage,
+                                   content=response.content)
+        if isinstance(tool_choice, str):
+            tool_choice = ToolChoice(mode=tool_choice)
+        if self.tool_choice_policy == "auto_only" and tool_choice is not None:
+            if tool_choice.mode not in ("auto", "none"):
+                tool_choice = ToolChoice(mode="auto")
+        messages = self._messages(messages)
         with self.telemetry.span(
             f"model:{self.task}",
             {"task": self.task, "tool_choice": tool_choice,
              "available_tools": [item.get("function", {}).get("name", "") for item in tools or []],
              "structured_model": getattr(structured_model, "__name__", None)},
-            kind="generation", model=self.model_name,
+            kind="generation", model=self.model,
             input=messages if self.telemetry.capture_content else None,
         ) as generation:
             try:
                 response = await super().__call__(
                     messages, tools=tools, tool_choice=tool_choice,
-                    structured_model=structured_model, **kwargs,
+                    **kwargs,
                 )
-                record_model_usage(self.model_name, self.task, response.usage)
+                self._record_usage(response)
             except Exception as error:
                 generation.update(level="ERROR", status_message=type(error).__name__)
                 raise
@@ -106,14 +172,18 @@ class NpcModelConfig:
             "timeout": Timeout(self.timeout_seconds, connect=self.connect_timeout_seconds),
             "max_retries": self.max_retries,
         }
-        if self.base_url:
-            client_kwargs["base_url"] = self.base_url
+        parameters = {key: value for key, value in self.generate_kwargs.items()
+                      if key in OpenAIChatModel.Parameters.model_fields}
+        extra_body = self.generate_kwargs.get("extra_body")
         return CompatibleOpenAIChatModel(
-            model_name=self.model_name,
-            api_key=self.api_key,
+            credential=OpenAICredential(api_key=self.api_key, base_url=self.base_url),
+            model=self.model_name,
             stream=False,
+            max_retries=self.max_retries,
             client_kwargs=client_kwargs,
-            generate_kwargs=dict(self.generate_kwargs),
+            parameters=OpenAIChatModel.Parameters(**parameters),
+            extra_body=extra_body if isinstance(extra_body, dict) else None,
+            formatter=ThinkingSafeOpenAIChatFormatter(),
             tool_choice_policy=self.tool_choice_policy,
             structured_output_transport=self.structured_output_transport,
             telemetry=self.telemetry,

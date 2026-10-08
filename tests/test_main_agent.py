@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
 from story_harness.core.contracts import Snapshot
 from story_harness.agents.main_agent import MainReActAgent
@@ -27,6 +27,8 @@ class ToolThenPlanModel(ChatModelBase):
                 "input": request, "raw_input": json.dumps(request),
             }])
         decision = {"intent": "speech", "target_ids": ["A"], "channel": "speech", "entry_id": None, "action_id": None}
+        if kwargs.get("structured_model") is not None:
+            return ChatResponse(content=[{"type": "text", "text": "已决定交谈"}], metadata=decision)
         return ChatResponse(content=[{
             "type": "tool_use", "id": "plan-1", "name": "generate_response",
             "input": decision, "raw_input": json.dumps(decision),

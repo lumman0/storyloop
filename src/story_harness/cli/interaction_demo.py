@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from agentscope.credential import OpenAICredential
+from agentscope.formatter import OpenAIChatFormatter
+from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase, ChatResponse
 
 from story_harness.agents.npc_agent import NpcAgentPool
@@ -25,11 +28,15 @@ class OfflineReplyModel(ChatModelBase):
     """Deterministic test double; no simulated reasoning or world authority."""
 
     def __init__(self, actor_id: str) -> None:
-        super().__init__(model_name=f"offline-{actor_id}", stream=False)
+        super().__init__(credential=OpenAICredential(api_key="offline"),
+                         model=f"offline-{actor_id}", parameters=self.Parameters(),
+                         stream=False)
         self.actor_id = actor_id
+        self.formatter = OpenAIChatFormatter()
 
-    async def __call__(self, prompt: object, **kwargs: object) -> ChatResponse:
-        return ChatResponse(content=[{"type": "text", "text": f"{self.actor_id}：我听到了。"}])
+    async def __call__(self, messages: object, **kwargs: object) -> ChatResponse:
+        return ChatResponse(content=[TextBlock(text=f"{self.actor_id}：我听到了。")],
+                            is_last=True)
 
 
 async def run_interaction_demo(

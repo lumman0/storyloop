@@ -4,7 +4,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
 from story_harness.agents.npc_agent import NpcAgentPool
 from story_harness.runtime.game_session import GameSession, compose_visible_narration, compose_visible_segments

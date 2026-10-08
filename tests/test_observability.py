@@ -8,7 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from agentscope.model import ChatModelBase, ChatResponse, OpenAIChatModel
+from agentscope.model import OpenAIChatModel
+from agentscope.credential import OpenAICredential
+from agentscope_fakes import ChatModelBase, ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
 from story_harness.adapters.model_config import CompatibleOpenAIChatModel
@@ -253,7 +255,8 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_model_generation_reports_model_usage_and_omits_content_by_default(self):
         client = FakeLangfuse()
         model = CompatibleOpenAIChatModel(
-            model_name="test-model", api_key="never-log-this", stream=False,
+            credential=OpenAICredential(api_key="never-log-this"),
+            model="test-model", stream=False,
             telemetry=LangfuseTelemetry(client), task="main_react",
         )
         response = ChatResponse(

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 
-from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg
+from story_harness.adapters.agentscope_message import Msg
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
@@ -44,7 +43,7 @@ class AgentScopeWorkSelector:
             model=self.model,
             formatter=ThinkingSafeOpenAIChatFormatter(),
             toolkit=Toolkit(),
-            memory=InMemoryMemory(),
+            memory=None,
             max_iters=self.max_iters,
         )
         visible_options = [

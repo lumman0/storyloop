@@ -1,22 +1,22 @@
 import unittest
 from unittest.mock import patch
 
-from agentscope.message import Msg
+from agentscope.message import AssistantMsg, ThinkingBlock, TextBlock, UserMsg
 
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 
 
 class ThinkingFormatterTests(unittest.IsolatedAsyncioTestCase):
     async def test_thinking_is_not_sent_back_and_does_not_warn(self) -> None:
-        assistant = Msg("npc", [
-            {"type": "thinking", "thinking": "private reasoning"},
-            {"type": "text", "text": "你好"},
-        ], "assistant")
+        assistant = AssistantMsg(name="npc", content=[
+            ThinkingBlock(thinking="private reasoning"),
+            TextBlock(text="你好"),
+        ])
         original = list(assistant.content)
 
         with patch("agentscope.formatter._openai_formatter.logger.warning") as warning:
             formatted = await ThinkingSafeOpenAIChatFormatter().format([
-                Msg("player", "hi", "user"), assistant,
+                UserMsg(name="player", content="hi"), assistant,
             ])
 
         self.assertIn("你好", str(formatted))

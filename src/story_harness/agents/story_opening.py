@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from agentscope.message import Msg
+from story_harness.adapters.agentscope_message import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field, ValidationError, field_validator
 

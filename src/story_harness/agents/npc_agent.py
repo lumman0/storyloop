@@ -11,14 +11,15 @@ from dataclasses import dataclass
 from weakref import WeakValueDictionary
 
 from agentscope.formatter import OpenAIChatFormatter
-from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg, TextBlock
+from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse, Toolkit
 
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from story_harness.agents.quiet_agent import QuietReActAgent
+from story_harness.agents.read_only_toolkit import ReadOnlyToolkit
+from story_harness.adapters.agentscope_message import Msg
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.world.worldbook import Worldbook
 from story_harness.runtime.story_clock import StoryClock
@@ -132,7 +133,7 @@ class NpcAgentPool:
                     model=self.model_factory(game_id, actor_id),
                     formatter=self.formatter_factory(),
                     toolkit=toolkit,
-                    memory=InMemoryMemory(),
+                    memory=None,
                     max_iters=self.max_iters,
                 )
                 self._recent_agents[key] = None
@@ -227,7 +228,7 @@ class NpcAgentPool:
         return PreparedNpcReply(speech, confirm, abort)
 
     def _toolkit_for(self, game_id: str, actor_id: str) -> Toolkit:
-        toolkit = Toolkit()
+        toolkit = ReadOnlyToolkit()
 
         def get_own_state() -> ToolResponse:
             """Read only this character's current authoritative state."""

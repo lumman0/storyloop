@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from agentscope.message import Msg
+from story_harness.adapters.agentscope_message import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field, field_validator
 

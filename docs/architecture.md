@@ -2,6 +2,8 @@
 
 StoryLoop 是一个 React + FastAPI 的模块化单体。前端负责玩家、创作者和审核界面；单个后端进程负责业务编排，SQL 数据库保存权威状态，剧本文件按不可变版本保存。当前仍建议单 API worker。
 
+模型和可选多 Agent 引擎使用 AgentScope 2.0.9。默认 `single_call` 通过 AgentScope 2 的模型与结构化输出接口生成回合；`multi_agent_beta` 使用 2.x 的 `Agent`、工具与权限接口。项目自身继续负责游戏状态、权限投影和回合结算。
+
 ```mermaid
 flowchart TD
     Web[React / TypeScript / Vite] -->|HTTP / SSE| HTTP[FastAPI 接口与认证]

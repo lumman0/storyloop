@@ -64,7 +64,7 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock) as call:
             await model([{"role": "user", "content": "hello"}], tools=[{"type": "function"}], tool_choice="required")
 
-        self.assertEqual(call.await_args.kwargs["tool_choice"], "auto")
+        self.assertEqual(call.await_args.kwargs["tool_choice"].mode, "auto")
 
     async def test_native_policy_preserves_forced_tool_choice(self) -> None:
         model = NpcModelConfig(
@@ -74,7 +74,7 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock) as call:
             await model([{"role": "user", "content": "hello"}], tools=[{"type": "function"}], tool_choice="required")
 
-        self.assertEqual(call.await_args.kwargs["tool_choice"], "required")
+        self.assertEqual(call.await_args.kwargs["tool_choice"].mode, "required")
 
     async def test_main_react_sends_auto_to_qwen_compatible_endpoint(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -93,19 +93,21 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             async def completion(**kwargs: object) -> ChatCompletion:
                 choice = kwargs.get("tool_choice")
                 choices.append(choice if isinstance(choice, str) else None)
+                tool_names = [item.get("function", {}).get("name")
+                              for item in kwargs.get("tools", [])]
                 message = (
                     {"role": "assistant", "content": "我会和码头工打招呼。"}
-                    if choice == "none" else
+                    if choice != "auto" or "GenerateStructuredOutput" not in tool_names else
                     {"role": "assistant", "content": None, "tool_calls": [{
                         "id": "decision-1", "type": "function", "function": {
-                            "name": "generate_response", "arguments": json.dumps(decision),
+                            "name": "GenerateStructuredOutput", "arguments": json.dumps(decision),
                         },
                     }]}
                 )
                 return ChatCompletion.model_validate({
                     "id": "chatcmpl-test", "created": 0, "model": "qwen3.8-max",
                     "object": "chat.completion", "choices": [{
-                        "finish_reason": "stop" if choice == "none" else "tool_calls",
+                        "finish_reason": "tool_calls" if choice == "auto" and "GenerateStructuredOutput" in tool_names else "stop",
                         "index": 0, "message": message,
                     }],
                 })
@@ -115,7 +117,8 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             result = await agent.decide("hi")
 
             self.assertEqual(result.target_ids, ["dockhand"])
-            self.assertEqual(choices[0], "auto")
+            self.assertIn("auto", choices)
+            self.assertNotIn("required", choices)
 
 
 if __name__ == "__main__":

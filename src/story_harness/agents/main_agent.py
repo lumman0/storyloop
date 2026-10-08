@@ -5,15 +5,16 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from agentscope.memory import InMemoryMemory
 from story_harness.runtime.player_preferences import current_player_preferences
-from agentscope.message import Msg, TextBlock
+from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse, Toolkit
 from pydantic import BaseModel, Field, ValidationError
 
 from story_harness.core.actions import ActionRule
 from story_harness.agents.quiet_agent import QuietReActAgent
+from story_harness.agents.read_only_toolkit import ReadOnlyToolkit
+from story_harness.adapters.agentscope_message import Msg
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
@@ -72,7 +73,7 @@ class MainReActAgent:
             store, ModelContextCompressor(compression_model or model),
             context_window_tokens, self.telemetry,
         )
-        toolkit = Toolkit()
+        toolkit = ReadOnlyToolkit()
 
         def get_worldbook_entry(entry_id: str) -> ToolResponse:
             """Read one worldbook entry available to the player.
@@ -177,7 +178,7 @@ class MainReActAgent:
             model=model,
             formatter=ThinkingSafeOpenAIChatFormatter(),
             toolkit=toolkit,
-            memory=InMemoryMemory(),
+            memory=None,
             max_iters=max_iters,
         )
         self.narrator = (
@@ -190,7 +191,7 @@ class MainReActAgent:
                 model=narration_model,
                 formatter=ThinkingSafeOpenAIChatFormatter(),
                 toolkit=Toolkit(),
-                memory=InMemoryMemory(),
+                memory=None,
                 max_iters=max_iters,
             )
             if narration_model is not None else self.agent
@@ -259,7 +260,7 @@ class MainReActAgent:
                         kind="agent",
                     ):
                         memory = await self.agent.memory.get_memory()
-                        prompt = await self.agent.formatter.format(msgs=[
+                        prompt = [
                             Msg("system", self.agent.sys_prompt, "system"),
                             *memory[:-1],  # Exclude AgentScope's unstructured exhaustion summary.
                             Msg("player", (
@@ -267,11 +268,11 @@ class MainReActAgent:
                                 "现在只生成一次符合 MainDecision 的结构化决策；"
                                 "不能调用工具或添加未经证实的事实。"
                             ), "user"),
-                        ])
-                        recovered = await self.agent.model(
-                            prompt, structured_model=MainDecision,
+                        ]
+                        recovered = await self.agent.model.generate_structured_output(
+                            prompt, MainDecision,
                         )
-                        decision = MainDecision.model_validate(recovered.metadata)
+                        decision = MainDecision.model_validate(recovered.content)
                 if self.telemetry.capture_content:
                     context_span.update(output=decision.model_dump())
                 return decision

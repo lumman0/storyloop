@@ -2,7 +2,7 @@ import asyncio
 import json
 import unittest
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
 from story_harness.core.contracts import PendingWork, Snapshot
 from story_harness.agents.selector_agent import AgentScopeWorkSelector
@@ -16,20 +16,8 @@ class ChoiceModel(ChatModelBase):
 
     async def __call__(self, prompt: object, **kwargs: object) -> ChatResponse:
         self.prompts.append(prompt)
-        if len(self.prompts) == 1:
-            choice = {"work_id": self.selected_id}
-            return ChatResponse(
-                content=[
-                    {
-                        "type": "tool_use",
-                        "id": "choose-1",
-                        "name": "generate_response",
-                        "input": choice,
-                        "raw_input": json.dumps(choice),
-                    }
-                ]
-            )
-        return ChatResponse(content=[{"type": "text", "text": "选择已提交"}])
+        return ChatResponse(content=[{"type": "text", "text": "选择已提交"}],
+                            metadata={"work_id": self.selected_id})
 
 
 class AgentScopeWorkSelectorTests(unittest.TestCase):

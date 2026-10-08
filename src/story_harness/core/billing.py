@@ -76,8 +76,10 @@ class UsageCollector:
                           if isinstance(details, dict) else
                           (getattr(details, "prompt_tokens_details", None)
                            or getattr(details, "input_tokens_details", None)))
-        cached = (prompt_details.get("cached_tokens") if isinstance(prompt_details, dict)
-                  else getattr(prompt_details, "cached_tokens", None))
+        cached = getattr(usage, "cache_input_tokens", None)
+        if type(cached) is not int:
+            cached = (prompt_details.get("cached_tokens") if isinstance(prompt_details, dict)
+                      else getattr(prompt_details, "cached_tokens", None))
         self.records.append(ModelUsage(model, task, usage.input_tokens, usage.output_tokens,
                                        cached if type(cached) is int else 0))
 
