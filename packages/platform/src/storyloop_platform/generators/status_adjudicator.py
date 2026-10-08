@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 
-from storyloop_harness.adapters.agentscope_message import Msg
+from storyloop_harness.generation import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
-from storyloop_harness.core.contracts import Snapshot
-from storyloop_harness.world.status_fields import StatusField, _value_at
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.advanced import Snapshot
+from storyloop_harness.advanced import StatusField, value_at as _value_at
 
 
 class StatusDelta(BaseModel):

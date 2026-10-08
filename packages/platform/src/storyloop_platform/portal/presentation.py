@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from storyloop_harness.core.contracts import Snapshot
+from storyloop_harness.advanced import Snapshot
 from storyloop_platform.runtime.campaign import CampaignProgram
 
 

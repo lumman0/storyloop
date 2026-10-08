@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from storyloop_harness import TurnEngine, TurnInput
+from storyloop_harness.usage import ModelUsage
+
 import asyncio
 import json
 from dataclasses import dataclass, replace
@@ -11,10 +14,10 @@ from weakref import WeakValueDictionary
 
 from storyloop_platform.adapters.store import GameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
-from storyloop_harness.core.contracts import Effect, Observation, Snapshot, WorldEvent
-from storyloop_harness.runtime.presentation import SceneContext, StorySegment, segment_for_observation
-from storyloop_harness.runtime.turn_progress import TurnProgress, emit
-from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.advanced import Effect, Observation, Snapshot, WorldEvent
+from storyloop_harness.advanced import SceneContext, StorySegment, segment_for_observation
+from storyloop_harness.advanced import TurnProgress, emit
+from storyloop_harness.advanced import StoryClock
 
 
 DisplayPart = str | StorySegment
@@ -53,6 +56,7 @@ class CampaignOutcome:
     complete: bool
     segments: tuple[StorySegment, ...] = ()
     time_of_day: str = ""
+    model_usage: tuple[ModelUsage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -502,15 +506,18 @@ class CampaignSession:
             if self.react is None:
                 raise ValueError("free-form turns require a ReAct session")
             bounded = getattr(self.react, "run_turn_bounded", None)
-            if bounded is not None:
+            if bounded is not None or isinstance(self.react, TurnEngine):
                 cursor = snapshot.data["campaign"]["cursor"]
                 pending_tick = None
                 if cursor < len(self.program.steps):
                     pending = self.program.steps[cursor]
                     pending_tick = (pending["at"] * self.turns_per_story_tick
                                     + pending.get("at_subtick", 0))
-                result = await bounded(game_id, text, turn_id,
-                                       max_tick=pending_tick, progress=progress)
+                result = (await self.react.run_turn(
+                    TurnInput(game_id, text, turn_id, self.react.package.version),
+                    max_tick=pending_tick, progress=progress,
+                ) if isinstance(self.react, TurnEngine) else await bounded(
+                    game_id, text, turn_id, max_tick=pending_tick, progress=progress))
             else:
                 result = (await self.react.run_turn(game_id, text, turn_id, progress=progress)
                           if progress is not None else await self.react.run_turn(game_id, text, turn_id))
@@ -531,7 +538,9 @@ class CampaignSession:
                 duration = "standard"
             if not self.skip_react_presentation:
                 self._append_passage(parts, snapshot.tick, result.snapshot.tick - snapshot.tick, duration)
-        return self._drain(game_id, parts)
+        outcome = self._drain(game_id, parts)
+        return (replace(outcome, model_usage=getattr(result, "model_usage", ()))
+                if text not in {"/next", "/rest"} else outcome)
 
     def _append_passage(self, parts: list[DisplayPart], before_tick: object,
                         duration_ticks: object, duration: object) -> None:

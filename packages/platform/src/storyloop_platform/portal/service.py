@@ -20,13 +20,12 @@ from storyloop_platform.generators.scene_narrator import CampaignSceneNarrator
 from storyloop_platform.generators.heart_message_writer import NpcHeartMessageWriter
 from storyloop_platform.generators.novel_narrator import NovelTurnNarrator
 from storyloop_platform.generators.prologue_generator import ModelPrologueGenerator
-from storyloop_harness.agents.action_advisor import ActionOption, ActionOptionAdvisor
+from storyloop_harness.generation import ActionOption, ActionOptionAdvisor
 from storyloop_platform.generators.status_adjudicator import ModelStatusAdjudicator
-from storyloop_harness.agents.scene_turn import SceneContextProjector, SingleSceneGenerator
 from storyloop_platform.generators.scene_messages import SingleCallMessageWriter
 from storyloop_platform.legacy.npc_agent import NpcAgentPool
 from storyloop_platform.portal.billing import collect_usage
-from storyloop_harness.core.contracts import Observation, Snapshot, WorldEvent
+from storyloop_harness.advanced import Observation, Snapshot, WorldEvent
 from storyloop_platform.portal.catalog import GameCatalog, GameListing
 from storyloop_platform.portal.access import AccessService
 from storyloop_platform.portal.invitations import InvitationService
@@ -43,19 +42,18 @@ from storyloop_platform.portal.turn_settlements import SQLTurnSettlements, TurnS
 from storyloop_platform.portal.presentation import campaign_interaction
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 from storyloop_platform.runtime.game_session import GameSession
-from storyloop_harness.runtime.presentation import StorySegment, segment_for_observation
+from storyloop_harness.advanced import StorySegment, segment_for_observation
 from storyloop_platform.runtime.novel_presentation import present_freeform_novel
 from storyloop_platform.portal.character_cards import shared_actor_memories
 from storyloop_platform.runtime.guidance import GuidanceAdvisor, GuidanceResult
 from storyloop_platform.legacy.npc_work import make_npc_reply_handler
-from storyloop_harness.runtime.single_call import SingleCallGameSession
-from storyloop_harness.runtime.turn_progress import TurnProgress, emit
-from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.advanced import TurnProgress, emit
+from storyloop_harness.advanced import StoryClock
 from storyloop_platform.runtime.status_update import settle_status
-from storyloop_harness.runtime.player_preferences import player_preferences_scope
-from storyloop_harness import ScenarioPackage
-from storyloop_harness.world.prepared_opening import render_prepared_opening
-from storyloop_harness.world.status_fields import StatusField, project_status_fields
+from storyloop_harness.advanced import player_preferences_scope
+from storyloop_harness import ScenarioPackage, TurnEngine, TurnInput
+from storyloop_harness.advanced import render_prepared_opening
+from storyloop_harness.advanced import StatusField, project_status_fields
 
 
 class PlayerPortal:
@@ -113,7 +111,7 @@ class PlayerPortal:
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
         self._react_sessions: dict[tuple[Path, str, SaveGenerationSettings, bool],
-                                   GameSession | SingleCallGameSession] = {}
+                                   GameSession | TurnEngine] = {}
         self._campaign_sessions: dict[tuple[Path, str, SaveGenerationSettings], tuple[CampaignProgram, CampaignSession]] = {}
         self._player_turn_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
@@ -616,7 +614,7 @@ class PlayerPortal:
 
     def _react(self, item: GameListing, package: ScenarioPackage, game_id: str,
                *, overnight_requires_rest: bool = False,
-               program: CampaignProgram | None = None) -> GameSession | SingleCallGameSession:
+               program: CampaignProgram | None = None) -> GameSession | TurnEngine:
         settings = self._generation_settings(game_id)
         key = (item.package_path, game_id, settings, overnight_requires_rest)
         if key in self._react_sessions:
@@ -644,22 +642,14 @@ class PlayerPortal:
             )
             legacy_reply = make_npc_reply_handler(legacy_pool, package.role_cards,
                                                   package.actor_names)
-        session = SingleCallGameSession(
+        session = TurnEngine(
             self.store, package,
-            SingleSceneGenerator(
-                self.config.create_model(model_task, values, self.telemetry,
-                                         temperature=settings.temperature),
-                package, self.telemetry,
-            ),
-            SceneContextProjector(
-                self.store, package,
-                max_responders=self.config.runtime.max_npc_replies,
-                context_window_tokens=settings.context_window_tokens,
-                clock=clock, program=program,
-            ),
-            clock=clock, max_steps=self.config.runtime.max_steps,
-            telemetry=self.telemetry,
-            legacy_npc_reply=legacy_reply,
+            self.config.create_model(model_task, values, self.telemetry,
+                                     temperature=settings.temperature),
+            max_responders=self.config.runtime.max_npc_replies,
+            context_window_tokens=settings.context_window_tokens,
+            program=program, clock=clock, max_steps=self.config.runtime.max_steps,
+            telemetry=self.telemetry, legacy_npc_reply=legacy_reply,
         )
         self._react_sessions[key] = session
         if len(self._react_sessions) > 128:
@@ -679,7 +669,7 @@ class PlayerPortal:
         program = CampaignProgram.load(item.package_path / "campaign.json")
         react = self._react(item, package, game_id, overnight_requires_rest=True,
                             program=program)
-        single = isinstance(react, SingleCallGameSession)
+        single = isinstance(react, TurnEngine)
         result = (program, CampaignSession(
             self.store, program, react, telemetry=self.telemetry,
             turns_per_story_tick=item.turns_per_story_tick,
@@ -789,7 +779,7 @@ class PlayerPortal:
     async def _settle_status(self, package: ScenarioPackage, game_id: str, turn_id: str,
                              player_text: str,
                              observations: tuple[Observation, ...],
-                             single: SingleCallGameSession | None = None):
+                             single: TurnEngine | None = None):
         if not any(field.automatically_updated for field in package.status_fields):
             return self.store.load(game_id)
         if single is None:
@@ -989,6 +979,7 @@ class PlayerPortal:
         package = self._package_for_mode(ScenarioPackage.load(item.package_path), mode)
         context = collect_usage() if self.billing is not None and not preview else nullcontext(None)
         preferences = () if preview else await self._preferences_for(player_id)
+        engine_usage = ()
         with context as meter, player_preferences_scope(preferences):
             source_driven = package.story_blueprint is not None
             recovered = (await self._recover_freeform(item, package, game_id, text, turn_id,
@@ -1002,9 +993,10 @@ class PlayerPortal:
                                    for item in self.store.observations_for(game_id, "player")}
                                   if review_status else set())
                 program, session = self._campaign(item, package, game_id)
-                single = (session.react if isinstance(session.react, SingleCallGameSession)
+                single = (session.react if isinstance(session.react, TurnEngine)
                           else None)
                 outcome = await session.submit(game_id, text, turn_id, progress=progress)
+                engine_usage = outcome.model_usage
                 visible_after = (tuple(
                     item for item in self.store.observations_for(game_id, "player")
                     if item.observation_id not in visible_before
@@ -1047,10 +1039,13 @@ class PlayerPortal:
                 react = (self._react(item, package, game_id,
                                     overnight_requires_rest=True)
                          if source_driven else self._react(item, package, game_id))
-                single = react if isinstance(react, SingleCallGameSession) else None
-                outcome = await react.run_turn(
+                single = react if isinstance(react, TurnEngine) else None
+                outcome = (await react.run_turn(
+                    TurnInput(game_id, text, turn_id, package.version), progress=progress,
+                ) if single is not None else await react.run_turn(
                     game_id, text, turn_id, progress=progress,
-                )
+                ))
+                engine_usage = getattr(outcome, "model_usage", ())
                 body, segments = outcome.narration, outcome.segments
                 if package.presentation_mode == "novel" and single is None:
                     body, segments = await self._freeform_novel(
@@ -1082,7 +1077,7 @@ class PlayerPortal:
                                   status_fields=package.status_fields, time_unit=package.time_unit)
         if self.billing is not None and not preview:
             prepared = self.turn_settlements.prepare(game_id, request_id, text, view,
-                                                     meter.records, self.billing.policy)
+                                                     list(engine_usage) + meter.records, self.billing.policy)
             return self._settle_prepared_turn(player_id, game_id, request_id, text, item, prepared)
         self.accounts.store_turn_response(game_id, request_id, text, view)
         if not preview:
@@ -1129,7 +1124,7 @@ class PlayerPortal:
         segments = tuple(segment_for_observation(self.store, game_id, item) for item in visible)
         body = "\n\n".join(item.body_text for item in segments) or "上次操作已提交，暂时没有新的可见变化。"
         if (package.presentation_mode == "novel"
-                and not isinstance(react, SingleCallGameSession)):
+                and not isinstance(react, TurnEngine)):
             body, segments = await self._freeform_novel(package, game_id, text, turn_id, segments)
             snapshot = self.store.load(game_id)
         await self._settle_status(package, game_id, turn_id, text, tuple(visible))
@@ -1139,7 +1134,7 @@ class PlayerPortal:
                         game_id, snapshot, visible_text=body))
         single = react
         action_options = (single.proposed_options(game_id, turn_id)
-                          if isinstance(single, SingleCallGameSession) else
+                          if isinstance(single, TurnEngine) else
                           await self._action_options(
                               body, package.presentation_mode, game_id=game_id,
                               scenario_id=package.package_id,

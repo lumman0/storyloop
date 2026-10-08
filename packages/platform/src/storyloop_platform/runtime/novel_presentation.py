@@ -6,10 +6,10 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from storyloop_platform.adapters.store import GameStore
-from storyloop_harness.core.contracts import WorldEvent
-from storyloop_harness.runtime.presentation import SceneContext, StorySegment, segment_for_observation
-from storyloop_harness.runtime.story_clock import StoryClock
-from storyloop_harness.runtime.turn_progress import TurnProgress, emit
+from storyloop_harness.advanced import WorldEvent
+from storyloop_harness.advanced import SceneContext, StorySegment, segment_for_observation
+from storyloop_harness.advanced import StoryClock
+from storyloop_harness.advanced import TurnProgress, emit
 from storyloop_harness import ScenarioPackage
 
 

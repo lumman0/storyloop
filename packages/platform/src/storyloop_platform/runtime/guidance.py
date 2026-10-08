@@ -7,7 +7,7 @@ from typing import Protocol
 
 from storyloop_platform.adapters.store import GameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
-from storyloop_harness.core.contracts import Snapshot
+from storyloop_harness.advanced import Snapshot
 from storyloop_platform.runtime.campaign import CampaignProgram
 from storyloop_harness import ScenarioPackage
 

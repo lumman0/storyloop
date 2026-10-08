@@ -19,10 +19,10 @@ from storyloop_platform.adapters.store import GameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry, observed_tool
 from storyloop_platform.legacy.quiet_agent import QuietReActAgent
 from storyloop_platform.legacy.read_only_toolkit import ReadOnlyToolkit
-from storyloop_harness.adapters.agentscope_message import Msg
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
-from storyloop_harness.world.worldbook import Worldbook
-from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.generation import Msg
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.advanced import Worldbook
+from storyloop_harness.advanced import StoryClock
 from storyloop_platform.runtime.agent_context import AgentContextManager, ModelContextCompressor
 
 

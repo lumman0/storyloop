@@ -7,22 +7,22 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 from weakref import WeakValueDictionary
 
-from storyloop_harness.core.actions import adjudicate_action
-from storyloop_harness.core.turn_result import TurnOutcome
+from storyloop_harness.advanced import adjudicate_action
+from storyloop_harness.advanced import TurnOutcome
 from storyloop_platform.legacy.npc_agent import NpcAgentPool
-from storyloop_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
-from storyloop_harness.core.open_actions import OpenActionOutcome, validate_open_effects
-from storyloop_harness.core.decisions import MainDecision
+from storyloop_harness.advanced import Observation, PendingWork, Snapshot, WorldEvent
+from storyloop_harness.advanced import OpenActionOutcome, validate_open_effects
+from storyloop_harness.advanced import MainDecision
 from storyloop_platform.legacy.npc_work import make_npc_reply_handler
-from storyloop_harness.core.perception import physical_observations
-from storyloop_harness.runtime.runner import RunResult, TurnRunner, WorkSelector
+from storyloop_harness.advanced import physical_observations
+from storyloop_harness.advanced import RunResult, TurnRunner, WorkSelector
 from storyloop_harness import ScenarioPackage
-from storyloop_harness.runtime.schedule import scenario_cue
+from storyloop_harness.advanced import scenario_cue
 from storyloop_harness import GameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan, session_id_for_game
-from storyloop_harness.runtime.presentation import StorySegment, segment_for_observation
-from storyloop_harness.runtime.turn_progress import TurnProgress, emit
-from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.advanced import StorySegment, segment_for_observation
+from storyloop_harness.advanced import TurnProgress, emit
+from storyloop_harness.advanced import StoryClock
 
 
 class MainAgent(Protocol):
@@ -294,7 +294,7 @@ class GameSession:
         self, game_id: str, turn_id: str, text: str, decision: MainDecision,
         duration_ticks: int = 1,
     ) -> None:
-        from storyloop_harness.runtime.player_input import submit_player_input
+        from storyloop_harness.advanced import submit_player_input
 
         if any(actor_id not in self.package.role_cards for actor_id in decision.target_ids):
             raise ValueError("main agent selected an actor outside this scenario")

@@ -10,15 +10,15 @@ import json
 from dataclasses import dataclass
 from typing import Protocol
 
-from storyloop_harness.adapters.agentscope_message import Msg
+from storyloop_harness.generation import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
 from storyloop_platform.adapters.store import GameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
-from storyloop_harness.core.contracts import AgentContextCheckpoint, AgentContextEntry
-from storyloop_harness.core.token_budget import estimate_tokens
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.advanced import AgentContextCheckpoint, AgentContextEntry
+from storyloop_harness.advanced import estimate_tokens
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
 
 
 class ContextSummary(BaseModel):

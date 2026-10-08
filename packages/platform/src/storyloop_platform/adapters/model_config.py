@@ -15,11 +15,11 @@ from agentscope.tool import ToolChoice
 from httpx2 import Timeout
 
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
 from storyloop_platform.portal.billing import record_model_usage
 
 
-from storyloop_harness.models.agentscope import (CompatibleOpenAIChatModel, ToolChoicePolicy, StructuredOutputTransport)
+from storyloop_harness.generation import CompatibleOpenAIChatModel, ToolChoicePolicy, StructuredOutputTransport
 
 
 @dataclass(frozen=True)

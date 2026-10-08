@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import json
 
-from storyloop_harness.adapters.agentscope_message import Msg
+from storyloop_harness.generation import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
 from storyloop_platform.runtime.campaign import CampaignProgram
-from storyloop_harness.runtime.presentation import SceneContext
+from storyloop_harness.advanced import SceneContext
 from storyloop_harness import ScenarioPackage
-from storyloop_harness.runtime.player_preferences import current_player_preferences
+from storyloop_harness.advanced import current_player_preferences
 
 
 class SceneNarration(BaseModel):

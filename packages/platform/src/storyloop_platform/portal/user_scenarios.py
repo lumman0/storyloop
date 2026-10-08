@@ -20,8 +20,8 @@ from storyloop_platform.portal.scenario_lifecycle import lock_scenario
 from storyloop_platform.portal.package_cleanup import PackageCleanup
 from storyloop_platform.runtime.campaign import CampaignProgram
 from storyloop_harness import ScenarioPackage
-from storyloop_harness.world.prepared_opening import validate_prepared_opening
-from storyloop_harness.world.prologue import save_prologue
+from storyloop_harness.advanced import validate_prepared_opening
+from storyloop_harness.advanced import save_prologue
 
 
 MAX_ARCHIVE_BYTES = 4 * 1024 * 1024

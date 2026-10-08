@@ -8,7 +8,7 @@ from storyloop_platform.legacy.action_resolver import ModelActionResolver
 from storyloop_platform.legacy.npc_agent import NpcAgentPool
 from storyloop_platform.legacy.selector_agent import AgentScopeWorkSelector
 from storyloop_platform.runtime.game_session import GameSession
-from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.advanced import StoryClock
 from storyloop_harness import ScenarioPackage
 
 

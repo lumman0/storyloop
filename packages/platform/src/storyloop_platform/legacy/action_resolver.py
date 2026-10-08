@@ -5,15 +5,15 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from storyloop_harness.adapters.agentscope_message import Msg
+from storyloop_harness.generation import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
 from storyloop_platform.adapters.store import GameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
-from storyloop_harness.core.contracts import Effect, Snapshot
-from storyloop_harness.core.open_actions import OpenActionOutcome, _read_path
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.advanced import Effect, Snapshot
+from storyloop_harness.advanced import OpenActionOutcome, read_path as _read_path
 from storyloop_harness import ScenarioPackage
 
 

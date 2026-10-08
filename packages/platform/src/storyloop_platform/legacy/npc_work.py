@@ -6,8 +6,8 @@ from collections import Counter
 from collections.abc import Mapping
 
 from storyloop_platform.legacy.npc_agent import NpcAgentPool
-from storyloop_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
-from storyloop_harness.runtime.runner import WorkHandler, WorkResult
+from storyloop_harness.advanced import Observation, PendingWork, Snapshot, WorldEvent
+from storyloop_harness.advanced import WorkHandler, WorkResult
 
 
 def make_npc_reply_handler(

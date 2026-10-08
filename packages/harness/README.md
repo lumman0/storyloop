@@ -31,15 +31,15 @@ outcome = await engine.run_turn(
 ```
 
 The top-level facade exports exactly `ScenarioPackage`, `TurnEngine`,
-`TurnInput`, `TurnOutcome`, `GameStore`, and `ModelPort`.
+`TurnInput`, `TurnOutcome`, `GameStore`, `ModelPort`, and the optional `CampaignContext` protocol.
 `TurnInput.scenario_version` must match both the engine's package and the saved
 scenario. Authorization and request/account ownership belong to the caller.
 
 `ModelPort` is an async callable accepting messages and `structured_model` and
 returning an object with `metadata` containing the structured result.
-`models.agentscope.CompatibleOpenAIChatModel` adapts AgentScope 2.0.9; credentials
+`generation.CompatibleOpenAIChatModel` adapts AgentScope 2.0.9; credentials
 and endpoint routing are supplied by the caller. The adapter reports usage
-through `models.usage.record_model_usage`; custom adapters can call the same
+through `usage.record_model_usage`; custom adapters can call the same
 hook. `TurnOutcome.model_usage` is scoped to the current call, and contains no
 prices or settlement data. The deterministic offline model reports zero tokens.
 
@@ -50,6 +50,30 @@ Existing result fields, including player-visible observations, remain intact.
 The `GameStore.commit` expected version protects state writes. The minimal
 memory store enforces this check and applies each commit atomically, but is not
 persistent and is intended for examples and adapter contract tests.
+
+## Product integration
+
+`TurnEngine` accepts `clock`, `program` (a `CampaignContext`), `max_responders`,
+`context_window_tokens`, `max_steps`, `telemetry`, and `legacy_npc_reply`.
+`run_turn(TurnInput, progress=..., max_tick=...)` supports progress callbacks and
+campaign time boundaries. `proposed_options` and `proposed_status` read persisted
+turn suggestions; `run_ready_work` drains previously queued work, including an
+injected legacy NPC handler. Standalone background work reports usage to the
+caller's `usage.collect_usage` scope; a normal turn returns it in `model_usage`.
+
+Additional explicit public surfaces support product adapters:
+
+- `advanced`: story events, snapshots, validation, projection, story clocks and
+  work contracts used by persistence and legacy integrations. This larger
+  compatibility surface is separate from the ordinary turn facade.
+- `generation`: structured model transport, formatter and action suggestions.
+- `telemetry`: tracing protocols and no-op span implementation.
+- `usage`: token usage records and scoped collection, with no pricing policy.
+
+Platform callers must settle using the returned turn usage. Product generation
+outside the engine may use its own collection scope; merge those records with
+`TurnOutcome.model_usage` exactly once. Nested scopes deliberately do not copy
+records to outer collectors. Missing model usage raises before settlement.
 
 ## Development
 

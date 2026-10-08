@@ -139,7 +139,7 @@ def test_prepared_turn_cannot_change_input_and_can_settle_after_billing_disabled
 
 
 def test_platform_always_assembles_single_call_session(portal):
-    from story_harness.runtime.single_call import SingleCallGameSession
+    from storyloop_harness import TurnEngine
     from story_harness.world.scenario import ScenarioPackage
 
     package = ScenarioPackage.load(ROOT / "examples/freeform")
@@ -148,13 +148,13 @@ def test_platform_always_assembles_single_call_session(portal):
     # An old in-memory configuration cannot select new beta execution.
     portal.config = replace(portal.config, runtime=replace(portal.config.runtime,
                                                           turn_engine="multi_agent_beta"))
-    assert isinstance(portal._react(item, package, "assembly"), SingleCallGameSession)
+    assert isinstance(portal._react(item, package, "assembly"), TurnEngine)
 
 
 def test_platform_recovers_legacy_npc_reply_once(portal, monkeypatch):
     from story_harness.agents.npc_agent import NpcAgentPool
     from story_harness.core.contracts import PendingWork
-    from story_harness.runtime.single_call import SingleCallGameSession
+    from storyloop_harness import TurnEngine
     from story_harness.world.scenario import ScenarioPackage
 
     package = ScenarioPackage.load(ROOT / "examples/freeform")
@@ -177,7 +177,7 @@ def test_platform_recovers_legacy_npc_reply_once(portal, monkeypatch):
     monkeypatch.setattr(NpcAgentPool, "prepare_response", prepare_response)
     item = SimpleNamespace(package_path=str(ROOT / "examples/freeform"), turns_per_story_tick=1)
     session = portal._react(item, package, "legacy-work")
-    assert isinstance(session, SingleCallGameSession)
+    assert isinstance(session, TurnEngine)
     asyncio.run(session.run_ready_work("legacy-work"))
     asyncio.run(session.run_ready_work("legacy-work"))
     assert calls == [("legacy-work", "dockhand", "hello", "legacy-input")]

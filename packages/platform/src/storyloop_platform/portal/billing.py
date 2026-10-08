@@ -45,7 +45,7 @@ class ModelRate:
         )
 
 
-from storyloop_harness.models.usage import ModelUsage, UsageCollector, collect_usage, record_model_usage
+from storyloop_harness.usage import ModelUsage, UsageCollector, collect_usage, record_model_usage
 
 
 @dataclass(frozen=True)

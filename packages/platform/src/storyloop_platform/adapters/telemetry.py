@@ -8,7 +8,7 @@ import os
 from collections.abc import Callable
 
 
-from storyloop_harness.adapters.telemetry import (Telemetry, TraceSpan, _NoopSpan, session_id_for_game)
+from storyloop_harness.telemetry import Telemetry, TraceSpan, NoopSpan as _NoopSpan, session_id_for_game
 
 
 class _SafeContext:

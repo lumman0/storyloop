@@ -9,9 +9,8 @@ from dataclasses import asdict
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
-from storyloop_harness.core.contracts import (AgentContextCheckpoint, AgentContextEntry,
-                                          Observation, PendingWork, PlayerInput, Snapshot, WorldEvent)
-from storyloop_harness.core.state import apply_event
+from storyloop_harness.advanced import AgentContextCheckpoint, AgentContextEntry, Observation, PendingWork, PlayerInput, Snapshot, WorldEvent
+from storyloop_harness.advanced import apply_event
 
 
 def _json(value: object) -> str:

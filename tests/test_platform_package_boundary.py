@@ -36,22 +36,19 @@ def test_platform_has_no_dependency_on_old_compatibility_package():
         assert "story_harness" not in source.read_text(encoding="utf-8"), source
 
 
-def test_internal_harness_imports_match_task_6_inventory():
+def test_task_6_inventory_has_no_remaining_private_dependencies():
+    """Retain the migration inventory as evidence; every listed consumer is now migrated."""
     import storyloop_platform
     root = Path(storyloop_platform.__file__).parent
-    actual = {}
-    for source in sorted(root.rglob("*.py")):
-        imports = []
-        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("storyloop_harness."):
-                imports.append(node.module + ": " + ", ".join(alias.name for alias in node.names))
-            elif isinstance(node, ast.Import):
-                imports.extend(alias.name for alias in node.names
-                               if alias.name.startswith("storyloop_harness."))
-        if imports:
-            actual[source.relative_to(root).as_posix()] = sorted(set(imports))
     inventory = Path(__file__).resolve().parents[1] / "docs/superpowers/specs/task-6-platform-harness-imports.json"
-    assert actual == json.loads(inventory.read_text(encoding="utf-8"))
+    private = tuple("storyloop_harness." + name + "." for name in
+                    ("core", "runtime", "world", "agents", "models", "adapters"))
+    for relative in json.loads(inventory.read_text(encoding="utf-8")):
+        source = root / relative
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            names = ([node.module or ""] if isinstance(node, ast.ImportFrom) else
+                     [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
+            assert not any(name.startswith(private) for name in names), relative
 
 
 def test_platform_declares_versioned_harness_dependency():

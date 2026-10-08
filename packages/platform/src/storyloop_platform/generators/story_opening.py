@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from storyloop_harness.adapters.agentscope_message import Msg
+from storyloop_harness.generation import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
-from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
-from storyloop_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters, merge_knowledge
+from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.advanced import PlayerEncounter, accepted_encounters, merge_knowledge
 from storyloop_harness import ScenarioPackage
 
 
