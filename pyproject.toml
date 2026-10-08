@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Causal runtime for interactive story agents"
 requires-python = ">=3.12"
 dependencies = [
+  "storyloop-harness==0.1.0",
   "SQLAlchemy>=2.0,<3",
   "alembic>=1.13,<2",
 ]
@@ -44,3 +45,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 story_harness = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
+
+[tool.uv.sources]
+storyloop-harness = { path = "packages/harness", editable = true }

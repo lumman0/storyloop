@@ -2615,6 +2615,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "sqlalchemy" },
+    { name = "storyloop-harness" },
 ]
 
 [package.optional-dependencies]
@@ -2659,10 +2660,28 @@ requires-dist = [
     { name = "pywin32", marker = "sys_platform == 'win32' and extra == 'portal'", specifier = ">=306" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'agents'", specifier = ">=2.0,<3" },
+    { name = "storyloop-harness", editable = "packages/harness" },
     { name = "tqdm", marker = "extra == 'agents'", specifier = "==4.70.1" },
     { name = "uvicorn", marker = "extra == 'portal'", specifier = ">=0.30,<1" },
 ]
 provides-extras = ["agents", "observability", "portal", "online", "player-memory", "test"]
+
+[[package]]
+name = "storyloop-harness"
+version = "0.1.0"
+source = { editable = "packages/harness" }
+dependencies = [
+    { name = "agentscope" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agentscope", specifier = "==2.0.9" },
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8,<10" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "tqdm"

@@ -1,5 +1,4 @@
-"""Provider-independent text token budgeting."""
-
-def estimate_tokens(text: str) -> int:
-    """Conservative, provider-independent text estimate; includes UTF-8 cost."""
-    return max(len(text), (len(text.encode("utf-8")) + 1) // 2)
+"""Compatibility alias; implementation lives in storyloop-harness."""
+import importlib as _importlib
+import sys as _sys
+_sys.modules[__name__] = _importlib.import_module("storyloop_harness.core.token_budget")
