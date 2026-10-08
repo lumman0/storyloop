@@ -6,18 +6,19 @@ import asyncio
 import re
 from weakref import WeakValueDictionary
 
-from story_harness.adapters.store import GameStore
+from story_harness.core.store_port import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 from story_harness.agents.action_advisor import ActionOption
-from story_harness.agents.main_agent import MainDecision
+from story_harness.core.decisions import MainDecision
 from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
 from story_harness.core.actions import adjudicate_action
 from story_harness.core.contracts import Effect, Observation, PendingWork, Snapshot, WorldEvent
 from story_harness.core.open_actions import validate_open_effects
 from story_harness.core.perception import physical_observations
-from story_harness.runtime.game_session import TurnOutcome
+from story_harness.core.turn_result import TurnOutcome
 from story_harness.runtime.player_knowledge import accepted_encounters, merge_knowledge
-from story_harness.runtime.presentation import StorySegment, segment_for_observation
+from story_harness.core.turn_result import StorySegment
+from story_harness.runtime.presentation import segment_for_observation
 from story_harness.runtime.runner import RunResult, TurnRunner, WorkHandler, WorkResult
 from story_harness.runtime.schedule import scenario_cue
 from story_harness.runtime.story_clock import StoryClock

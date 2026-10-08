@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
 from story_harness.runtime.runner import WorkResult
-from story_harness.adapters.store import GameStore
+from story_harness.core.store_port import GameStore
 
 
 def advance_time(store: GameStore, game_id: str, tick: int, event_id: str) -> Snapshot:

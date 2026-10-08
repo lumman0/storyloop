@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from story_harness.adapters.store import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry
 from story_harness.core.contracts import AgentContextCheckpoint, AgentContextEntry
+from story_harness.core.token_budget import estimate_tokens
 from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 
 
@@ -68,11 +69,6 @@ class AgentContextView:
     through_version: int
     estimated_tokens: int
     compressed_entries: int
-
-
-def estimate_tokens(text: str) -> int:
-    """Conservative, provider-independent text estimate; includes UTF-8 cost."""
-    return max(len(text), (len(text.encode("utf-8")) + 1) // 2)
 
 
 class AgentContextManager:

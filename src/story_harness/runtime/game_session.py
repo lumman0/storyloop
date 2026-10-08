@@ -4,21 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Protocol
 from weakref import WeakValueDictionary
 
 from story_harness.core.actions import adjudicate_action
+from story_harness.core.turn_result import TurnOutcome
 from story_harness.agents.npc_agent import NpcAgentPool
 from story_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
 from story_harness.core.open_actions import OpenActionOutcome, validate_open_effects
-from story_harness.agents.main_agent import MainDecision
+from story_harness.core.decisions import MainDecision
 from story_harness.runtime.npc_work import make_npc_reply_handler
 from story_harness.core.perception import physical_observations
 from story_harness.runtime.runner import RunResult, TurnRunner, WorkSelector
 from story_harness.world.scenario import ScenarioPackage
 from story_harness.runtime.schedule import scenario_cue
-from story_harness.adapters.store import GameStore
+from story_harness.core.store_port import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, TraceSpan, session_id_for_game
 from story_harness.runtime.presentation import StorySegment, segment_for_observation
 from story_harness.runtime.turn_progress import TurnProgress, emit
@@ -34,17 +34,6 @@ class MainAgent(Protocol):
 class ActionResolver(Protocol):
     async def resolve(self, before: Snapshot, player_text: str,
                       suggested_targets: tuple[str, ...]) -> OpenActionOutcome: ...
-
-
-@dataclass(frozen=True)
-class TurnOutcome:
-    decision: MainDecision
-    narration: str
-    player_observations: tuple[Observation, ...]
-    processed_work_ids: tuple[str, ...]
-    snapshot: Snapshot
-    narration_fallback: bool = False
-    segments: tuple[StorySegment, ...] = ()
 
 
 async def compose_visible_narration(

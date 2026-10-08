@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from story_harness.core.contracts import Observation, PendingWork, Snapshot, WorldEvent
 from story_harness.core.perception import physical_observations
-from story_harness.adapters.store import GameStore
+from story_harness.core.store_port import GameStore
 from story_harness.adapters.telemetry import LangfuseTelemetry, Telemetry, session_id_for_game
 
 

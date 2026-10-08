@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
 
 from story_harness.runtime.player_preferences import current_player_preferences
 from agentscope.message import TextBlock
@@ -12,6 +11,7 @@ from agentscope.tool import ToolResponse, Toolkit
 from pydantic import BaseModel, Field, ValidationError
 
 from story_harness.core.actions import ActionRule
+from story_harness.core.decisions import MainDecision
 from story_harness.agents.quiet_agent import QuietReActAgent
 from story_harness.agents.read_only_toolkit import ReadOnlyToolkit
 from story_harness.adapters.agentscope_message import Msg
@@ -22,16 +22,6 @@ from story_harness.world.worldbook import Worldbook
 from story_harness.runtime.story_clock import StoryClock
 from story_harness.runtime.agent_context import AgentContextManager, ModelContextCompressor
 from story_harness.world.status_fields import StatusField, project_status_fields
-
-
-class MainDecision(BaseModel):
-    intent: Literal["speech", "inspect", "action"]
-    duration: Literal["brief", "standard", "extended", "rest"] = "brief"
-    target_ids: list[str] = Field(default_factory=list)
-    channel: Literal["speech", "private_message"] = "speech"
-    audience: Literal["targets", "room"] = "targets"
-    entry_id: str | None = None
-    action_id: str | None = None
 
 
 class FinalNarration(BaseModel):

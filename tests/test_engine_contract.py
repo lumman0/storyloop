@@ -122,3 +122,27 @@ def test_plain_status_change_is_validated_before_prose_commit_and_applied_once(w
         assert again.version == first.version
 
     asyncio.run(run())
+
+
+def test_shared_contracts_preserve_legacy_identity():
+    from story_harness.core.decisions import MainDecision as CoreDecision
+    from story_harness.core.turn_result import StorySegment, TurnOutcome
+    from story_harness.core.store_port import GameStore
+    from story_harness.agents.main_agent import MainDecision as LegacyDecision
+    from story_harness.runtime.game_session import TurnOutcome as LegacyOutcome
+    from story_harness.runtime.presentation import StorySegment as LegacySegment
+    from story_harness.adapters.store import GameStore as LegacyStore
+
+    assert CoreDecision is LegacyDecision
+    assert TurnOutcome is LegacyOutcome
+    assert StorySegment is LegacySegment
+    assert GameStore is LegacyStore
+
+
+@pytest.mark.parametrize("sample, expected", [("", 0), ("hello world", 11), ("你好世界", 6)])
+def test_shared_token_estimator_preserves_legacy_values(sample, expected):
+    from story_harness.core.token_budget import estimate_tokens
+    from story_harness.runtime.agent_context import estimate_tokens as legacy_estimate
+
+    assert estimate_tokens is legacy_estimate
+    assert estimate_tokens(sample) == legacy_estimate(sample) == expected

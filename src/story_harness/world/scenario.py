@@ -11,7 +11,7 @@ from story_harness.core.contracts import PendingWork, Snapshot
 from story_harness.core.actions import ActionRule, parse_action_rules
 from story_harness.core.open_actions import MutableField, parse_mutable_fields
 from story_harness.runtime.schedule import validate_scenario_cue
-from story_harness.adapters.store import GameStore
+from story_harness.core.store_port import GameStore
 from story_harness.world.worldbook import Worldbook
 from story_harness.world.status_fields import StatusField, parse_status_fields
 from story_harness.world.story_blueprint import StoryBlueprint
