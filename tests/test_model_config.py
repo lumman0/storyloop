@@ -2,15 +2,18 @@ import unittest
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agentscope.model import OpenAIChatModel
 from openai.types.chat import ChatCompletion
+from pydantic import BaseModel
 
 from story_harness.adapters.model_config import BailianModelRouter, NpcModelConfig
 from story_harness.adapters.runtime_config import HarnessConfig
 from story_harness.adapters.store import SQLiteGameStore
 from story_harness.agents.main_agent import MainReActAgent
+from story_harness.core.billing import collect_usage
 from story_harness.world.scenario import ScenarioPackage
 
 
@@ -53,6 +56,46 @@ class NpcModelConfigTests(unittest.TestCase):
             NpcModelConfig.from_environment({})
         with self.assertRaisesRegex(ValueError, "STORY_NPC_API_KEY"):
             NpcModelConfig.from_environment({"STORY_NPC_MODEL": "small"})
+
+
+class ReplySchema(BaseModel):
+    text: str
+
+
+class MissingUsageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_response_without_usage_cannot_be_collected(self) -> None:
+        model = NpcModelConfig("test-model", "test-key").create_model()
+        response = SimpleNamespace(content="hello", usage=None)
+        with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock,
+                          return_value=response):
+            with collect_usage() as usage:
+                with self.assertRaisesRegex(RuntimeError, "model did not report token usage"):
+                    await model([{"role": "user", "content": "hello"}])
+                self.assertEqual(usage.records, [])
+
+    async def test_structured_response_without_usage_cannot_be_collected(self) -> None:
+        model = NpcModelConfig("test-model", "test-key").create_model()
+        response = SimpleNamespace(content={"text": "hello"}, usage=None)
+        with patch.object(OpenAIChatModel, "generate_structured_output", new_callable=AsyncMock,
+                          return_value=response):
+            with collect_usage() as usage:
+                with self.assertRaisesRegex(RuntimeError, "model did not report token usage"):
+                    await model([{"role": "user", "content": "hello"}],
+                                structured_model=ReplySchema)
+                self.assertEqual(usage.records, [])
+
+    async def test_missing_usage_is_allowed_without_collection(self) -> None:
+        model = NpcModelConfig("test-model", "test-key").create_model()
+        response = SimpleNamespace(content="hello", usage=None)
+        with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock,
+                          return_value=response):
+            self.assertIs(await model([{"role": "user", "content": "hello"}]), response)
+        structured = SimpleNamespace(content={"text": "hello"}, usage=None)
+        with patch.object(OpenAIChatModel, "generate_structured_output", new_callable=AsyncMock,
+                          return_value=structured):
+            result = await model([{"role": "user", "content": "hello"}],
+                                 structured_model=ReplySchema)
+            self.assertEqual(result.metadata, structured.content)
 
 
 class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):

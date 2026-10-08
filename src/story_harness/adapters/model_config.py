@@ -61,8 +61,7 @@ class CompatibleOpenAIChatModel(OpenAIChatModel):
 
     def _record_usage(self, response: object) -> None:
         usage = getattr(response, "usage", None)
-        if usage is not None:
-            record_model_usage(self.model, self.task, usage)
+        record_model_usage(self.model, self.task, usage)
 
     async def _call_api(self, model_name: str, messages: list, tools=None,
                         tool_choice=None, **kwargs: object):
