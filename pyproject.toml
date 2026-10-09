@@ -10,7 +10,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
-  "storyloop-harness>=0.1,<0.2",
+  "storyloop-harness>=0.2,<0.3",
   "SQLAlchemy>=2.0,<3",
   "alembic>=1.13,<2",
 ]
@@ -49,4 +49,4 @@ where = ["src"]
 storyloop_platform = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
 
 [tool.uv.sources]
-storyloop-harness = { git = "https://github.com/storyloop0/storyloop-harness.git", rev = "607fb706357f5d732a5bc588bd7f7587cd6ed3c9" }
+storyloop-harness = { git = "https://github.com/storyloop0/storyloop-harness.git", rev = "fadbd74584852fec3ad097bb7ec8421935eaacfc" }
