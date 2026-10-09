@@ -6,6 +6,10 @@ StoryLoop Platform is a runtime and player platform for AI interactive fiction. 
 
 ## Standalone platform repository / 独立平台仓库
 
+The project is under active incubation. Backward compatibility is not a constraint
+on changes to APIs, configuration or storage formats. Update current callers
+together; old saves may be recreated, with no compatibility or migration guarantee.
+
 The repository root is `storyloop-platform`; `web/` and `deploy/` contain frontend and deployment files. The reusable `storyloop-harness` lives in a separate repository. Platform requires `storyloop-harness>=0.2,<0.3` and imports its public APIs.
 
 Harness 0.2.0 is pinned to `fadbd74584852fec3ad097bb7ec8421935eaacfc` in [storyloop0/storyloop-harness](https://github.com/storyloop0/storyloop-harness). CI, Docker and wheel tests build that commit through `scripts/build_harness.py`; `uv.lock` records the same source. Both projects use MIT. See [verification / 验证说明](docs/verification.md).

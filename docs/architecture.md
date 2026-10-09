@@ -2,7 +2,7 @@
 
 本仓库维护 `storyloop-platform` 玩家和创作者平台，`storyloop-harness` 叙事库在独立仓库维护。产品仍采用 React + FastAPI 的模块化单体部署。前端负责玩家、创作者和审核界面；单个后端进程负责业务编排，SQL 数据库保存权威状态，剧本文件按不可变版本保存。当前仍建议单 API worker。
 
-当前唯一回合引擎 `single_call` 通过 AgentScope 2.0.9 的模型与结构化输出接口生成回合，配置加载会拒绝其他引擎值。旧版多 Agent 引擎保存在历史 Git 标签 `multi-agent-beta-archive-2026-10-r1` 中。项目自身继续负责游戏状态、权限投影和回合结算；旧存档的 `npc_reply` 待办由平台兼容适配器处理，该适配器属于 platform，独立 harness 库不含平台兼容实现。
+当前唯一回合引擎 `single_call` 通过 AgentScope 2.0.9 的模型与结构化输出接口生成回合，配置加载会拒绝其他引擎值。旧版多 Agent 引擎保存在历史 Git 标签 `multi-agent-beta-archive-2026-10-r1` 中。项目自身继续负责游戏状态、权限投影和回合结算；旧存档的 `npc_reply` 待办已不受支持，执行入口会拒绝它们，可删除旧存档并重建。
 
 ```mermaid
 flowchart TD
@@ -59,7 +59,9 @@ PlayerPortal 仍承担较多业务编排，尚未完整拆成存档服务、内�
 
 验证与操作说明：[可复现验证](verification.md)、[结算恢复边界](turn-recovery.md)、[包清理](package-cleanup.md)、[性能基线](performance-baseline.md)、[部署](deployment.md)。
 
-## 独立发布与兼容性
+## 独立发布与演进策略
+
+项目处于孵化阶段，两个仓库的所有改动均不以向后兼容为约束。API、配置、存储格式和前端协议可直接重构，同步更新当前调用方、默认配置、文档与必要测试。无需为旧版本保留兼容适配器、别名、回退路径、弃用期或迁移方案；旧存档可弃用重建。
 
 harness 与 platform 已在 storyloop0 organization 中物理分仓并独立构建。
 harness 先发布经过评审的不可变提交，platform 随后更新依赖范围及固定来源并验证 wheel 集成。
