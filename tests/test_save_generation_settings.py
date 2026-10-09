@@ -59,12 +59,12 @@ class SaveGenerationSettingsTests(unittest.TestCase):
                     "storyloop_platform.adapters.runtime_config.HarnessConfig.create_model",
                     return_value=object(),
                 ) as factory:
-                    first_session = portal._react(item, package, "game-1")
+                    first_session = portal._turn_engine(item, package, "game-1")
                     self.assertEqual(factory.call_args.kwargs["temperature"], 0.8)
                     self.assertEqual(first_session.session.projector.context_window_tokens, 65536)
                     client.put("/v1/saves/game-1/settings", headers=own,
                         json={"temperature": 1.2, "context_window_tokens": 32768})
-                    second_session = portal._react(item, package, "game-1")
+                    second_session = portal._turn_engine(item, package, "game-1")
                     self.assertIsNot(first_session, second_session)
                     self.assertEqual(factory.call_args.kwargs["temperature"], 1.2)
                     self.assertEqual(second_session.session.projector.context_window_tokens, 32768)

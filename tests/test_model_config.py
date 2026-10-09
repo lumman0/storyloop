@@ -12,7 +12,8 @@ from pydantic import BaseModel
 from storyloop_platform.adapters.model_config import BailianModelRouter, NpcModelConfig
 from storyloop_platform.adapters.runtime_config import HarnessConfig
 from storyloop_platform.adapters.store import SQLiteGameStore
-from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_harness.agents.scene_turn import SingleSceneGenerator, SceneContextProjector
+from test_single_call import a_turn
 from storyloop_platform.portal.billing import collect_usage
 from storyloop_harness.world.scenario import ScenarioPackage
 
@@ -21,7 +22,7 @@ class NpcModelConfigTests(unittest.TestCase):
     def test_configured_model_has_bounded_connect_and_response_timeouts(self) -> None:
         root = Path(__file__).resolve().parents[1]
         config = HarnessConfig.load(root / "config" / "bailian-token-plan.json")
-        model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-token"})
+        model = config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "test-token"})
 
         self.assertEqual(model.client.timeout.connect, 10)
         self.assertEqual(model.client.timeout.read, 90)
@@ -30,8 +31,8 @@ class NpcModelConfigTests(unittest.TestCase):
     def test_bailian_token_plan_routes_light_and_deep_tasks(self) -> None:
         router = BailianModelRouter.from_environment({"STORY_BAILIAN_API_KEY": "test-token"})
 
-        light = router.create_model("npc_selection")
-        deep = router.create_model("npc_reply")
+        light = router.create_model("followup_actions")
+        deep = router.create_model("single_turn")
 
         self.assertEqual(light.model_name, "qwen3.8-flash")
         self.assertEqual(deep.model_name, "qwen3.8-max")
@@ -119,18 +120,15 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(call.await_args.kwargs["tool_choice"].mode, "required")
 
-    async def test_main_react_sends_auto_to_qwen_compatible_endpoint(self) -> None:
+    async def test_single_turn_sends_auto_to_qwen_compatible_endpoint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         package = ScenarioPackage.load(root / "examples" / "freeform")
         config = HarnessConfig.load(root / "config" / "bailian-token-plan.json")
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             package.seed_game(store, "game")
-            model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-token"})
-            decision = {
-                "intent": "speech", "target_ids": ["dockhand"], "channel": "speech",
-                "entry_id": None, "action_id": None,
-            }
+            model = config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "test-token"})
+            decision = {**a_turn(), "participants": ["dockhand"]}
             choices: list[str | None] = []
 
             async def completion(**kwargs: object) -> ChatCompletion:
@@ -140,26 +138,26 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
                               for item in kwargs.get("tools", [])]
                 message = (
                     {"role": "assistant", "content": "我会和码头工打招呼。"}
-                    if choice != "auto" or "GenerateStructuredOutput" not in tool_names else
+                    if choice != "auto" or "generate_structured_output" not in tool_names else
                     {"role": "assistant", "content": None, "tool_calls": [{
                         "id": "decision-1", "type": "function", "function": {
-                            "name": "GenerateStructuredOutput", "arguments": json.dumps(decision),
+                            "name": "generate_structured_output", "arguments": json.dumps(decision),
                         },
                     }]}
                 )
                 return ChatCompletion.model_validate({
                     "id": "chatcmpl-test", "created": 0, "model": "qwen3.8-max",
                     "object": "chat.completion", "choices": [{
-                        "finish_reason": "tool_calls" if choice == "auto" and "GenerateStructuredOutput" in tool_names else "stop",
+                        "finish_reason": "tool_calls" if choice == "auto" and "generate_structured_output" in tool_names else "stop",
                         "index": 0, "message": message,
                     }],
                 })
 
             model.client.chat.completions.create = AsyncMock(side_effect=completion)
-            agent = MainReActAgent("game", store, package.worldbook, model)
-            result = await agent.decide("hi")
+            generator = SingleSceneGenerator(model, package)
+            result = await generator.generate("game", SceneContextProjector(store, package).project(store.load("game"), "hi"))
 
-            self.assertEqual(result.target_ids, ["dockhand"])
+            self.assertEqual(result.decision.target_ids, ["dockhand"])
             self.assertIn("auto", choices)
             self.assertNotIn("required", choices)
 

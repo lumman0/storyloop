@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 
 from storyloop_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
-from storyloop_harness.runtime.player_input import submit_player_input
 from storyloop_harness.runtime.runner import TurnRunner, WorkResult
 from storyloop_harness.world.scenario import ScenarioPackage
 from storyloop_harness.runtime.schedule import advance_time, scenario_cue
@@ -78,13 +77,13 @@ class ScenarioFlowTests(unittest.TestCase):
             ScenarioPackage.load(EXAMPLES / "freeform").seed_game(store, "game")
             runner = TurnRunner(
                 store,
-                {"scenario_cue": scenario_cue, "npc_reply": lambda snapshot, work: WorkResult(None, (), ())},
+                {"scenario_cue": scenario_cue},
                 3,
             )
             for index in range(1, 4):
-                submit_player_input(store, "game", f"input-{index}", "聊聊天", ("dockhand",))
+                advance_time(store, "game", index, f"input-{index}")
                 runner.run("game")
-            submit_player_input(store, "game", "input-4", "再聊一会", ("dockhand",))
+            advance_time(store, "game", 4, "input-4")
 
             result = runner.run("game")
 

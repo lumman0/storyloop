@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 root = Path.cwd()
 for retired in ("react_play", "live_play", "campaign_play", "demo_check", "interaction_demo"):
     assert util.find_spec("storyloop_platform.cli." + retired) is None
-assert "storyloop-harness<0.2,>=0.1" in metadata.requires("storyloop-platform")
+assert "storyloop-harness<0.3,>=0.2" in metadata.requires("storyloop-platform")
 assert HarnessConfig.load(Path(storyloop_platform.__file__).parent / "defaults/online.json").profile == "online"
 config = Path(storyloop_platform.__file__).parent / "defaults/local.json"
 settings = json.loads(config.read_text(encoding="utf-8"))

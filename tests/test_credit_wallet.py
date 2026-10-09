@@ -31,13 +31,17 @@ class CreditWalletTests(unittest.TestCase):
                 release = asyncio.Event()
 
                 class SlowSession:
-                    async def run_turn(self, game_id, text, turn_id, progress=None):
+                    def proposed_options(self, *args):
+                        return ()
+
+                    async def run_turn(self, turn, progress=None):
+                        game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                         entered.set()
                         await release.wait()
                         return SimpleNamespace(narration="完成", segments=(),
                                                snapshot=portal.store.load(game_id))
 
-                portal._react = lambda item, package, game_id: SlowSession()
+                portal._turn_engine = lambda item, package, game_id: SlowSession()
 
                 async def reconnect():
                     turn = asyncio.create_task(portal.turn(token, game_id, "你好", "reconnect-1"))
@@ -76,10 +80,14 @@ class CreditWalletTests(unittest.TestCase):
                 class FakeSession:
                     calls = 0
 
-                    async def run_turn(self, game_id, text, turn_id, progress=None):
+                    def proposed_options(self, *args):
+                        return ()
+
+                    async def run_turn(self, turn, progress=None):
+                        game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                         self.calls += 1
                         await asyncio.sleep(0.02)
-                        record_model_usage("qwen3.8-flash", "npc_selection", SimpleNamespace(
+                        record_model_usage("qwen3.8-flash", "followup_actions", SimpleNamespace(
                             input_tokens=1000, output_tokens=500,
                             metadata=SimpleNamespace(prompt_tokens_details={"cached_tokens": 200}),
                         ))
@@ -87,7 +95,7 @@ class CreditWalletTests(unittest.TestCase):
                                                snapshot=portal.store.load(game_id))
 
                 session = FakeSession()
-                portal._react = lambda item, package, game_id: session
+                portal._turn_engine = lambda item, package, game_id: session
 
                 async def submit_both():
                     return await asyncio.gather(
@@ -153,11 +161,15 @@ class CreditWalletTests(unittest.TestCase):
                 class FakeSession:
                     calls = 0
 
-                    async def run_turn(self, game_id, text, turn_id, progress=None):
+                    def proposed_options(self, *args):
+                        return ()
+
+                    async def run_turn(self, turn, progress=None):
+                        game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                         self.calls += 1
                         if text == "失败":
                             raise RuntimeError("provider unavailable")
-                        record_model_usage("qwen3.8-flash", "npc_selection", SimpleNamespace(
+                        record_model_usage("qwen3.8-flash", "followup_actions", SimpleNamespace(
                             input_tokens=1000, output_tokens=500,
                             metadata=SimpleNamespace(prompt_tokens_details={"cached_tokens": 200}),
                         ))
@@ -165,7 +177,7 @@ class CreditWalletTests(unittest.TestCase):
                                                snapshot=portal.store.load(game_id))
 
                 session = FakeSession()
-                portal._react = lambda item, package, game_id: session
+                portal._turn_engine = lambda item, package, game_id: session
                 first = asyncio.run(portal.turn(token, game_id, "你好", "one"))
                 self.assertEqual(first["billing"]["charged_points"], "0.101")
                 self.assertEqual(portal.wallet(token)["balance_points"], "499.899")

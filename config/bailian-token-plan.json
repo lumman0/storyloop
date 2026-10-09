@@ -10,22 +10,15 @@
     "max_retries": 2,
     "api_key_file": "application.local.json",
     "tasks": {
-      "npc_selection": "qwen3.8-flash",
-      "entity_extraction": "qwen3.8-flash",
-      "intent_classification": "qwen3.8-flash",
-      "work_selection": "qwen3.8-flash",
-      "main_react": "qwen3.8-max",
-      "npc_reply": "qwen3.8-max",
       "adjudication": "qwen3.8-max",
       "narration": "qwen3.8-max",
-      "followup_actions": "qwen3.8-flash"
+      "followup_actions": "qwen3.8-flash",
+      "single_turn": "qwen3.8-max"
     }
   },
   "runtime": {
     "max_steps": 8,
-    "max_npc_replies": 3,
-    "main_max_iters": 4,
-    "npc_max_iters": 3
+    "max_npc_replies": 3
   },
   "storage": {
     "driver": "sqlite",

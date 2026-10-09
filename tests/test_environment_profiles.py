@@ -73,8 +73,8 @@ class EnvironmentProfileSmokeTest(unittest.TestCase):
                             f"{profile}.json").read_text(encoding="utf-8")),
             )
         config = HarnessConfig.load(ROOT / "config" / "online.json")
-        self.assertEqual(config.context_window_for("main_react"), 1_000_000)
-        self.assertEqual(config.context_window_for("npc_reply"), 1_000_000)
+        self.assertEqual(config.context_window_for("single_turn"), 1_000_000)
+        self.assertEqual(config.context_window_for("narration"), 1_000_000)
         self.assertEqual(config.model_base_url(env={}),
                          "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
         self.assertEqual(config.model_base_url(env={

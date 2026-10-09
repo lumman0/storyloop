@@ -5,18 +5,13 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
-from types import SimpleNamespace
 
 from agentscope.credential import OpenAICredential
-from agentscope.message import Msg as AgentScopeMsg, SystemMsg, UserMsg
 from agentscope.model import OpenAIChatModel
-from agentscope.tool import ToolChoice
 from httpx2 import Timeout
 
-from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
+from storyloop_platform.adapters.telemetry import Telemetry
 from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
-from storyloop_platform.portal.billing import record_model_usage
 
 
 from storyloop_harness.generation import CompatibleOpenAIChatModel, ToolChoicePolicy, StructuredOutputTransport
@@ -76,8 +71,8 @@ class NpcModelConfig:
 
 BAILIAN_TOKEN_PLAN_URL = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 
-LIGHT_TASKS = frozenset({"npc_selection", "entity_extraction", "intent_classification", "work_selection"})
-DEEP_TASKS = frozenset({"npc_reply", "main_react", "adjudication", "narration"})
+LIGHT_TASKS = frozenset({"followup_actions"})
+DEEP_TASKS = frozenset({"single_turn", "adjudication", "narration"})
 
 
 @dataclass(frozen=True)

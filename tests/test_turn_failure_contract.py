@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.portal.service import PlayerPortal
-from storyloop_harness.runtime.player_input import submit_player_input
+from committed_input import commit_player_input
 from test_scenario_lifecycle_concurrency import archive
 
 
@@ -109,7 +109,7 @@ def test_missing_uploaded_package_only_disables_its_save(portal):
 def test_missing_metering_requests_manual_recovery_without_unlocking_input(portal, stream):
     token = portal.register("reader", "password-123")["token"]
     game_id = asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
-    submit_player_input(portal.store, game_id, "portal-legacy:input", "hello")
+    commit_player_input(portal.store, game_id, "portal-legacy:input", "hello")
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
         response = client.post(f"/v1/saves/{game_id}/turns" + ("/stream" if stream else ""),
                                headers={"Authorization": f"Bearer {token}"},

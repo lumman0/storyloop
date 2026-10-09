@@ -62,8 +62,6 @@ def _local_model_key(source: Path, models: dict, profile: str) -> str | None:
 @dataclass(frozen=True)
 class RuntimeSettings:
     max_steps: int
-    main_max_iters: int
-    npc_max_iters: int
     max_npc_replies: int = 3
     followup_timeout_seconds: float = 12
     context_window_tokens: int = 65536
@@ -160,13 +158,11 @@ class HarnessConfig:
             not isinstance(key, str) for key in generate_kwargs
         ):
             raise ValueError("models.generate_kwargs must be an object")
-        for required in ("main_react", "npc_reply", "npc_selection", "work_selection", "narration"):
+        for required in ("single_turn", "narration", "followup_actions"):
             if required not in task_models:
                 raise ValueError(f"models.tasks requires {required}")
         runtime_settings = RuntimeSettings(
             _positive_int(runtime.get("max_steps"), "max_steps"),
-            _positive_int(runtime.get("main_max_iters"), "main_max_iters"),
-            _positive_int(runtime.get("npc_max_iters"), "npc_max_iters"),
             _positive_int(runtime.get("max_npc_replies", 3), "max_npc_replies"),
             _positive_seconds(runtime.get("followup_timeout_seconds", 12),
                               "runtime.followup_timeout_seconds"),

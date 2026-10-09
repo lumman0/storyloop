@@ -9,7 +9,7 @@ import pytest
 from storyloop_platform.portal.billing import record_model_usage
 from storyloop_harness.core.contracts import WorldEvent
 from storyloop_platform.portal.service import PlayerPortal
-from storyloop_harness.runtime.player_input import submit_player_input
+from committed_input import commit_player_input
 from test_turn_failure_contract import portal, ROOT
 
 
@@ -17,20 +17,24 @@ def completed_session(portal):
     class Session:
         calls = 0
 
-        async def run_turn(self, game_id, text, turn_id, progress=None):
+        def proposed_options(self, *args):
+            return ()
+
+        async def run_turn(self, turn, progress=None):
+            game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
             self.calls += 1
-            record_model_usage("qwen3.8-flash", "npc_selection", SimpleNamespace(
+            record_model_usage("qwen3.8-flash", "followup_actions", SimpleNamespace(
                 input_tokens=1000, output_tokens=500,
                 metadata={"prompt_tokens_details": {"cached_tokens": 200}},
             ))
-            snapshot = submit_player_input(portal.store, game_id, f"{turn_id}:input", text)
+            snapshot = commit_player_input(portal.store, game_id, f"{turn_id}:input", text)
             return SimpleNamespace(narration="原始完成正文", segments=(), snapshot=snapshot)
 
         async def run_ready_work(self, game_id):
             pass
 
     session = Session()
-    portal._react = lambda *args, **kwargs: session
+    portal._turn_engine = lambda *args, **kwargs: session
     return session
 
 
@@ -54,7 +58,7 @@ def test_settlement_recovers_after_restart_without_models_or_repricing(portal, m
         def no_models(*args, **kwargs):
             raise AssertionError("settlement recovery must not call a story model")
 
-        reopened._react = no_models
+        reopened._turn_engine = no_models
         reopened.billing.policy = replace(reopened.billing.policy, pricing_version="new-price",
                                            points_per_rmb=999)
         result = asyncio.run(reopened.turn(token, game_id, "你好", "recover"))
@@ -148,41 +152,4 @@ def test_platform_always_assembles_single_call_session(portal):
     # An old in-memory configuration cannot select new beta execution.
     portal.config = replace(portal.config, runtime=replace(portal.config.runtime,
                                                           turn_engine="multi_agent_beta"))
-    assert isinstance(portal._react(item, package, "assembly"), TurnEngine)
-
-
-def test_platform_recovers_legacy_npc_reply_once(portal, monkeypatch):
-    from storyloop_platform.legacy.npc_agent import NpcAgentPool
-    from storyloop_harness.core.contracts import PendingWork
-    from storyloop_harness import TurnEngine
-    from storyloop_harness.world.scenario import ScenarioPackage
-
-    package = ScenarioPackage.load(ROOT / "examples/freeform")
-    package.seed_game(portal.store, "legacy-work")
-    before = portal.store.load("legacy-work")
-    event = WorldEvent("legacy-input", "player_spoke", "player", None, before.tick, (),
-                       {"text": "hello"})
-    work = PendingWork("legacy-reply", "npc_reply", before.tick, 10, event.event_id,
-                       {"actor_id": "dockhand", "player_message": "hello"})
-    portal.store.commit("legacy-work", before.version, event, (), (work,))
-    calls = []
-    confirmations = []
-
-    async def prepare_response(self, game_id, actor_id, role_card, player_message, **kwargs):
-        calls.append((game_id, actor_id, player_message, kwargs["current_input_event_id"]))
-        return SimpleNamespace(speech="The old reply survives.",
-                               confirm=lambda: confirmations.append(work.work_id),
-                               abort=lambda: None)
-
-    monkeypatch.setattr(NpcAgentPool, "prepare_response", prepare_response)
-    item = SimpleNamespace(package_path=str(ROOT / "examples/freeform"), turns_per_story_tick=1)
-    session = portal._react(item, package, "legacy-work")
-    assert isinstance(session, TurnEngine)
-    asyncio.run(session.run_ready_work("legacy-work"))
-    asyncio.run(session.run_ready_work("legacy-work"))
-    assert calls == [("legacy-work", "dockhand", "hello", "legacy-input")]
-    assert confirmations == ["legacy-reply"]
-    assert all(item.kind != "npc_reply" for item in portal.store.pending_work("legacy-work"))
-    assert portal.store.event_exists("legacy-work", "legacy-reply:spoken")
-    assert any("The old reply survives." in item.content
-               for item in portal.store.observations_for("legacy-work", "player"))
+    assert isinstance(portal._turn_engine(item, package, "assembly"), TurnEngine)

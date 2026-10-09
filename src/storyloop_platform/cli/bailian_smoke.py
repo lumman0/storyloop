@@ -13,7 +13,7 @@ from storyloop_platform.adapters.model_config import BailianModelRouter
 
 async def check_models(router: BailianModelRouter) -> dict[str, object]:
     results: dict[str, object] = {}
-    for task in ("npc_selection", "npc_reply"):
+    for task in ("followup_actions", "single_turn"):
         model = router.create_model(task)
         try:
             response = await model(
