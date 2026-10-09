@@ -31,7 +31,12 @@ def test_harness_has_no_reverse_platform_imports():
 def test_platform_has_no_dependency_on_old_compatibility_package():
     import storyloop_platform
     for source in Path(storyloop_platform.__file__).parent.rglob("*.py"):
-        assert "story_harness" not in source.read_text(encoding="utf-8"), source
+        # Historical path data is allowed for upgrading remembered settings;
+        # importing the removed namespace still violates the package boundary.
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            modules = ([node.module or ""] if isinstance(node, ast.ImportFrom)
+                       else [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
+            assert not any(name.startswith("story_harness") for name in modules), source
 
 
 def test_task_6_inventory_has_no_remaining_private_dependencies():

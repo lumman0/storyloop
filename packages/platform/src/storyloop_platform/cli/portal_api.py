@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.cli.config_paths import select_config
 from storyloop_platform.portal.http_api import serve
 from storyloop_platform.portal.local_config import LocalPreferences
 from storyloop_platform.portal.service import PlayerPortal
@@ -28,7 +29,7 @@ def main() -> None:
     if not catalog:
         parser.error("--catalog is required on first launch")
     default_config = Path(__file__).resolve().parents[1] / "defaults" / f"{args.profile}.json"
-    config = args.config or saved.get("config") or str(default_config)
+    config = select_config(args.config, saved.get("config"), default_config)
     if HarnessConfig.load(config).profile != args.profile:
         parser.error("--profile and config environment disagree")
     portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
