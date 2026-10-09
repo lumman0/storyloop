@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ from httpx2 import Request
 from openai import APIConnectionError
 
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal import local_config
 from storyloop_platform.portal.local_config import LocalPreferences
 from storyloop_platform.portal.service import PlayerPortal
 
@@ -23,6 +25,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PortalLocalApiSmokeTest(unittest.TestCase):
+    def test_non_windows_preferences_never_persist_credentials(self) -> None:
+        # Replace only this module's OS binding; do not change pathlib's host OS.
+        posix = SimpleNamespace(name="posix", environ=os.environ, replace=os.replace)
+        with tempfile.TemporaryDirectory() as temp, patch.object(local_config, "os", posix):
+            root = Path(temp)
+            preferences = LocalPreferences(root / "settings")
+            preferences.save_settings(root / "catalog.json", root / "config.json", root / "game.db")
+            preferences.save_model_key("TEST_MODEL_KEY", "secret-model-key")
+            preferences.save_session(root / "game.db", "tester", "secret-session-token")
+            restored = LocalPreferences(preferences.directory)
+            self.assertIsNone(restored.model_key("TEST_MODEL_KEY"))
+            self.assertIsNone(restored.session(root / "game.db"))
+            self.assertEqual(restored.load_settings()["db"], str(root / "game.db"))
+            self.assertEqual({path.name for path in preferences.directory.iterdir()}, {"settings.json"})
+            content = (preferences.directory / "settings.json").read_text(encoding="utf-8")
+            self.assertNotIn("secret-model-key", content)
+            self.assertNotIn("secret-session-token", content)
+
     def test_model_connection_failure_is_reported_as_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
@@ -125,14 +145,19 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                 preferences.save_session(db, "tester", token)
                 restored = LocalPreferences(Path(temp) / "settings")
                 self.assertEqual(restored.load_settings()["catalog"], str(catalog))
-                self.assertEqual(restored.model_key("STORY_BAILIAN_API_KEY"), "offline-test")
-                self.assertEqual(restored.session(db)["token"], token)
                 self.assertNotIn(token, (preferences.directory / "settings.json").read_text())
                 self.assertNotIn("offline-test", (preferences.directory / "settings.json").read_text())
                 if os.name == "nt":
+                    self.assertEqual(restored.model_key("STORY_BAILIAN_API_KEY"), "offline-test")
+                    self.assertEqual(restored.session(db)["token"], token)
                     encrypted = (preferences.directory / "credentials.dpapi").read_bytes()
                     self.assertNotIn(token.encode(), encrypted)
                     self.assertNotIn(b"offline-test", encrypted)
+                else:
+                    self.assertIsNone(restored.model_key("STORY_BAILIAN_API_KEY"))
+                    self.assertIsNone(restored.session(db))
+                    self.assertEqual({path.name for path in preferences.directory.iterdir()},
+                                     {"settings.json"})
 
                 headers = {"Authorization": f"Bearer {token}"}
                 self.assertEqual(client.get("/v1/billing/wallet", headers=headers)
