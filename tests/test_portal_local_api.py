@@ -37,7 +37,8 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
             restored = LocalPreferences(preferences.directory)
             self.assertIsNone(restored.model_key("TEST_MODEL_KEY"))
             self.assertIsNone(restored.session(root / "game.db"))
-            self.assertEqual(restored.load_settings()["db"], str(root / "game.db"))
+            self.assertEqual(Path(restored.load_settings()["db"]).resolve(),
+                             (root / "game.db").resolve())
             self.assertEqual({path.name for path in preferences.directory.iterdir()}, {"settings.json"})
             content = (preferences.directory / "settings.json").read_text(encoding="utf-8")
             self.assertNotIn("secret-model-key", content)
