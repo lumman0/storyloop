@@ -1,80 +1,18 @@
 {
-  "schema_version": 1,
   "environment": "online",
-  "models": {
-    "provider": "openai_compatible",
-    "tool_choice_policy": "auto_only",
-    "structured_output_transport": "tool_call",
-    "base_url": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
-    "base_url_env": "STORY_BAILIAN_BASE_URL",
-    "api_key_env": "STORY_BAILIAN_API_KEY",
-    "timeout_seconds": 90,
-    "connect_timeout_seconds": 10,
-    "max_retries": 2,
-    "generate_kwargs": {
-      "extra_body": {
-        "enable_thinking": false
-      }
-    },
-    "context_windows": {
-      "deepseek-v4.1-flash": 1000000
-    },
-    "tasks": {
-      "single_turn": "deepseek-v4.1-flash",
-      "adjudication": "deepseek-v4.1-flash",
-      "narration": "deepseek-v4.1-flash",
-      "prologue": "deepseek-v4.1-flash",
-      "followup_actions": "deepseek-v4.1-flash"
-    }
-  },
-  "runtime": {
-    "max_steps": 8,
-    "turn_engine": "single_call",
-    "max_npc_replies": 3,
-    "context_window_tokens": 65536
-  },
   "storage": {
     "driver": "postgresql",
     "url_env": "DATABASE_URL"
-  },
-  "memory": {
-    "driver": "in_memory"
   },
   "player_memory": {
     "driver": "mem0",
     "enabled_env": "STORY_PLAYER_MEMORY_ENABLED",
     "path_env": "STORY_MEMORY_DIR",
-    "llm_model": "qwen3.8-flash",
-    "embedding_model": "text-embedding-v4",
-    "embedding_dims": 1024
+    "extraction_profile": "memory_extraction",
+    "embedding_profile": "memory_embedding"
   },
   "http": {
     "allowed_hosts_env": "STORY_ALLOWED_HOSTS",
     "allowed_origins_env": "STORY_ALLOWED_ORIGINS"
-  },
-  "billing": {
-    "welcome_points": 500,
-    "points_per_rmb": 50,
-    "pricing_version": "2026-10-03-deepseek-v4.1-peak-reference",
-    "models": {
-      "deepseek-v4.1-flash": {
-        "input_rmb_per_million": "2",
-        "output_rmb_per_million": "8",
-        "cached_input_rmb_per_million": "0.2",
-        "multiplier": "1"
-      },
-      "qwen3.8-flash": {
-        "input_rmb_per_million": "0.8",
-        "output_rmb_per_million": "2.7",
-        "cached_input_rmb_per_million": "0.1",
-        "multiplier": "1"
-      },
-      "qwen3.8-max": {
-        "input_rmb_per_million": "12",
-        "output_rmb_per_million": "36",
-        "cached_input_rmb_per_million": "1.5",
-        "multiplier": "1"
-      }
-    }
   }
 }

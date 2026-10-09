@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from storyloop_platform.cli.guidance_view import format_turn_output
 from pathlib import Path
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings
 from storyloop_platform.cli.config_paths import select_config
 from storyloop_platform.portal.local_config import LocalPreferences
 from storyloop_platform.portal.service import PlayerPortal
@@ -95,10 +95,10 @@ async def play(portal: PlayerPortal, preferences: LocalPreferences | None = None
                         raise ValueError("游戏编号无效")
                     catalog_id = games[index]["id"]
                     operation = portal.create_save(token, catalog_id)
-                if preferences and not portal.config.model_api_key():
-                    preferences.activate_model_key(portal.config.api_key_env, prompt=True)
-                elif not preferences and not portal.config.model_api_key():
-                    os.environ[portal.config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
+                if preferences and not portal.model_factory.api_key(portal.settings.model_for("single_turn").provider):
+                    preferences.activate_model_key(portal.settings.providers[portal.settings.model_for("single_turn").provider].api_key_env, prompt=True)
+                elif not preferences and not portal.model_factory.api_key(portal.settings.model_for("single_turn").provider):
+                    os.environ[portal.settings.providers[portal.settings.model_for("single_turn").provider].api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
                 view = await operation
             except (ValueError, IndexError, KeyError) as error:
                 print(f"[选择未生效] {error}")
@@ -141,13 +141,13 @@ def main() -> None:
         parser.error("--catalog is required on first launch")
     default_config = Path(__file__).resolve().parents[1] / "defaults" / f"{args.profile}.json"
     config = select_config(args.config, saved.get("config"), default_config)
-    if HarnessConfig.load(config).profile != args.profile:
+    if load_settings(config).environment != args.profile:
         parser.error("--profile and config environment disagree")
-    portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
+    portal = PlayerPortal(catalog, load_settings(config), args.db or saved.get("db"))
     if preferences:
         preferences.save_settings(catalog, config, portal.db_path)
-        if not portal.config.model_api_key():
-            preferences.activate_model_key(portal.config.api_key_env)
+        if not portal.model_factory.api_key(portal.settings.model_for("single_turn").provider):
+            preferences.activate_model_key(portal.settings.providers[portal.settings.model_for("single_turn").provider].api_key_env)
     sys.stdout.reconfigure(encoding="utf-8")
     asyncio.run(play(portal, preferences))
 

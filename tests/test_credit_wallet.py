@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from storyloop_platform.adapters.sql_database import open_database, sqlite_url, upgrade_database
 from storyloop_platform.portal.billing import BillingPolicy, ModelUsage, record_model_usage
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.portal.sql_billing import SQLBillingRepository
 from storyloop_platform.portal.sql_repository import SQLPlayerRepository
@@ -18,11 +19,11 @@ class CreditWalletTests(unittest.TestCase):
     def test_resume_waits_for_inflight_turn_after_browser_reconnect(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
-            "STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(root / "config" / "games.example.json",
-                                  root / "config" / "local.json",
+            portal = PlayerPortal(root / "examples" / "catalog.json",
+                                  load_settings(root / "config" / "local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             try:
                 token = portal.register("reconnect-user", "password-123")["token"]
@@ -61,11 +62,11 @@ class CreditWalletTests(unittest.TestCase):
     def test_concurrent_saves_share_one_credit_gate(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
-            "STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(root / "config" / "games.example.json",
-                                  root / "config" / "local.json",
+            portal = PlayerPortal(root / "examples" / "catalog.json",
+                                  load_settings(root / "config" / "local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             try:
                 account = portal.register("parallel-user", "password-123")
@@ -148,11 +149,11 @@ class CreditWalletTests(unittest.TestCase):
     def test_portal_charges_only_completed_turn_and_retry_is_free(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
-            "STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(root / "config" / "games.example.json",
-                                  root / "config" / "local.json",
+            portal = PlayerPortal(root / "examples" / "catalog.json",
+                                  load_settings(root / "config" / "local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             try:
                 token = portal.register("meter-user", "password-123")["token"]

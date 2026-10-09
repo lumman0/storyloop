@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings, PlatformResources
 from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
 
@@ -18,10 +18,10 @@ def main() -> None:
     args = parser.parse_args()
     if not 1 <= args.count <= 100:
         parser.error("--count must be between 1 and 100")
-    config = HarnessConfig.load(args.config)
-    if config.profile != "online":
+    config = load_settings(args.config)
+    if config.environment != "online":
         parser.error("invites must be issued against an online database")
-    engine = config.create_database()
+    engine = PlatformResources(config).create_database()
     try:
         repository = SQLPlayerRepository(engine)
         for _ in range(args.count):

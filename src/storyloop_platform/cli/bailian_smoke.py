@@ -8,10 +8,10 @@ import json
 import os
 import sys
 
-from storyloop_platform.adapters.model_config import BailianModelRouter
+from storyloop_platform.config import ModelFactory, default_settings
 
 
-async def check_models(router: BailianModelRouter) -> dict[str, object]:
+async def check_models(router: ModelFactory) -> dict[str, object]:
     results: dict[str, object] = {}
     for task in ("followup_actions", "single_turn"):
         model = router.create_model(task)
@@ -36,8 +36,8 @@ async def check_models(router: BailianModelRouter) -> dict[str, object]:
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
-    key = os.getenv("STORY_BAILIAN_API_KEY") or getpass.getpass("百炼 API Key（输入不回显）: ")
-    router = BailianModelRouter(api_key=key)
+    key = os.getenv("STORY_MODEL_API_KEY") or getpass.getpass("百炼 API Key（输入不回显）: ")
+    router = ModelFactory(default_settings(), env={"STORY_MODEL_API_KEY": key})
     print(json.dumps(asyncio.run(check_models(router)), ensure_ascii=False, indent=2))
 
 

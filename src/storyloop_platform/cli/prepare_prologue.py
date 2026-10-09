@@ -7,7 +7,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings, ModelFactory
 from storyloop_platform.adapters.telemetry import configured_telemetry
 from storyloop_platform.generators.prologue_generator import ModelPrologueGenerator
 from storyloop_platform.runtime.campaign import CampaignProgram
@@ -28,11 +28,11 @@ def main() -> None:
         return
     path = args.package / "campaign.json"
     program = CampaignProgram.load(path) if path.exists() else None
-    config = HarnessConfig.load(args.config)
-    task = "prologue" if "prologue" in config.task_models else "narration"
+    config = load_settings(args.config)
+    task = "prologue" if "prologue" in config.routes else "narration"
     telemetry = configured_telemetry()
     try:
-        model = config.create_model(task, dict(os.environ), telemetry)
+        model = ModelFactory(config, telemetry=telemetry).create_model(task)
         prose = asyncio.run(ModelPrologueGenerator(model, telemetry).generate(
             package, program, args.title, args.summary,
         ))

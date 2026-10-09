@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_harness.world.scenario import ScenarioPackage
 
@@ -19,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class SaveGenerationSettingsTests(unittest.TestCase):
     def test_owner_only_settings_persist_and_larger_window_rebuilds_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            portal = PlayerPortal(ROOT / "config/games.example.json",
-                                  ROOT / "config/local.json", str(Path(temp) / "game.sqlite3"))
+            portal = PlayerPortal(ROOT / "examples/catalog.json",
+                                  load_settings(ROOT / "config/local.json"), str(Path(temp) / "game.sqlite3"))
             owner = portal.register("settings-owner", "password-123")
             stranger = portal.register("settings-stranger", "password-123")
             portal.accounts.create_save(owner["player_id"], "sample", "game-1", "sample", "1", "hash")
@@ -56,7 +57,7 @@ class SaveGenerationSettingsTests(unittest.TestCase):
                 item = portal.catalog.get("npc-chat")
                 package = ScenarioPackage.load(item.package_path)
                 with patch.object(portal, "_require_model_key"), patch(
-                    "storyloop_platform.adapters.runtime_config.HarnessConfig.create_model",
+                    "storyloop_platform.config.ModelFactory.create_model",
                     return_value=object(),
                 ) as factory:
                     first_session = portal._turn_engine(item, package, "game-1")

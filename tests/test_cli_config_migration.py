@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.local_config import LocalPreferences
 
 
@@ -25,13 +25,13 @@ def launch(request, tmp_path, monkeypatch):
     creations = []
 
     def create_portal(selected_catalog, selected_config, selected_db):
-        config = HarnessConfig.load(selected_config)
+        config = load_settings(selected_config)
         creations.append((str(selected_catalog), str(selected_config), str(selected_db)))
         return SimpleNamespace(config=config, db_path=selected_db)
 
     monkeypatch.setattr(command, "LocalPreferences", lambda: preferences)
     monkeypatch.setattr(command, "PlayerPortal", create_portal)
-    monkeypatch.setenv("STORY_BAILIAN_API_KEY", "offline-test")
+    monkeypatch.setenv("STORY_MODEL_API_KEY", "offline-test")
     monkeypatch.setattr(command, "sys", SimpleNamespace(
         stdout=SimpleNamespace(reconfigure=lambda **_: None),
         stdin=SimpleNamespace(isatty=lambda: False)))

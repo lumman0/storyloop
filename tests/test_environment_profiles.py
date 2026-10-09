@@ -10,7 +10,7 @@ import json
 from contextlib import closing
 from pathlib import Path
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings, ModelFactory, PlatformResources
 from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
 
@@ -48,10 +48,10 @@ class EnvironmentProfileSmokeTest(unittest.TestCase):
                            ("saved-game", "legacy-request", hashlib.sha256(b"hi").digest(),
                             '{"state_version": 0}'))
 
-            config = HarnessConfig.load(ROOT / "config" / "local.json")
-            engine = config.create_database(path)
+            config = load_settings(ROOT / "config" / "local.json")
+            engine = PlatformResources(config).create_database(path)
             try:
-                store = config.create_store(engine=engine)
+                store = PlatformResources(config).create_store(engine=engine)
                 accounts = SQLPlayerRepository(engine)
                 self.assertEqual(store.load("saved-game").game_id, "saved-game")
                 self.assertEqual(accounts.authenticate("legacy-player", "password-123"), player_id)
@@ -66,29 +66,23 @@ class EnvironmentProfileSmokeTest(unittest.TestCase):
                 engine.dispose()
 
     def test_online_profile_requires_explicit_postgres_and_host(self) -> None:
-        for profile in ("local", "online"):
-            self.assertEqual(
-                json.loads((ROOT / "config" / f"{profile}.json").read_text(encoding="utf-8")),
-                json.loads((ROOT / "src" / "storyloop_platform" / "defaults" /
-                            f"{profile}.json").read_text(encoding="utf-8")),
-            )
-        config = HarnessConfig.load(ROOT / "config" / "online.json")
+        config = load_settings(ROOT / "config" / "online.json")
         self.assertEqual(config.context_window_for("single_turn"), 1_000_000)
         self.assertEqual(config.context_window_for("narration"), 1_000_000)
-        self.assertEqual(config.model_base_url(env={}),
+        self.assertEqual(ModelFactory(config, env={}).base_url("default"),
                          "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
-        self.assertEqual(config.model_base_url(env={
-            "STORY_BAILIAN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        }), "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self.assertEqual(ModelFactory(config, env={
+            "STORY_MODEL_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        }).base_url("default"), "https://dashscope.aliyuncs.com/compatible-mode/v1")
         with self.assertRaisesRegex(ValueError, "DATABASE_URL"):
-            config.database_url(env={})
+            PlatformResources(config, env={}).database_url()
         with self.assertRaisesRegex(ValueError, "postgresql\\+psycopg"):
-            config.database_url(env={"DATABASE_URL": "sqlite:///wrong.db"})
+            PlatformResources(config, env={"DATABASE_URL": "sqlite:///wrong.db"}).database_url()
         with self.assertRaisesRegex(ValueError, "STORY_ALLOWED_HOSTS"):
-            config.allowed_hosts(env={})
-        self.assertEqual(config.allowed_hosts(env={"STORY_ALLOWED_HOSTS": "game.example.com"}),
+            PlatformResources(config, env={}).allowed_hosts()
+        self.assertEqual(PlatformResources(config, env={"STORY_ALLOWED_HOSTS": "game.example.com"}).allowed_hosts(),
                          ("game.example.com",))
-        self.assertEqual(config.allowed_origins(env={"STORY_ALLOWED_ORIGINS": "https://game.example.com"}),
+        self.assertEqual(PlatformResources(config, env={"STORY_ALLOWED_ORIGINS": "https://game.example.com"}).allowed_origins(),
                          ("https://game.example.com",))
 
 

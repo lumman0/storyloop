@@ -10,6 +10,7 @@ import zipfile
 import pytest
 from sqlalchemy import event, text
 
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 
 
@@ -27,10 +28,10 @@ def archive() -> bytes:
 @pytest.fixture
 def portal(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.setenv("STORY_BAILIAN_API_KEY", "offline-test")
+    monkeypatch.setenv("STORY_MODEL_API_KEY", "offline-test")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
-    instance = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
+    instance = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                             str(tmp_path / "test.sqlite3"),
                             prologue_generator=lambda *_: "A quiet opening.")
     try:

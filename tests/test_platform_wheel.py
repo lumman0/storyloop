@@ -14,7 +14,7 @@ def test_platform_wheels_run_without_checkout_or_old_distribution():
     # UV_OFFLINE/UV_CACHE_DIR may be supplied by an offline verification runner.
     env = {key: value for key, value in os.environ.items()
            if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"}}
-    env.update(PYTHONIOENCODING="utf-8", STORY_BAILIAN_API_KEY="offline-test",
+    env.update(PYTHONIOENCODING="utf-8", STORY_MODEL_API_KEY="offline-test",
                LANGFUSE_PUBLIC_KEY="", LANGFUSE_SECRET_KEY="")
     with tempfile.TemporaryDirectory(prefix="storyloop-wheel-") as directory:
         work = Path(directory)

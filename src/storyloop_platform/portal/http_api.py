@@ -144,7 +144,7 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
         message = "服务正在重启，这条行动尚未开始，请稍后再提交。"
         return {"code": "SERVICE_STOPPING", "message": message, "detail": message,
                 "retryable": False, "commit_state": "not_started", "request_id": request_id}
-    online_cookie = portal.config.profile == "online"
+    online_cookie = portal.settings.environment == "online"
     cookie_name = "__Host-storyloop" if online_cookie else "storyloop-session"
 
     async def model_error_response(_request: Request, error: Exception) -> JSONResponse:
@@ -156,22 +156,22 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
         app.add_exception_handler(error_type, model_error_response)
 
     bearer = HTTPBearer(auto_error=False)
-    if portal.config.profile == "online":
-        app.add_middleware(CORSMiddleware, allow_origins=list(portal.config.allowed_origins()),
+    if portal.settings.environment == "online":
+        app.add_middleware(CORSMiddleware, allow_origins=list(portal.resources.allowed_origins()),
                            allow_methods=["GET", "POST", "PUT", "DELETE"],
                            allow_headers=["Authorization", "Content-Type"])
 
     @app.middleware("http")
     async def validate_request(request: Request, call_next):
         host = request.headers.get("host", "").split(":", 1)[0].lower()
-        if host not in portal.config.allowed_hosts():
+        if host not in portal.resources.allowed_hosts():
             return JSONResponse({"error": "invalid host"}, status_code=401)
         origin = request.headers.get("origin")
-        if portal.config.profile == "local":
+        if portal.settings.environment == "local":
             origins = {f"http://{host}:{request.url.port}", f"http://{host}",
                        "http://127.0.0.1:5173", "http://localhost:5173"}
         else:
-            origins = set(portal.config.allowed_origins())
+            origins = set(portal.resources.allowed_origins())
         if origin and origin not in origins:
             return JSONResponse({"error": "cross-origin requests are not allowed"}, status_code=401)
         if (online_cookie and request.url.path.startswith("/v1/")
@@ -618,7 +618,7 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
 
 
 def serve(portal: PlayerPortal, host: str = "127.0.0.1", port: int = 8765) -> None:
-    if portal.config.profile == "local" and host not in {"127.0.0.1", "localhost"}:
+    if portal.settings.environment == "local" and host not in {"127.0.0.1", "localhost"}:
         raise ValueError("local portal HTTP login must bind to localhost")
     import uvicorn
 

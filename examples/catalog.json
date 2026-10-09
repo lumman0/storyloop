@@ -7,7 +7,7 @@
       "summary": "从一句问候开始，走进会随时间变化的港口。你可以交谈、观察，也可以改变周围的事物。",
       "genre": "开放探索",
       "theme": "harbor",
-      "package": "../examples/freeform"
+      "package": "freeform"
     },
     {
       "id": "relay-schedule",
@@ -16,7 +16,7 @@
       "summary": "工程师与交接班时钟各有自己的节奏。试着在事件发生前了解这座站点。",
       "genre": "时间事件",
       "theme": "relay",
-      "package": "../examples/scheduled"
+      "package": "scheduled"
     }
   ]
 }

@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from storyloop_harness.agents.scene_turn import SourceNarrativeTurn
 from storyloop_platform.generators.story_opening import GeneratedStoryOpening, StoryOpeningGenerator
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
 from storyloop_harness.world.story_blueprint import StoryBlueprint
@@ -158,7 +159,6 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 "mode": "campaign", "play_modes": ["campaign", "freeform"],
                 "package": "package"}]}), encoding="utf-8")
             config_data = json.loads((ROOT / "config/local.json").read_text(encoding="utf-8"))
-            config_data["runtime"]["turn_engine"] = "single_call"
             config_path = directory / "config.json"
             config_path.write_text(json.dumps(config_data), encoding="utf-8")
             requests = []
@@ -177,12 +177,12 @@ class SourceDrivenStoryTests(unittest.TestCase):
                                 {"label": "继续闲聊", "input": "我和阿岚聊聊港口生活。"}],
                 }).for_storage()
 
-            with patch.dict(os.environ, {"STORY_BAILIAN_API_KEY": "offline-test"}), \
+            with patch.dict(os.environ, {"STORY_MODEL_API_KEY": "offline-test"}), \
                     patch("storyloop_platform.generators.story_opening.StoryOpeningGenerator.generate",
                           side_effect=AssertionError("opening must not call a model")), \
                     patch("storyloop_harness.agents.scene_turn.SingleSceneGenerator.generate",
                           fake_turn):
-                portal = PlayerPortal(catalog, config_path,
+                portal = PlayerPortal(catalog, load_settings(config_path),
                                       str(directory / "game.sqlite3"))
                 token = portal.register("source-player", "password-123")["token"]
                 first = asyncio.run(portal.create_save(token, "harbor", "campaign",

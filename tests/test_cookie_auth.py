@@ -12,11 +12,12 @@ from storyloop_platform.portal.http_api import create_app
 
 def _client() -> tuple[TestClient, Mock]:
     portal = Mock()
-    portal.config = SimpleNamespace(
-        profile="online",
+    portal.resources = SimpleNamespace(
+        environment="online",
         allowed_hosts=lambda: {"story.example"},
         allowed_origins=lambda: ("https://story.example",),
     )
+    portal.settings = SimpleNamespace(environment="online")
     portal.login.return_value = {"player_id": "player-1", "token": "private-token"}
     portal.session_info.return_value = {"player_id": "player-1", "roles": [], "capabilities": []}
     portal.accounts.resolve_token.return_value = "player-1"
@@ -68,7 +69,8 @@ def test_logout_revokes_and_clears_cookie() -> None:
 
 def test_local_browser_uses_cookie_while_cli_keeps_bearer() -> None:
     portal = Mock()
-    portal.config = SimpleNamespace(profile="local", allowed_hosts=lambda: {"127.0.0.1"})
+    portal.resources = SimpleNamespace(allowed_hosts=lambda: {"127.0.0.1"})
+    portal.settings = SimpleNamespace(environment="local")
     portal.login.return_value = {"player_id": "player-1", "token": "local-token"}
     portal.session_info.return_value = {"player_id": "player-1", "roles": [], "capabilities": []}
     portal.accounts.resolve_token.return_value = "player-1"

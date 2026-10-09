@@ -9,8 +9,8 @@ from agentscope.model import OpenAIChatModel
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
-from storyloop_platform.adapters.model_config import BailianModelRouter, NpcModelConfig
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from model_helpers import create_test_model
+from storyloop_platform.config import load_settings, default_settings, ModelFactory
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_harness.agents.scene_turn import SingleSceneGenerator, SceneContextProjector
 from test_single_call import a_turn
@@ -18,45 +18,15 @@ from storyloop_platform.portal.billing import collect_usage
 from storyloop_harness.world.scenario import ScenarioPackage
 
 
-class NpcModelConfigTests(unittest.TestCase):
-    def test_configured_model_has_bounded_connect_and_response_timeouts(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        config = HarnessConfig.load(root / "config" / "bailian-token-plan.json")
-        model = config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "test-token"})
-
+class ModelFactoryTests(unittest.TestCase):
+    def test_model_timeouts_and_missing_credentials(self):
+        settings = default_settings()
+        with self.assertRaisesRegex(ValueError, 'STORY_MODEL_API_KEY'):
+            ModelFactory(settings, env={}).create_model('single_turn')
+        model = ModelFactory(settings, env={'STORY_MODEL_API_KEY': 'test-token'}).create_model('single_turn')
         self.assertEqual(model.client.timeout.connect, 10)
         self.assertEqual(model.client.timeout.read, 90)
         self.assertEqual(model.client.max_retries, 2)
-
-    def test_bailian_token_plan_routes_light_and_deep_tasks(self) -> None:
-        router = BailianModelRouter.from_environment({"STORY_BAILIAN_API_KEY": "test-token"})
-
-        light = router.create_model("followup_actions")
-        deep = router.create_model("single_turn")
-
-        self.assertEqual(light.model_name, "qwen3.8-flash")
-        self.assertEqual(deep.model_name, "qwen3.8-max")
-        self.assertEqual(str(light.client.base_url), "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/")
-        self.assertNotIn("test-token", repr(router))
-
-    def test_openai_compatible_endpoint_is_configured_without_a_network_call(self) -> None:
-        config = NpcModelConfig.from_environment({
-            "STORY_NPC_MODEL": "cheap-model",
-            "STORY_NPC_BASE_URL": "https://example.invalid/v1",
-            "STORY_NPC_API_KEY": "test-token",
-        })
-
-        model = config.create_model()
-
-        self.assertEqual(model.model_name, "cheap-model")
-        self.assertEqual(str(model.client.base_url), "https://example.invalid/v1/")
-        self.assertFalse(model.stream)
-
-    def test_missing_model_or_key_is_reported_before_play(self) -> None:
-        with self.assertRaisesRegex(ValueError, "STORY_NPC_MODEL"):
-            NpcModelConfig.from_environment({})
-        with self.assertRaisesRegex(ValueError, "STORY_NPC_API_KEY"):
-            NpcModelConfig.from_environment({"STORY_NPC_MODEL": "small"})
 
 
 class ReplySchema(BaseModel):
@@ -65,7 +35,7 @@ class ReplySchema(BaseModel):
 
 class MissingUsageTests(unittest.IsolatedAsyncioTestCase):
     async def test_normal_response_without_usage_cannot_be_collected(self) -> None:
-        model = NpcModelConfig("test-model", "test-key").create_model()
+        model = create_test_model("test-model", "test-key")
         response = SimpleNamespace(content="hello", usage=None)
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock,
                           return_value=response):
@@ -75,7 +45,7 @@ class MissingUsageTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(usage.records, [])
 
     async def test_structured_response_without_usage_cannot_be_collected(self) -> None:
-        model = NpcModelConfig("test-model", "test-key").create_model()
+        model = create_test_model("test-model", "test-key")
         response = SimpleNamespace(content={"text": "hello"}, usage=None)
         with patch.object(OpenAIChatModel, "generate_structured_output", new_callable=AsyncMock,
                           return_value=response):
@@ -86,7 +56,7 @@ class MissingUsageTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(usage.records, [])
 
     async def test_missing_usage_is_allowed_without_collection(self) -> None:
-        model = NpcModelConfig("test-model", "test-key").create_model()
+        model = create_test_model("test-model", "test-key")
         response = SimpleNamespace(content="hello", usage=None)
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock,
                           return_value=response):
@@ -101,20 +71,20 @@ class MissingUsageTests(unittest.IsolatedAsyncioTestCase):
 
 class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_auto_only_policy_converts_forced_tool_choice(self) -> None:
-        model = NpcModelConfig(
+        model = create_test_model(
             "qwen3.8-max", "test-token", "https://example.invalid/v1",
             tool_choice_policy="auto_only",
-        ).create_model()
+        )
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock) as call:
             await model([{"role": "user", "content": "hello"}], tools=[{"type": "function"}], tool_choice="required")
 
         self.assertEqual(call.await_args.kwargs["tool_choice"].mode, "auto")
 
     async def test_native_policy_preserves_forced_tool_choice(self) -> None:
-        model = NpcModelConfig(
+        model = create_test_model(
             "other-model", "test-token", "https://example.invalid/v1",
             tool_choice_policy="native",
-        ).create_model()
+        )
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock) as call:
             await model([{"role": "user", "content": "hello"}], tools=[{"type": "function"}], tool_choice="required")
 
@@ -123,11 +93,11 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_single_turn_sends_auto_to_qwen_compatible_endpoint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         package = ScenarioPackage.load(root / "examples" / "freeform")
-        config = HarnessConfig.load(root / "config" / "bailian-token-plan.json")
+        config = load_settings(root / "config" / "local.json")
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             package.seed_game(store, "game")
-            model = config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "test-token"})
+            model = ModelFactory(config, env={"STORY_MODEL_API_KEY": "test-token"}).create_model("single_turn")
             decision = {**a_turn(), "participants": ["dockhand"]}
             choices: list[str | None] = []
 

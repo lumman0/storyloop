@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings, ModelFactory, PlatformResources
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.portal.player_memory import Mem0PlayerMemory
@@ -34,7 +34,7 @@ class FakePlayerMemory:
 
 
 def test_profile_is_opt_in_batched_and_scoped_to_player(tmp_path: Path) -> None:
-    portal = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
+    portal = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                           str(tmp_path / "game.sqlite3"))
     fake = FakePlayerMemory()
     portal.player_memory = fake
@@ -69,10 +69,10 @@ def test_profile_is_opt_in_batched_and_scoped_to_player(tmp_path: Path) -> None:
 
 
 def test_server_flag_keeps_memory_off_by_default() -> None:
-    config = HarnessConfig.load(ROOT / "config/online.json")
+    config = load_settings(ROOT / "config/online.json")
     assert config.player_memory.driver == "mem0"
-    assert config.player_memory_enabled({}) is False
-    assert config.player_memory_enabled({"STORY_PLAYER_MEMORY_ENABLED": "1"}) is True
+    assert PlatformResources(config, env={}).player_memory_enabled() is False
+    assert PlatformResources(config, env={"STORY_PLAYER_MEMORY_ENABLED": "1"}).player_memory_enabled() is True
 
 
 def test_campaign_controls_are_not_sent_to_player_profile_memory() -> None:
@@ -96,8 +96,8 @@ def test_campaign_controls_are_not_sent_to_player_profile_memory() -> None:
 
 
 def test_mem0_embedded_store_is_persistent_and_user_scoped_without_model_calls(tmp_path: Path) -> None:
-    config = replace(HarnessConfig.load(ROOT / "config/online.json"), local_api_key="offline-key")
-    memory = Mem0PlayerMemory(config, tmp_path / "memory")
+    factory = ModelFactory(load_settings(ROOT / "config/online.json"), env={"STORY_MODEL_API_KEY": "offline-key"})
+    memory = Mem0PlayerMemory(factory, tmp_path / "memory")
     try:
         memory._memory.embedding_model.embed = lambda _text, _action=None: [0.1] * 1024
         memory._memory.add("player prefers slower pacing", user_id="player-a", infer=False)
@@ -105,7 +105,7 @@ def test_mem0_embedded_store_is_persistent_and_user_scoped_without_model_calls(t
         assert memory.list_memories("player-b") == []
     finally:
         memory.close()
-    reopened = Mem0PlayerMemory(config, tmp_path / "memory")
+    reopened = Mem0PlayerMemory(factory, tmp_path / "memory")
     try:
         assert len(reopened.list_memories("player-a")) == 1
         reopened.clear("player-a")

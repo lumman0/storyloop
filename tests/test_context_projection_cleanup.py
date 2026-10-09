@@ -6,20 +6,20 @@ from fastapi.testclient import TestClient
 from storyloop_platform.portal.http_api import create_app
 
 from storyloop_harness.advanced import PendingWork
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings, ModelFactory
 from test_turn_failure_contract import portal, ROOT
 
 
 def test_only_active_routes_and_runtime_limits_are_required(tmp_path):
     raw = json.loads((ROOT / 'config/local.json').read_text(encoding='utf-8'))
-    raw['models']['tasks'] = {task: 'deepseek-v4.1-flash' for task in
+    raw['routes'] = {task: 'story' for task in
                               ('single_turn', 'narration', 'followup_actions')}
-    raw['runtime'].pop('main_max_iters', None)
+    raw.setdefault('runtime', {}).pop('main_max_iters', None)
     raw['runtime'].pop('npc_max_iters', None)
     path = tmp_path / 'config.json'
     path.write_text(json.dumps(raw), encoding='utf-8')
-    config = HarnessConfig.load(path)
-    assert config.model_name('single_turn') == 'deepseek-v4.1-flash'
+    config = load_settings(path)
+    assert config.model_for('single_turn').model == 'deepseek-v4.1-flash'
     assert not hasattr(config.runtime, 'npc_max_iters')
 
 
@@ -38,7 +38,7 @@ def test_obsolete_work_rejected_before_model_world_or_billing(portal, monkeypatc
     ledger = portal.credit_ledger(token)
     def forbidden(*args, **kwargs):
         raise AssertionError('obsolete saves must fail before model or billing work')
-    monkeypatch.setattr(type(portal.config), 'create_model', forbidden)
+    monkeypatch.setattr(type(portal.model_factory), 'create_model', forbidden)
     monkeypatch.setattr(portal.billing, 'require_credit', forbidden)
     with TestClient(create_app(portal), base_url='http://127.0.0.1') as client:
         response = client.post(f'/v1/saves/{game_id}/turns' + ('/stream' if stream else ''),
@@ -62,8 +62,9 @@ def test_current_http_turn_uses_scene_projection_and_settles_once_with_only_acti
     from storyloop_platform.portal.billing import record_model_usage
     from test_single_call import a_turn, FakeGenerator
 
-    portal.config = replace(portal.config, task_models={task: 'deepseek-v4.1-flash'
-        for task in ('single_turn', 'narration', 'followup_actions')})
+    portal.settings = portal.settings.model_copy(update={'routes': {task: 'story'
+        for task in ('single_turn', 'narration', 'followup_actions')}})
+    portal.model_factory = ModelFactory(portal.settings)
     generator = FakeGenerator(a_turn())
     async def generate(_self, game_id, context):
         record_model_usage('deepseek-v4.1-flash', 'single_turn',

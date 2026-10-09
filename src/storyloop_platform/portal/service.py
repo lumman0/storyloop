@@ -14,7 +14,7 @@ from urllib.parse import quote
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import PlatformSettings, ModelFactory, PlatformResources
 from storyloop_platform.adapters.telemetry import configured_telemetry, session_id_for_game
 from storyloop_platform.generators.scene_narrator import CampaignSceneNarrator
 from storyloop_platform.generators.novel_narrator import NovelTurnNarrator
@@ -61,7 +61,7 @@ class PlayerPortal:
         presentation = "novel" if play_mode == "campaign" else "interactive"
         return replace(package, presentation_mode=presentation)
 
-    def __init__(self, catalog_path: str | Path | None, config_path: str | Path,
+    def __init__(self, catalog_path: str | Path | None, settings: PlatformSettings,
                  db_path: str | None = None,
                  accounts: PlayerRepository | None = None,
                  *, catalog: GameCatalog | None = None,
@@ -72,40 +72,43 @@ class PlayerPortal:
             self.catalog = GameCatalog.load(catalog_path)
         else:
             raise ValueError("catalog path or catalog provider is required")
-        self.config = HarnessConfig.load(config_path)
-        self.config.allowed_hosts()
-        if self.config.profile == "online":
+        self.settings = settings
+        self.resources = PlatformResources(settings)
+        self.telemetry = configured_telemetry()
+        self.model_factory = ModelFactory(settings, telemetry=self.telemetry)
+        self.resources.allowed_hosts()
+        if self.settings.environment == "online":
             self._require_model_key()
-        self.db_path = db_path or self.config.storage.path
+        self.db_path = db_path or self.settings.storage.path
         upload_dir = os.environ.get("STORY_UPLOAD_DIR")
-        if not upload_dir and self.config.profile == "online":
+        if not upload_dir and self.settings.environment == "online":
             raise ValueError("STORY_UPLOAD_DIR is required in online mode")
         if not upload_dir:
             upload_dir = str(Path(self.db_path).resolve().parent / "uploaded-scenarios")
-        self.engine = self.config.create_database(db_path)
-        self.store = self.config.create_store(engine=self.engine)
+        self.engine = self.resources.create_database(db_path)
+        self.store = self.resources.create_store(engine=self.engine)
         self.accounts = accounts or SQLPlayerRepository(self.engine)
         self.turn_settlements = SQLTurnSettlements(self.engine)
         self.save_generation_settings = SQLSaveGenerationSettings(self.engine)
         self.access = AccessService(self.engine)
         self.invitations = InvitationService(self.engine, self.access)
         self.memory_jobs = SQLPlayerMemoryJobs(self.engine)
-        self.memory_feature_enabled = self.config.player_memory_enabled()
+        self.memory_feature_enabled = self.resources.player_memory_enabled()
         self.player_memory: PlayerMemory | None = (
-            Mem0PlayerMemory(self.config, self.config.player_memory_path())
-            if self.config.player_memory.driver == "mem0" else None
+            Mem0PlayerMemory(self.model_factory, self.resources.player_memory_path())
+            if self.settings.player_memory.driver == "mem0" else None
         )
         self._profile_cache: dict[str, tuple[str, ...]] = {}
         self._memory_access = asyncio.Lock()
         self._memory_wakeup = asyncio.Event()
-        self.telemetry = configured_telemetry()
         self.user_scenarios = UserScenarioService(
             self.engine, upload_dir,
             prologue_generator=prologue_generator or self._generate_prologue,
         )
         self.moderation = ScenarioModerationService(self.engine, self.user_scenarios, self.access)
-        self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
-                        if self.config.billing_policy is not None else None)
+        billing_policy = self.resources.billing_policy
+        self.billing = (SQLBillingRepository(self.engine, billing_policy, self.accounts)
+                        if billing_policy is not None else None)
         self._turn_engines: dict[tuple[Path, str, SaveGenerationSettings, bool],
                                  TurnEngine] = {}
         self._campaign_sessions: dict[tuple[Path, str, SaveGenerationSettings], tuple[CampaignProgram, CampaignSession]] = {}
@@ -231,7 +234,7 @@ class PlayerPortal:
 
     def register(self, username: str, password: str, invite_code: str | None = None) -> dict:
         player_id = self.accounts.register(username, password, invite_code,
-                                           require_invite=self.config.profile == "online")
+                                           require_invite=self.settings.environment == "online")
         if self.billing is not None:
             self.billing.ensure_wallet(player_id)
         return {"player_id": player_id, "token": self.accounts.issue_token(player_id)}
@@ -413,8 +416,8 @@ class PlayerPortal:
 
     def _generate_prologue(self, package: ScenarioPackage, program: CampaignProgram | None,
                            title: str, summary: str) -> str:
-        task = "prologue" if "prologue" in self.config.task_models else "narration"
-        model = self.config.create_model(task, dict(os.environ), self.telemetry)
+        task = "prologue" if "prologue" in self.settings.routes else "narration"
+        model = self.model_factory.create_model(task)
         return asyncio.run(ModelPrologueGenerator(model, self.telemetry).generate(
             package, program, title, summary,
         ))
@@ -570,9 +573,10 @@ class PlayerPortal:
             raise TurnInputError("Unsupported legacy save (npc_reply); delete this save and start a new game.")
 
     def _default_generation_settings(self) -> SaveGenerationSettings:
-        window = min(self.config.context_window_for("single_turn"),
-                     self.config.runtime.context_window_tokens)
-        temperature = float(self.config.model_generate_kwargs.get("temperature", 1.0))
+        window = min(self.settings.context_window_for("single_turn"),
+                     self.settings.runtime.context_window_tokens)
+        temperature = self.settings.model_for("single_turn").generation.temperature
+        temperature = 1.0 if temperature is None else temperature
         return SaveGenerationSettings(temperature, window)
 
     def _generation_settings(self, game_id: str) -> SaveGenerationSettings:
@@ -618,18 +622,17 @@ class PlayerPortal:
         key = (item.package_path, game_id, settings, overnight_requires_rest)
         if key in self._turn_engines:
             return self._turn_engines[key]
-        values = dict(os.environ)
-        self._require_model_key(values)
+        self._require_model_key()
         clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick,
                             overnight_requires_rest=overnight_requires_rest)
                  if package.ticks_per_day is not None else None)
         session = TurnEngine(
             self.store, package,
-            self.config.create_model("single_turn", values, self.telemetry,
+            self.model_factory.create_model("single_turn",
                                      temperature=settings.temperature),
-            max_responders=self.config.runtime.max_npc_replies,
+            max_responders=self.settings.runtime.max_npc_replies,
             context_window_tokens=settings.context_window_tokens,
-            program=program, clock=clock, max_steps=self.config.runtime.max_steps,
+            program=program, clock=clock, max_steps=self.settings.runtime.max_steps,
             telemetry=self.telemetry,
         )
         self._turn_engines[key] = session
@@ -637,9 +640,8 @@ class PlayerPortal:
             self._turn_engines.pop(next(iter(self._turn_engines)))
         return session
 
-    def _require_model_key(self, values: dict[str, str] | None = None) -> None:
-        if not self.config.model_api_key(values):
-            raise ValueError(f"set {self.config.api_key_env} or configure a local model key file before starting a game")
+    def _require_model_key(self) -> None:
+        self.model_factory.require_credentials()
 
     def _campaign(self, item: GameListing, package: ScenarioPackage,
                   game_id: str) -> tuple[CampaignProgram, CampaignSession]:
@@ -654,16 +656,16 @@ class PlayerPortal:
             self.store, program, turn_engine, telemetry=self.telemetry,
             turns_per_story_tick=item.turns_per_story_tick,
             scene_presenter=CampaignSceneNarrator(
-                package, program, self.config.create_model("narration", dict(os.environ), self.telemetry,
+                package, program, self.model_factory.create_model("narration",
                                                            temperature=settings.temperature),
                 self.telemetry,
             ) if package.presentation_mode == "interactive" else None,
             novel_presenter=self._novel_presenter(package, game_id) if package.presentation_mode == "novel" else None,
             message_batch_writer=SingleCallMessageWriter(
                 self.store, package,
-                self.config.create_model(
+                self.model_factory.create_model(
                     "single_turn",
-                    dict(os.environ), self.telemetry, temperature=settings.temperature,
+                    temperature=settings.temperature,
                 ), self.telemetry,
             ),
             scene_turn_includes_presentation=True,
@@ -689,7 +691,7 @@ class PlayerPortal:
 
         return NovelTurnNarrator(
             package,
-            self.config.create_model("narration", dict(os.environ), self.telemetry,
+            self.model_factory.create_model("narration",
                                      temperature=self._generation_settings(game_id).temperature),
             self.telemetry,
             recent_prose,
@@ -705,9 +707,9 @@ class PlayerPortal:
             return ()
         task = "followup_actions"
         advisor = ActionOptionAdvisor(
-            self.config.create_model(task, dict(os.environ), self.telemetry,
+            self.model_factory.create_model(task,
                                      temperature=self._generation_settings(game_id).temperature), self.telemetry,
-            timeout_seconds=self.config.runtime.followup_timeout_seconds,
+            timeout_seconds=self.settings.runtime.followup_timeout_seconds,
         )
         context = program.current_action_context(snapshot) if program and snapshot else {}
         recent = tuple(item.text for item in self.store.player_inputs_for(game_id)[-4:]
@@ -760,8 +762,8 @@ class PlayerPortal:
         if not any(field.automatically_updated for field in package.status_fields):
             return self.store.load(game_id)
         if single is None:
-            model = self.config.create_model(
-                "adjudication", dict(os.environ), self.telemetry,
+            model = self.model_factory.create_model(
+                "adjudication",
                 temperature=self._generation_settings(game_id).temperature,
             )
             propose = ModelStatusAdjudicator(model, self.telemetry).propose

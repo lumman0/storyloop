@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import load_settings
 from storyloop_platform.cli.config_paths import select_config
 from storyloop_platform.portal.http_api import serve
 from storyloop_platform.portal.local_config import LocalPreferences
@@ -30,13 +30,13 @@ def main() -> None:
         parser.error("--catalog is required on first launch")
     default_config = Path(__file__).resolve().parents[1] / "defaults" / f"{args.profile}.json"
     config = select_config(args.config, saved.get("config"), default_config)
-    if HarnessConfig.load(config).profile != args.profile:
+    if load_settings(config).environment != args.profile:
         parser.error("--profile and config environment disagree")
-    portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
+    portal = PlayerPortal(catalog, load_settings(config), args.db or saved.get("db"))
     if preferences:
         preferences.save_settings(catalog, config, portal.db_path)
-        if not portal.config.model_api_key():
-            preferences.activate_model_key(portal.config.api_key_env, prompt=sys.stdin.isatty())
+        if not portal.model_factory.api_key(portal.settings.model_for("single_turn").provider):
+            preferences.activate_model_key(portal.settings.providers[portal.settings.model_for("single_turn").provider].api_key_env, prompt=sys.stdin.isatty())
     serve(portal, args.host or ("0.0.0.0" if args.profile == "online" else "127.0.0.1"), args.port)
 
 

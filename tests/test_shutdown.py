@@ -12,7 +12,8 @@ from storyloop_platform.portal.http_api import create_app, serve
 
 def fake_portal():
     portal = Mock()
-    portal.config = SimpleNamespace(profile="local", allowed_hosts=lambda: {"127.0.0.1"})
+    portal.resources = SimpleNamespace(allowed_hosts=lambda: {"127.0.0.1"})
+    portal.settings = SimpleNamespace(environment="local")
     portal.memory_feature_enabled = False
     return portal
 

@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 
 
@@ -26,7 +27,7 @@ def _archive() -> bytes:
 
 def test_review_roles_approval_public_catalog_and_account_revocation(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("STORY_UPLOAD_DIR", str(tmp_path / "uploads"))
-    portal = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
+    portal = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                           str(tmp_path / "portal.sqlite3"),
                           prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
@@ -73,7 +74,7 @@ def test_review_roles_approval_public_catalog_and_account_revocation(tmp_path: P
 def test_rejected_version_can_be_replaced_but_private_draft_cannot_disappear(tmp_path: Path,
                                                                                monkeypatch) -> None:
     monkeypatch.setenv("STORY_UPLOAD_DIR", str(tmp_path / "uploads"))
-    portal = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
+    portal = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                           str(tmp_path / "portal.sqlite3"),
                           prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
     try:
