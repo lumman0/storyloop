@@ -16,3 +16,6 @@ web/*.tsbuildinfo
 web/test-results/
 web/playwright-report/
 deploy/ecs/private/
+/docs/
+*.md
+/PROJECT_MEMORY.md

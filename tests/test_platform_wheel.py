@@ -40,7 +40,7 @@ def test_platform_wheels_run_without_checkout_or_old_distribution():
         source = work / "sources" / "platform"
         source.mkdir(parents=True)
         shutil.copy(ROOT / "pyproject.toml", source)
-        for name in ("LICENSE", "NOTICE", "README.md"):
+        for name in ("LICENSE", "NOTICE"):
             if (ROOT / name).is_file():
                 shutil.copy(ROOT / name, source)
         shutil.copytree(ROOT / "src", source / "src", ignore=shutil.ignore_patterns(

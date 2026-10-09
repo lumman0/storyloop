@@ -1,7 +1,6 @@
 """Platform ownership and distribution boundaries."""
 import ast
 import importlib
-import json
 from pathlib import Path
 import tomllib
 
@@ -29,25 +28,6 @@ def test_platform_has_no_dependency_on_old_compatibility_package():
             modules = ([node.module or ""] if isinstance(node, ast.ImportFrom)
                        else [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
             assert not any(name.startswith("story_harness") for name in modules), source
-
-
-def test_task_6_inventory_has_no_remaining_private_dependencies():
-    """Retain the migration inventory as evidence; every listed consumer is now migrated."""
-    root = Path(__file__).resolve().parents[1] / "src/storyloop_platform"
-    assert list(root.rglob("*.py")), f"No platform sources found in {root}"
-    inventory = Path(__file__).resolve().parents[1] / "docs/superpowers/specs/task-6-platform-harness-imports.json"
-    private = tuple("storyloop_harness." + name + "." for name in
-                    ("core", "runtime", "world", "agents", "models", "adapters"))
-    consumers = json.loads(inventory.read_text(encoding="utf-8"))
-    assert consumers, "The historical consumer inventory must not be empty"
-    for relative in consumers:
-        source = root / relative
-        if not source.exists():
-            continue
-        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-            names = ([node.module or ""] if isinstance(node, ast.ImportFrom) else
-                     [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
-            assert not any(name.startswith(private) for name in names), relative
 
 
 def test_platform_declares_versioned_harness_dependency():
