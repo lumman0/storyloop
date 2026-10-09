@@ -49,4 +49,4 @@ where = ["src"]
 storyloop_platform = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
 
 [tool.uv.sources]
-storyloop-harness = { git = "https://github.com/storyloop0/storyloop-harness.git", rev = "fadbd74584852fec3ad097bb7ec8421935eaacfc" }
+storyloop-harness = { git = "https://github.com/storyloop0/storyloop-harness.git", rev = "cb2be84dad44cbfc6e18d16eebc071c2234f7b22" }
