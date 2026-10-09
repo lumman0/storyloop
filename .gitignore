@@ -18,4 +18,6 @@ web/playwright-report/
 deploy/ecs/private/
 /docs/
 *.md
+!/README.md
+!/README.en.md
 /PROJECT_MEMORY.md
