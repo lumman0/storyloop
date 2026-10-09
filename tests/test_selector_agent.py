@@ -4,8 +4,8 @@ import unittest
 
 from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.core.contracts import PendingWork, Snapshot
-from story_harness.agents.selector_agent import AgentScopeWorkSelector
+from storyloop_harness.core.contracts import PendingWork, Snapshot
+from storyloop_platform.legacy.selector_agent import AgentScopeWorkSelector
 
 
 class ChoiceModel(ChatModelBase):

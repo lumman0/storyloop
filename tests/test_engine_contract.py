@@ -6,19 +6,19 @@ from dataclasses import replace
 
 import pytest
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.main_agent import MainDecision
-from story_harness.agents.scene_turn import NarrativeTurn, SourceNarrativeTurn, SceneContextProjector
-from story_harness.runtime.game_session import GameSession
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.runtime.schedule import advance_time
-from story_harness.runtime.story_clock import StoryClock
-from story_harness.runtime.single_call import SingleCallGameSession
-from story_harness.runtime.status_update import settle_status
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.world.status_fields import parse_status_fields
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.main_agent import MainDecision
+from storyloop_harness.agents.scene_turn import NarrativeTurn, SourceNarrativeTurn, SceneContextProjector
+from storyloop_platform.runtime.game_session import GameSession
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_harness.runtime.schedule import advance_time
+from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.runtime.single_call import SingleCallGameSession
+from storyloop_platform.runtime.status_update import settle_status
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.world.status_fields import parse_status_fields
 from test_game_session import EXAMPLE, ScriptedMain, ReplyModel
-from story_harness.agents.npc_agent import NpcAgentPool
+from storyloop_platform.legacy.npc_agent import NpcAgentPool
 
 
 @pytest.fixture
@@ -125,13 +125,13 @@ def test_plain_status_change_is_validated_before_prose_commit_and_applied_once(w
 
 
 def test_shared_contracts_preserve_legacy_identity():
-    from story_harness.core.decisions import MainDecision as CoreDecision
-    from story_harness.core.turn_result import StorySegment, TurnOutcome
-    from story_harness.core.store_port import GameStore
-    from story_harness.agents.main_agent import MainDecision as LegacyDecision
-    from story_harness.runtime.game_session import TurnOutcome as LegacyOutcome
-    from story_harness.runtime.presentation import StorySegment as LegacySegment
-    from story_harness.adapters.store import GameStore as LegacyStore
+    from storyloop_harness.core.decisions import MainDecision as CoreDecision
+    from storyloop_harness.core.turn_result import StorySegment, TurnOutcome
+    from storyloop_harness.core.store_port import GameStore
+    from storyloop_platform.legacy.main_agent import MainDecision as LegacyDecision
+    from storyloop_platform.runtime.game_session import TurnOutcome as LegacyOutcome
+    from storyloop_harness.runtime.presentation import StorySegment as LegacySegment
+    from storyloop_platform.adapters.store import GameStore as LegacyStore
 
     assert CoreDecision is LegacyDecision
     assert TurnOutcome is LegacyOutcome
@@ -141,8 +141,8 @@ def test_shared_contracts_preserve_legacy_identity():
 
 @pytest.mark.parametrize("sample, expected", [("", 0), ("hello world", 11), ("你好世界", 6)])
 def test_shared_token_estimator_preserves_legacy_values(sample, expected):
-    from story_harness.core.token_budget import estimate_tokens
-    from story_harness.runtime.agent_context import estimate_tokens as legacy_estimate
+    from storyloop_harness.core.token_budget import estimate_tokens
+    from storyloop_platform.runtime.agent_context import estimate_tokens as legacy_estimate
 
     assert estimate_tokens is legacy_estimate
     assert estimate_tokens(sample) == legacy_estimate(sample) == expected

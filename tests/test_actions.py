@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.core.actions import adjudicate_action
-from story_harness.core.perception import physical_observations
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.adapters.store import SQLiteGameStore
+from storyloop_harness.core.actions import adjudicate_action
+from storyloop_harness.core.perception import physical_observations
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

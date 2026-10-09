@@ -12,12 +12,12 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from story_harness.agents.scene_turn import SourceNarrativeTurn
-from story_harness.agents.story_opening import GeneratedStoryOpening, StoryOpeningGenerator
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
-from story_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
-from story_harness.world.story_blueprint import StoryBlueprint
+from storyloop_harness.agents.scene_turn import SourceNarrativeTurn
+from storyloop_platform.generators.story_opening import GeneratedStoryOpening, StoryOpeningGenerator
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
+from storyloop_harness.world.story_blueprint import StoryBlueprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -178,9 +178,9 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 }).for_storage()
 
             with patch.dict(os.environ, {"STORY_BAILIAN_API_KEY": "offline-test"}), \
-                    patch("story_harness.agents.story_opening.StoryOpeningGenerator.generate",
+                    patch("storyloop_platform.generators.story_opening.StoryOpeningGenerator.generate",
                           side_effect=AssertionError("opening must not call a model")), \
-                    patch("story_harness.agents.scene_turn.SingleSceneGenerator.generate",
+                    patch("storyloop_harness.agents.scene_turn.SingleSceneGenerator.generate",
                           fake_turn):
                 portal = PlayerPortal(catalog, config_path,
                                       str(directory / "game.sqlite3"))

@@ -44,7 +44,7 @@ test = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-storyloop_platform = ["migrations/*.py", "migrations/versions/*.py"]
+storyloop_platform = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
 
 [tool.uv.sources]
 storyloop-harness = { workspace = true }

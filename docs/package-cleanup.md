@@ -5,7 +5,7 @@
 从仓库根目录执行，只读检查既有 SQLite 数据库和上传目录：
 
 ```sh
-python -m story_harness.cli.package_cleanup --db /path/to/game.sqlite3 --uploads /path/to/uploaded-scenarios
+python -m storyloop_platform.cli.package_cleanup --db /path/to/game.sqlite3 --uploads /path/to/uploaded-scenarios
 ```
 
 PostgreSQL 使用显式的 `DATABASE_URL` 环境变量并省略 `--db`。必须确认该库和 `--uploads` 属于同一实例；数据库地址不放在命令参数或报告中。

@@ -51,18 +51,14 @@ flowchart LR
 当前模块职责、主要执行路径与尚未拆分的边界见[架构说明](docs/architecture.md)。
 
 ```text
-src/story_harness/
-  core/       事件、状态转换、观察与计费契约
-  world/      剧本包与世界书
-  agents/     主控、NPC、选择器与叙述 Agent
-  runtime/    回合调度、剧情、时间和呈现
-  adapters/   模型配置、SQL 存储与遥测
-  portal/     账号、存档、画像、积分和 HTTP API
-  cli/        本地演示与服务入口
-web/          React 前端
+packages/harness/   storyloop-harness Python runtime
+packages/platform/
+  src/storyloop_platform/   API, SQL, config, billing and CLI
+  web/                      React frontend
+  deploy/                   Deployment files
 config/       本地与线上配置示例
 examples/     可公开使用的合成剧本包
-deploy/ecs/   单机 ECS Docker Compose 部署配置
+packages/platform/deploy/ecs/   单机 ECS Docker Compose 部署配置
 ```
 
 ## 快速开始
@@ -73,24 +69,24 @@ deploy/ecs/   单机 ECS Docker Compose 部署配置
 
 ```cmd
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[agents,portal]"
+.\.venv\Scripts\python.exe -m pip install -e packages/harness -e "packages/platform[agents,portal]"
 .\.venv\Scripts\python.exe scripts\check_environment.py --config config\local.json
 ```
 
-检查必须成功，并且 `python` 和 `story_harness` 都指向当前工作树；脚本报告 Git HEAD、配置路径和存储驱动，不读取或输出数据库连接密码、模型 Key。它只检查版本入口，不验证完整配置、数据库或模型连通性。`git_sha` 是提交版本，未提交的改动需另行核对。
+检查必须成功，并且 `python` 和 `storyloop_platform` 都指向当前工作树；脚本报告 Git HEAD、配置路径和存储驱动，不读取或输出数据库连接密码、模型 Key。它只检查版本入口，不验证完整配置、数据库或模型连通性。`git_sha` 是提交版本，未提交的改动需另行核对。
 
 先运行无需模型 Key 的离线示例：
 
 ```cmd
-.\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
+.\.venv\Scripts\python.exe packages\harness\examples\offline_turn.py
 ```
 
 开发回归使用当前工作树的独立解释器；`pytest` 同时收集现有 unittest 类和函数式回归测试：
 
 ```cmd
-.\.venv\Scripts\python.exe -m pip install -e ".[agents,portal,observability,player-memory,test]"
+.\.venv\Scripts\python.exe -m pip install -e packages/harness -e "packages/platform[agents,portal,observability,player-memory,test]"
 .\.venv\Scripts\python.exe -m pytest tests -q
-cd web
+cd packages/platform/web
 node --experimental-strip-types --test tests/*.test.mjs
 npm run build
 ```
@@ -105,13 +101,13 @@ npm run build
 
 ```cmd
 copy config\application.local.example.json config\application.local.json
-.\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
 ```
 
 另开终端启动前端：
 
 ```cmd
-cd web
+cd packages/platform/web
 npm install
 npm run dev
 ```

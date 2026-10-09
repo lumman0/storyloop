@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
-from story_harness.portal.http_api import create_app
+from storyloop_platform.portal.http_api import create_app
 
 
 def _client() -> tuple[TestClient, Mock]:

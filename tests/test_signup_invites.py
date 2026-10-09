@@ -5,9 +5,9 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from story_harness.adapters.sql_database import open_database, sqlite_url, upgrade_database
-from story_harness.portal.service import PlayerPortal
-from story_harness.portal.sql_repository import SQLPlayerRepository
+from storyloop_platform.adapters.sql_database import open_database, sqlite_url, upgrade_database
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
 
 ROOT = Path(__file__).resolve().parents[1]

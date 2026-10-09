@@ -9,12 +9,12 @@ from agentscope.model import OpenAIChatModel
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
-from story_harness.adapters.model_config import BailianModelRouter, NpcModelConfig
-from story_harness.adapters.runtime_config import HarnessConfig
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.main_agent import MainReActAgent
-from story_harness.core.billing import collect_usage
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.model_config import BailianModelRouter, NpcModelConfig
+from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_platform.portal.billing import collect_usage
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 class NpcModelConfigTests(unittest.TestCase):

@@ -27,15 +27,15 @@ import tracemalloc
 ROOT = Path(__file__).resolve().parents[1]
 # A directly invoked script must benchmark this checkout rather than another
 # editable installation sharing the same package name.
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "packages/platform/src"))
 
 from sqlalchemy import event, inspect, text
 from sqlalchemy.exc import OperationalError
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.scene_turn import SceneContextProjector
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.world.worldbook import Worldbook, WorldbookEntry
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.agents.scene_turn import SceneContextProjector
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.world.worldbook import Worldbook, WorldbookEntry
 
 ACTORS = ("dockhand", "vendor", "guide")
 GAME = "synthetic-benchmark"
@@ -200,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         "working_tree_dirty": None if git_status is None else bool(git_status),
         "read_module_sha256": {
             name: hashlib.sha256(Path(sys.modules[name].__file__).read_bytes()).hexdigest()
-            for name in ("story_harness.adapters.sql_store", "story_harness.agents.scene_turn")
+            for name in ("storyloop_platform.adapters.sql_store", "storyloop_harness.agents.scene_turn")
         },
     }, "method": {"repeats": args.repeats, "actors": len(ACTORS), "events_per_turn": 4,
                     "observations_per_turn": 7, "compression_checkpoints": 0,

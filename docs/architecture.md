@@ -27,7 +27,7 @@ flowchart TD
 
 | 模块 | 当前职责 |
 | --- | --- |
-| web/ | 玩家游玩、存档、上传和审核；保存待确认请求 ID，消费 SSE 进度与完成结果 |
+| packages/platform/web/ | 玩家游玩、存档、上传和审核；保存待确认请求 ID，消费 SSE 进度与完成结果 |
 | portal/http_api.py | HTTP/SSE、Cookie/Bearer、Host/Origin、错误映射、回合停机等待 |
 | portal/service.py | PlayerPortal 外观与依赖装配，协调账号、内容访问、存档、回合、计费、玩家画像 |
 | portal/user_scenarios.py、moderation.py | 上传校验、版本管理、私有可玩版本、送审与公共发布 |

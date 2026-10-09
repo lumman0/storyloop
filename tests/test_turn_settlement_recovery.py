@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from story_harness.core.billing import record_model_usage
-from story_harness.core.contracts import WorldEvent
-from story_harness.portal.service import PlayerPortal
-from story_harness.runtime.player_input import submit_player_input
+from storyloop_platform.portal.billing import record_model_usage
+from storyloop_harness.core.contracts import WorldEvent
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_harness.runtime.player_input import submit_player_input
 from test_turn_failure_contract import portal, ROOT
 
 
@@ -140,7 +140,7 @@ def test_prepared_turn_cannot_change_input_and_can_settle_after_billing_disabled
 
 def test_platform_always_assembles_single_call_session(portal):
     from storyloop_harness import TurnEngine
-    from story_harness.world.scenario import ScenarioPackage
+    from storyloop_harness.world.scenario import ScenarioPackage
 
     package = ScenarioPackage.load(ROOT / "examples/freeform")
     package.seed_game(portal.store, "assembly")
@@ -152,10 +152,10 @@ def test_platform_always_assembles_single_call_session(portal):
 
 
 def test_platform_recovers_legacy_npc_reply_once(portal, monkeypatch):
-    from story_harness.agents.npc_agent import NpcAgentPool
-    from story_harness.core.contracts import PendingWork
+    from storyloop_platform.legacy.npc_agent import NpcAgentPool
+    from storyloop_harness.core.contracts import PendingWork
     from storyloop_harness import TurnEngine
-    from story_harness.world.scenario import ScenarioPackage
+    from storyloop_harness.world.scenario import ScenarioPackage
 
     package = ScenarioPackage.load(ROOT / "examples/freeform")
     package.seed_game(portal.store, "legacy-work")

@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.portal.catalog import GameCatalog
-from story_harness.portal.service import PlayerPortal
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.portal.catalog import GameCatalog
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 ROOT = Path(__file__).resolve().parents[1]

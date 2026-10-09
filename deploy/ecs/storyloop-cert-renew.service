@@ -1,8 +1,0 @@
-[Unit]
-Description=Renew Storyloop HTTPS certificate
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh /opt/storyloop/deploy/ecs/renew-certificate.sh

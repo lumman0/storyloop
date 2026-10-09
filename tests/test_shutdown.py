@@ -7,7 +7,7 @@ from unittest.mock import Mock, AsyncMock, patch
 import httpx
 import pytest
 
-from story_harness.portal.http_api import create_app, serve
+from storyloop_platform.portal.http_api import create_app, serve
 
 
 def fake_portal():

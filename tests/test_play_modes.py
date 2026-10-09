@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from story_harness.portal.service import PlayerPortal
-from story_harness.runtime.campaign import CampaignProgram
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.runtime.campaign import CampaignProgram
 
 
 ROOT = Path(__file__).resolve().parents[1]

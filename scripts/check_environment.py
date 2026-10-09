@@ -20,13 +20,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"config: {config}")
 
     try:
-        package = importlib.import_module("story_harness")
+        package = importlib.import_module("storyloop_platform")
         location = Path(package.__file__).resolve()
     except (ImportError, TypeError, AttributeError):
-        print("error: story_harness is not importable", file=sys.stderr)
+        print("error: storyloop_platform is not importable", file=sys.stderr)
         return 1
-    print(f"story_harness: {location}")
-    if location != (root / "src/story_harness/__init__.py").resolve():
+    print(f"storyloop_platform: {location}")
+    if location != (root / "packages/platform/src/storyloop_platform/__init__.py").resolve():
         print("error: import root does not match this checkout", file=sys.stderr)
         return 1
 

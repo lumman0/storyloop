@@ -8,9 +8,9 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +56,7 @@ class SaveGenerationSettingsTests(unittest.TestCase):
                 item = portal.catalog.get("npc-chat")
                 package = ScenarioPackage.load(item.package_path)
                 with patch.object(portal, "_require_model_key"), patch(
-                    "story_harness.adapters.runtime_config.HarnessConfig.create_model",
+                    "storyloop_platform.adapters.runtime_config.HarnessConfig.create_model",
                     return_value=object(),
                 ) as factory:
                     first_session = portal._react(item, package, "game-1")

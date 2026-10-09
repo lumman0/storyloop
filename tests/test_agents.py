@@ -6,12 +6,12 @@ from pathlib import Path
 
 from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.core.contracts import Effect, Observation, PendingWork, Snapshot, WorldEvent
-from story_harness.runtime.npc_work import make_npc_reply_handler
-from story_harness.runtime.runner import TurnRunner
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.world.worldbook import Worldbook
+from storyloop_platform.legacy.npc_agent import NpcAgentPool
+from storyloop_harness.core.contracts import Effect, Observation, PendingWork, Snapshot, WorldEvent
+from storyloop_platform.legacy.npc_work import make_npc_reply_handler
+from storyloop_harness.runtime.runner import TurnRunner
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.world.worldbook import Worldbook
 
 
 class RecordingModel(ChatModelBase):
@@ -277,7 +277,7 @@ class NpcAgentPoolTests(unittest.IsolatedAsyncioTestCase):
         )
 
         def advance_plot(snapshot: Snapshot, work: PendingWork):
-            from story_harness.runtime.runner import WorkResult
+            from storyloop_harness.runtime.runner import WorkResult
 
             event = WorldEvent(
                 "plot-advanced", "plot_pressure", None, work.work_id,

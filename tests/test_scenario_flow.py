@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.runtime.runner import TurnRunner, WorkResult
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.runtime.schedule import advance_time, scenario_cue
-from story_harness.adapters.store import SQLiteGameStore
+from storyloop_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_harness.runtime.runner import TurnRunner, WorkResult
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.runtime.schedule import advance_time, scenario_cue
+from storyloop_platform.adapters.store import SQLiteGameStore
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"

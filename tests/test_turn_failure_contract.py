@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
-from story_harness.runtime.player_input import submit_player_input
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_harness.runtime.player_input import submit_player_input
 from test_scenario_lifecycle_concurrency import archive
 
 

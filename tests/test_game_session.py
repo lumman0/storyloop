@@ -6,15 +6,15 @@ from pathlib import Path
 
 from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.runtime.game_session import GameSession, compose_visible_narration, compose_visible_segments
-from story_harness.core.contracts import Effect, Observation
-from story_harness.agents.main_agent import MainDecision
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.runtime.schedule import advance_time
-from story_harness.runtime.story_clock import StoryClock
-from story_harness.core.open_actions import MutableField, OpenActionOutcome
+from storyloop_platform.legacy.npc_agent import NpcAgentPool
+from storyloop_platform.runtime.game_session import GameSession, compose_visible_narration, compose_visible_segments
+from storyloop_harness.core.contracts import Effect, Observation
+from storyloop_platform.legacy.main_agent import MainDecision
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.runtime.schedule import advance_time
+from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.core.open_actions import MutableField, OpenActionOutcome
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

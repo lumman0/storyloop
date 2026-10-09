@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from agentscope.message import AssistantMsg, ThinkingBlock, TextBlock, UserMsg
 
-from story_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
+from storyloop_harness.agents.openai_formatter import ThinkingSafeOpenAIChatFormatter
 
 
 class ThinkingFormatterTests(unittest.IsolatedAsyncioTestCase):

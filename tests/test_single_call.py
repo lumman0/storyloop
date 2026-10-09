@@ -7,18 +7,18 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
-from story_harness.agents.scene_messages import MessageScene
-from story_harness.core.contracts import AgentContextEntry, Observation, WorldEvent
-from story_harness.core.open_actions import parse_mutable_fields, validate_open_effects
-from story_harness.core.contracts import Effect
-from story_harness.agents.action_advisor import ActionOption
-from story_harness.runtime.campaign import CampaignProgram, CampaignSession
-from story_harness.runtime.single_call import SingleCallGameSession
-from story_harness.runtime.story_clock import StoryClock
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.world.worldbook import Worldbook, WorldbookEntry
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
+from storyloop_platform.generators.scene_messages import MessageScene
+from storyloop_harness.core.contracts import AgentContextEntry, Observation, WorldEvent
+from storyloop_harness.core.open_actions import parse_mutable_fields, validate_open_effects
+from storyloop_harness.core.contracts import Effect
+from storyloop_harness.agents.action_advisor import ActionOption
+from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
+from storyloop_harness.runtime.single_call import SingleCallGameSession
+from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.world.worldbook import Worldbook, WorldbookEntry
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

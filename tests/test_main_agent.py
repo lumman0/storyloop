@@ -6,11 +6,11 @@ from pathlib import Path
 
 from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.core.contracts import Snapshot
-from story_harness.agents.main_agent import MainReActAgent
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.world.worldbook import Worldbook
+from storyloop_harness.core.contracts import Snapshot
+from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.world.worldbook import Worldbook
 
 
 class ToolThenPlanModel(ChatModelBase):

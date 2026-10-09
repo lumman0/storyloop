@@ -5,16 +5,16 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.action_advisor import ActionOptionAdvisor
-from story_harness.agents.novel_narrator import NovelTurnNarrator, repeated_imagery
-from story_harness.core.contracts import Snapshot
-from story_harness.portal.service import PlayerPortal
-from story_harness.runtime.campaign import CampaignProgram, CampaignSession
-from story_harness.runtime.novel_presentation import recover_last_freeform_novel
-from story_harness.runtime.presentation import SceneContext, StorySegment
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.agents.action_advisor import ActionOptionAdvisor
+from storyloop_platform.generators.novel_narrator import NovelTurnNarrator, repeated_imagery
+from storyloop_harness.core.contracts import Snapshot
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
+from storyloop_platform.runtime.novel_presentation import recover_last_freeform_novel
+from storyloop_harness.runtime.presentation import SceneContext, StorySegment
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

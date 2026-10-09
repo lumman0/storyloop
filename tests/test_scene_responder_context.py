@@ -7,14 +7,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn
-from story_harness.core.contracts import Observation, WorldEvent
-from story_harness.runtime.agent_context import estimate_tokens
-from story_harness.runtime.single_call import SingleCallGameSession
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.world.story_blueprint import StoryBlueprint
-from story_harness.world.worldbook import Worldbook, WorldbookEntry
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.agents.scene_turn import SceneContextProjector, SceneTurn
+from storyloop_harness.core.contracts import Observation, WorldEvent
+from storyloop_platform.runtime.agent_context import estimate_tokens
+from storyloop_harness.runtime.single_call import SingleCallGameSession
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.world.story_blueprint import StoryBlueprint
+from storyloop_harness.world.worldbook import Worldbook, WorldbookEntry
 
 
 ROOT = Path(__file__).resolve().parents[1]

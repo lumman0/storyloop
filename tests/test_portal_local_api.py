@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 from httpx2 import Request
 from openai import APIConnectionError
 
-from story_harness.portal.http_api import create_app
-from story_harness.portal.local_config import LocalPreferences
-from story_harness.portal.service import PlayerPortal
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.local_config import LocalPreferences
+from storyloop_platform.portal.service import PlayerPortal
 
 
 ROOT = Path(__file__).resolve().parents[1]

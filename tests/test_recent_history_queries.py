@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy import event, text
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.core.contracts import Observation, WorldEvent
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.core.contracts import Observation, WorldEvent
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 @pytest.fixture

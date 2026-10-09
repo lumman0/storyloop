@@ -26,7 +26,7 @@ def test_failed_package_delete_can_be_retried_from_persistent_queue(portal, monk
     assert store.materialize(reference).is_dir()
     monkeypatch.setattr(store, "remove", remove)
     # Reconstruct the cleanup service: its retry inputs must live in SQL.
-    from story_harness.portal.package_cleanup import PackageCleanup
+    from storyloop_platform.portal.package_cleanup import PackageCleanup
     cleanup = PackageCleanup(portal.engine, store)
     assert cleanup.retry()[0]["status"] == "removed"
     assert cleanup.pending() == []
@@ -37,7 +37,7 @@ def test_cleanup_queue_never_deletes_a_package_still_referenced_by_a_version(por
     token = portal.register("author", "password-123")["token"]
     draft = portal.upload_scenario(token, "Draft", "", archive())
     reference = f"{draft['id']}/{draft['version_id']}"
-    from story_harness.portal.package_cleanup import PackageCleanup
+    from storyloop_platform.portal.package_cleanup import PackageCleanup
     cleanup = PackageCleanup(portal.engine, portal.user_scenarios.package_store)
     with portal.engine.begin() as db:
         cleanup.enqueue(db, reference)
@@ -54,12 +54,12 @@ def test_inspection_reports_missing_and_untracked_packages_without_deleting(port
     (store.materialize(reference) / "manifest.json").unlink()
     orphan = f"usr_{'a' * 32}/{'b' * 32}"
     store.materialize(orphan).mkdir(parents=True)
-    from story_harness.portal.package_cleanup import inspect_local_packages
+    from storyloop_platform.portal.package_cleanup import inspect_local_packages
     report = inspect_local_packages(portal.engine, store.directory)
     assert reference in report["missing_manifests"]
     assert orphan in report["untracked_packages"]
     assert store.materialize(orphan).is_dir()
-    from story_harness.cli.package_cleanup import main
+    from storyloop_platform.cli.package_cleanup import main
     assert main(["--db", portal.db_path, "--uploads", str(store.directory)]) == 0
     assert orphan in json.loads(capsys.readouterr().out)["untracked_packages"]
     assert store.materialize(orphan).is_dir()

@@ -10,8 +10,8 @@ import json
 from contextlib import closing
 from pathlib import Path
 
-from story_harness.adapters.runtime_config import HarnessConfig
-from story_harness.portal.sql_repository import SQLPlayerRepository
+from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +69,7 @@ class EnvironmentProfileSmokeTest(unittest.TestCase):
         for profile in ("local", "online"):
             self.assertEqual(
                 json.loads((ROOT / "config" / f"{profile}.json").read_text(encoding="utf-8")),
-                json.loads((ROOT / "src" / "story_harness" / "defaults" /
+                json.loads((ROOT / "packages/platform/src" / "storyloop_platform" / "defaults" /
                             f"{profile}.json").read_text(encoding="utf-8")),
             )
         config = HarnessConfig.load(ROOT / "config" / "online.json")

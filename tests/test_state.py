@@ -1,7 +1,7 @@
 import unittest
 
-from story_harness.core.contracts import Effect, Snapshot, WorldEvent
-from story_harness.core.state import apply_event
+from storyloop_harness.core.contracts import Effect, Snapshot, WorldEvent
+from storyloop_harness.core.state import apply_event
 
 
 class ApplyEventTests(unittest.TestCase):

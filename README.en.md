@@ -49,18 +49,14 @@ Authoritative game data is separate from generation context. `GameStore` manages
 ## Repository layout
 
 ```text
-src/story_harness/
-  core/       Events, state transitions, perception, and billing contracts
-  world/      Scenario packages and worldbook
-  agents/     Director, NPC, selector, and narrator agents
-  runtime/    Turn scheduling, campaign flow, story time, and presentation
-  adapters/   Model configuration, SQL storage, and telemetry
-  portal/     Accounts, saves, profiles, credits, and HTTP API
-  cli/        Local demos and service entry points
-web/          React frontend
+packages/harness/   storyloop-harness Python runtime
+packages/platform/
+  src/storyloop_platform/   API, SQL, config, billing and CLI
+  web/                      React frontend
+  deploy/                   Deployment files
 config/       Local and online configuration examples
 examples/     Public synthetic scenario packages
-deploy/ecs/   Single-ECS Docker Compose deployment
+packages/platform/deploy/ecs/   Single-ECS Docker Compose deployment
 ```
 
 ## Quick start
@@ -69,13 +65,13 @@ Use Python 3.12+ and Node.js 20.19+. From the repository root, run these command
 
 ```cmd
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[agents,portal]"
+.\.venv\Scripts\python.exe -m pip install -e packages/harness -e "packages/platform[agents,portal]"
 ```
 
 Run an offline example without a model key:
 
 ```cmd
-.\.venv\Scripts\python.exe -m story_harness.cli.interaction_demo examples\freeform
+.\.venv\Scripts\python.exe packages\harness\examples\offline_turn.py
 ```
 
 For live models, create a local credentials file and set `models.api_key` to a pay-as-you-go Bailian key. Git ignores the file. `config/local.json` defaults to `deepseek-v4.1-flash` on the Hong Kong endpoint; use `config/bailian-token-plan.json` for the separate Token Plan profile. `STORY_BAILIAN_API_KEY` overrides the file when present.
@@ -84,13 +80,13 @@ For live models, create a local credentials file and set `models.api_key` to a p
 
 ```cmd
 copy config\application.local.example.json config\application.local.json
-.\.venv\Scripts\python.exe -m story_harness.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog config\games.example.json --config config\local.json --db game.sqlite3
 ```
 
 Start the frontend in another terminal:
 
 ```cmd
-cd web
+cd packages/platform/web
 npm install
 npm run dev
 ```

@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.adapters.store import SQLiteGameStore
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"

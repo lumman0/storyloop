@@ -7,10 +7,10 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
-from story_harness.adapters.runtime_config import HarnessConfig
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
-from story_harness.portal.player_memory import Mem0PlayerMemory
+from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.portal.player_memory import Mem0PlayerMemory
 
 
 ROOT = Path(__file__).resolve().parents[1]

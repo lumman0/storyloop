@@ -1,4 +1,4 @@
-"""Platform ownership and temporary import compatibility during extraction."""
+"""Platform ownership and distribution boundaries."""
 import ast
 import importlib
 import json
@@ -8,16 +8,14 @@ import tomllib
 import pytest
 
 
-@pytest.mark.parametrize("old,new,symbol", [
-    ("portal.service", "portal.service", "PlayerPortal"),
-    ("adapters.sql_store", "adapters.sql_store", "SQLGameStore"),
-    ("adapters.runtime_config", "adapters.runtime_config", "HarnessConfig"),
-    ("runtime.npc_work", "legacy.npc_work", "make_npc_reply_handler"),
+@pytest.mark.parametrize("new,symbol", [
+    ("portal.service", "PlayerPortal"),
+    ("adapters.sql_store", "SQLGameStore"),
+    ("adapters.runtime_config", "HarnessConfig"),
+    ("legacy.npc_work", "make_npc_reply_handler"),
 ])
-def test_canonical_platform_objects_and_old_imports_are_identical(old, new, symbol):
+def test_canonical_platform_objects_are_owned_by_platform(new, symbol):
     canonical = importlib.import_module(f"storyloop_platform.{new}")
-    compatibility = importlib.import_module(f"story_harness.{old}")
-    assert compatibility is canonical
     assert getattr(canonical, symbol).__module__ == f"storyloop_platform.{new}"
 
 

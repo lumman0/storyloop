@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.adapters.runtime_config import HarnessConfig
+from storyloop_platform.adapters.runtime_config import HarnessConfig
 
 
 DEFAULT = Path(__file__).resolve().parents[1] / "config" / "bailian-token-plan.json"

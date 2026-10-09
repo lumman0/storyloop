@@ -4,12 +4,12 @@ from pathlib import Path
 
 from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.runtime.npc_work import make_npc_reply_handler
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.runtime.runner import TurnRunner
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.npc_agent import NpcAgentPool
+from storyloop_platform.legacy.npc_work import make_npc_reply_handler
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_harness.runtime.runner import TurnRunner
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"

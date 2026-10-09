@@ -10,7 +10,7 @@ import zipfile
 import pytest
 from sqlalchemy import event, text
 
-from story_harness.portal.service import PlayerPortal
+from storyloop_platform.portal.service import PlayerPortal
 
 
 ROOT = Path(__file__).resolve().parents[1]

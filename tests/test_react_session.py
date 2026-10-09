@@ -5,11 +5,11 @@ from pathlib import Path
 
 from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.runtime.game_session import GameSession
-from story_harness.agents.main_agent import MainReActAgent
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.npc_agent import NpcAgentPool
+from storyloop_platform.runtime.game_session import GameSession
+from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

@@ -1,11 +1,7 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "story-harness"
+name = "storyloop-workspace"
 version = "0.1.0"
-description = "Causal runtime for interactive story agents"
+description = "Development workspace for the StoryLoop harness and platform"
 requires-python = ">=3.12"
 dependencies = ["storyloop-platform>=0.1,<0.2"]
 
@@ -17,11 +13,8 @@ online = ["storyloop-platform[online]>=0.1,<0.2"]
 player-memory = ["storyloop-platform[player-memory]>=0.1,<0.2"]
 test = ["pytest>=8,<10", "httpx>=0.27,<1"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-story_harness = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
+[tool.uv]
+package = false
 
 [tool.uv.sources]
 storyloop-harness = { workspace = true }

@@ -13,7 +13,7 @@ SCRIPT = ROOT / "scripts" / "check_environment.py"
 
 class EnvironmentCheckTests(unittest.TestCase):
     def run_check(self, config, import_root=None):
-        env = dict(os.environ, PYTHONPATH=str(import_root or ROOT / "src"))
+        env = dict(os.environ, PYTHONPATH=str(import_root or ROOT / "packages/platform/src"))
         return subprocess.run(
             [sys.executable, str(SCRIPT), "--config", str(config)],
             cwd=ROOT, env=env, text=True, capture_output=True, check=False,
@@ -28,7 +28,7 @@ class EnvironmentCheckTests(unittest.TestCase):
             result = self.run_check(config)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"python: {Path(sys.executable).resolve()}", result.stdout)
-        self.assertIn(f"story_harness: {(ROOT / 'src/story_harness/__init__.py').resolve()}", result.stdout)
+        self.assertIn(f"storyloop_platform: {(ROOT / 'packages/platform/src/storyloop_platform/__init__.py').resolve()}", result.stdout)
         self.assertRegex(result.stdout, r"git_sha: [0-9a-f]{40}")
         self.assertIn(f"config: {config.resolve()}", result.stdout)
         self.assertIn("storage_driver: postgresql", result.stdout)
@@ -37,7 +37,7 @@ class EnvironmentCheckTests(unittest.TestCase):
 
     def test_rejects_import_from_another_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
-            package = Path(directory) / "story_harness"
+            package = Path(directory) / "storyloop_platform"
             package.mkdir()
             (package / "__init__.py").write_text("", encoding="utf-8")
             result = self.run_check(ROOT / "config/local.json", Path(directory))

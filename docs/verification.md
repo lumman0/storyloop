@@ -1,6 +1,6 @@
 # 可复现验证
 
-正式基线为 Python 3.12、Node.js 24。`uv.lock` 由 uv 0.11.25 根据 `pyproject.toml` 生成，保留 Windows/Linux 平台标记和可选依赖；前端使用 `web/package-lock.json`。不把本机 `pip freeze` 当作跨平台锁文件。
+正式基线为 Python 3.12、Node.js 24。`uv.lock` 由 uv 0.11.25 根据 `pyproject.toml` 生成，保留 Windows/Linux 平台标记和可选依赖；前端使用 `packages/platform/web/package-lock.json`。不把本机 `pip freeze` 当作跨平台锁文件。
 
 在仓库根目录、清除继承的 `PYTHONPATH` 后执行：
 
@@ -8,7 +8,7 @@
 python -m pip install uv==0.11.25
 uv sync --locked --all-extras
 uv run --frozen --all-extras python -m pytest tests -q
-cd web
+cd packages/platform/web
 npm ci
 npm test
 npm run build

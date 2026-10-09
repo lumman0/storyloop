@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from story_harness.portal.catalog import GameCatalog
-from story_harness.portal.service import PlayerPortal
+from storyloop_platform.portal.catalog import GameCatalog
+from storyloop_platform.portal.service import PlayerPortal
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

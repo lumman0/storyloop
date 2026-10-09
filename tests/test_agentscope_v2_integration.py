@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock
 
 from openai.types.chat import ChatCompletion
 
-from story_harness.adapters.model_config import NpcModelConfig
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.scene_turn import SceneContextProjector, SingleSceneGenerator
-from story_harness.core.billing import collect_usage
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.model_config import NpcModelConfig
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.agents.scene_turn import SceneContextProjector, SingleSceneGenerator
+from storyloop_platform.portal.billing import collect_usage
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 def test_single_call_structured_reply_records_v2_cached_usage():

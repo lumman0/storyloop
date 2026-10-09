@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.world.worldbook import Worldbook
+from storyloop_harness.world.worldbook import Worldbook
 
 
 class WorldbookTests(unittest.TestCase):

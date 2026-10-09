@@ -13,13 +13,13 @@ from agentscope.credential import OpenAICredential
 from agentscope_fakes import ChatModelBase, ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
-from story_harness.adapters.model_config import CompatibleOpenAIChatModel
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.adapters.telemetry import LangfuseTelemetry, configured_telemetry, observed_tool
-from story_harness.agents.main_agent import MainDecision, MainReActAgent
-from story_harness.cli.interaction_demo import run_interaction_demo
-from story_harness.runtime.game_session import GameSession
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.model_config import CompatibleOpenAIChatModel
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.adapters.telemetry import LangfuseTelemetry, configured_telemetry, observed_tool
+from storyloop_platform.legacy.main_agent import MainDecision, MainReActAgent
+from legacy_interaction import run_interaction_demo
+from storyloop_platform.runtime.game_session import GameSession
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

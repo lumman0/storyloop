@@ -3,12 +3,12 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.cli.guidance_view import format_guidance, format_turn_output
-from story_harness.core.contracts import Snapshot
-from story_harness.runtime.campaign import CampaignProgram
-from story_harness.runtime.guidance import GuidanceAdvisor, GuidanceResult
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.cli.guidance_view import format_guidance, format_turn_output
+from storyloop_harness.core.contracts import Snapshot
+from storyloop_platform.runtime.campaign import CampaignProgram
+from storyloop_platform.runtime.guidance import GuidanceAdvisor, GuidanceResult
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

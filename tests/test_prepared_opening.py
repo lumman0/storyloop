@@ -3,8 +3,8 @@
 from dataclasses import replace
 import unittest
 
-from story_harness.world.prepared_opening import render_prepared_opening, validate_prepared_opening
-from story_harness.world.story_blueprint import StoryBlueprint
+from storyloop_harness.world.prepared_opening import render_prepared_opening, validate_prepared_opening
+from storyloop_harness.world.story_blueprint import StoryBlueprint
 from test_scene_responder_context import source_package
 
 

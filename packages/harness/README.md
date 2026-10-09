@@ -82,7 +82,6 @@ python -m pip install '.[test]'
 python -m pytest tests -q
 ```
 
-The containing platform repository temporarily provides compatibility aliases
-for existing `story_harness` imports. The harness package never imports those
-aliases. Platform credentials, billing, SQL, service telemetry configuration and
-web application code are outside this distribution.
+Platform credentials, billing, SQL, service telemetry configuration and the
+web application live in the separate `storyloop-platform` distribution.
+The former `story_harness` import namespace has been removed.
