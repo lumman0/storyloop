@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+from storyloop_harness import TurnEngine
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
 from storyloop_platform.generators.scene_messages import MessageScene
@@ -341,19 +342,16 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.store.create_game(replace(before, game_id="campaign", data=state))
         generator = FakeGenerator(a_turn())
         clock = StoryClock(8, overnight_requires_rest=True)
-        react = SingleCallGameSession(
-            self.store, self.package, generator,
-            SceneContextProjector(self.store, self.package, clock=clock, program=program),
-            clock=clock,
-        )
+        engine = TurnEngine(self.store, self.package, None, clock=clock, program=program)
+        engine.session.generator = generator
 
         class ForbiddenPresenter:
             async def present(self, context):
                 raise AssertionError("ordinary turn must not call a second model")
 
-        campaign = CampaignSession(self.store, program, react, turns_per_story_tick=1,
+        campaign = CampaignSession(self.store, program, engine, turns_per_story_tick=1,
                                    novel_presenter=ForbiddenPresenter(),
-                                   skip_react_presentation=True)
+                                   scene_turn_includes_presentation=True)
         await campaign.start("campaign", present_opening=False)
         outcome = await campaign.submit("campaign", "你好", "turn-1")
 
@@ -393,7 +391,7 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         campaign = CampaignSession(self.store, program,
                                    turns_per_story_tick=1,
                                    message_batch_writer=writer,
-                                   skip_react_presentation=True)
+                                   scene_turn_includes_presentation=True)
         await campaign.start("message-game", present_opening=False)
         await campaign.submit("message-game", "/choose dockhand", "partner-turn")
         outcome = await campaign.submit("message-game", "/choose dockhand 你好", "message-turn")
@@ -402,6 +400,64 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("我也想再聊聊", outcome.text)
         self.assertTrue(any(item.content == "你好" for item in
                             self.store.observations_for("message-game", "dockhand")))
+
+    async def test_cancelled_generation_preserves_world_and_retry_commits_once(self):
+        import asyncio
+        entered, release = asyncio.Event(), asyncio.Event()
+        generator = FakeGenerator(a_turn())
+        original = generator.generate
+        async def paused(*args):
+            entered.set()
+            await release.wait()
+            return await original(*args)
+        generator.generate = paused
+        session = self.session(generator)
+        before = self.store.load('game')
+        pending = self.store.pending_work('game')
+        task = asyncio.create_task(session.run_turn('game', 'hello', 'cancelled'))
+        await entered.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(self.store.load('game'), before)
+        self.assertEqual(self.store.pending_work('game'), pending)
+        generator.generate = original
+        result = await session.run_turn('game', 'hello', 'cancelled')
+        replay = await session.run_turn('game', 'hello', 'cancelled')
+        self.assertEqual(generator.calls, 1)
+        self.assertEqual(result.snapshot, replay.snapshot)
+
+
+    async def test_concurrent_retry_generates_and_delivers_speech_once(self):
+        import asyncio
+        generator = FakeGenerator(a_turn())
+        session = self.session(generator)
+        first, replay = await asyncio.gather(
+            session.run_turn("game", "hello", "same-turn"),
+            session.run_turn("game", "hello", "same-turn"),
+        )
+        self.assertEqual(generator.calls, 1)
+        self.assertEqual(first.snapshot, replay.snapshot)
+        replies = [entry for entry in self.store.agent_context_entries("game", "dockhand")
+                   if entry.entry_id == "same-turn:input:reply:dockhand:spoken"]
+        self.assertEqual(len(replies), 1)
+
+    async def test_failed_commit_leaves_character_history_unchanged_until_retry(self):
+        from unittest.mock import patch
+        generator = FakeGenerator(a_turn())
+        session = self.session(generator)
+        before = self.store.load("game")
+        history = self.store.agent_context_entries("game", "dockhand")
+        pending = self.store.pending_work("game")
+        with patch.object(self.store, "commit", side_effect=RuntimeError("SQL unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "SQL unavailable"):
+                await session.run_turn("game", "hello", "retry-commit")
+        self.assertEqual(self.store.load("game"), before)
+        self.assertEqual(self.store.agent_context_entries("game", "dockhand"), history)
+        self.assertEqual(self.store.pending_work("game"), pending)
+        await session.run_turn("game", "hello", "retry-commit")
+        self.assertEqual(generator.calls, 2)
+        self.assertTrue(self.store.event_exists("game", "retry-commit:input:reply:dockhand:spoken"))
 
 
 class ActivityTransitionTests(unittest.TestCase):
@@ -420,6 +476,7 @@ class ActivityTransitionTests(unittest.TestCase):
         validate_open_effects((Effect(("world", "meal_phase"), "cooking"),), fields, state)
         with self.assertRaises(ValueError):
             validate_open_effects((Effect(("world", "meal_phase"), "served"),), fields, state)
+
 
 
 if __name__ == "__main__":

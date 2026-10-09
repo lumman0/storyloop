@@ -38,7 +38,7 @@ class BillingPolicyTests(unittest.TestCase):
             "welcome_points": 500, "points_per_rmb": 50, "pricing_version": "test-2",
             "models": {"future-model": {"input_rmb_per_million": "1",
                                       "output_rmb_per_million": "3", "multiplier": "2.5"}},
-        }, {"main_react": "future-model"})
+        }, {"single_turn": "future-model"})
         self.assertEqual(policy.price_milli_points([
-            ModelUsage("future-model", "main_react", 1000, 1000),
+            ModelUsage("future-model", "single_turn", 1000, 1000),
         ]), 500)

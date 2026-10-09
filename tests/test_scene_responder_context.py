@@ -10,7 +10,7 @@ import unittest
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_harness.agents.scene_turn import SceneContextProjector, SceneTurn
 from storyloop_harness.core.contracts import Observation, WorldEvent
-from storyloop_platform.runtime.agent_context import estimate_tokens
+from storyloop_harness.advanced import estimate_tokens
 from storyloop_harness.runtime.single_call import SingleCallGameSession
 from storyloop_harness.world.scenario import ScenarioPackage
 from storyloop_harness.world.story_blueprint import StoryBlueprint

@@ -17,13 +17,11 @@ from weakref import WeakValueDictionary
 from storyloop_platform.adapters.runtime_config import HarnessConfig
 from storyloop_platform.adapters.telemetry import configured_telemetry, session_id_for_game
 from storyloop_platform.generators.scene_narrator import CampaignSceneNarrator
-from storyloop_platform.generators.heart_message_writer import NpcHeartMessageWriter
 from storyloop_platform.generators.novel_narrator import NovelTurnNarrator
 from storyloop_platform.generators.prologue_generator import ModelPrologueGenerator
 from storyloop_harness.generation import ActionOption, ActionOptionAdvisor
 from storyloop_platform.generators.status_adjudicator import ModelStatusAdjudicator
 from storyloop_platform.generators.scene_messages import SingleCallMessageWriter
-from storyloop_platform.legacy.npc_agent import NpcAgentPool
 from storyloop_platform.portal.billing import collect_usage
 from storyloop_harness.advanced import Observation, Snapshot, WorldEvent
 from storyloop_platform.portal.catalog import GameCatalog, GameListing
@@ -41,12 +39,10 @@ from storyloop_platform.portal.turn_errors import TurnInputError, TurnRecoveryRe
 from storyloop_platform.portal.turn_settlements import SQLTurnSettlements, TurnSettlement
 from storyloop_platform.portal.presentation import campaign_interaction
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
-from storyloop_platform.runtime.game_session import GameSession
 from storyloop_harness.advanced import StorySegment, segment_for_observation
 from storyloop_platform.runtime.novel_presentation import present_freeform_novel
 from storyloop_platform.portal.character_cards import shared_actor_memories
 from storyloop_platform.runtime.guidance import GuidanceAdvisor, GuidanceResult
-from storyloop_platform.legacy.npc_work import make_npc_reply_handler
 from storyloop_harness.advanced import TurnProgress, emit
 from storyloop_harness.advanced import StoryClock
 from storyloop_platform.runtime.status_update import settle_status
@@ -110,8 +106,8 @@ class PlayerPortal:
         self.moderation = ScenarioModerationService(self.engine, self.user_scenarios, self.access)
         self.billing = (SQLBillingRepository(self.engine, self.config.billing_policy, self.accounts)
                         if self.config.billing_policy is not None else None)
-        self._react_sessions: dict[tuple[Path, str, SaveGenerationSettings, bool],
-                                   GameSession | TurnEngine] = {}
+        self._turn_engines: dict[tuple[Path, str, SaveGenerationSettings, bool],
+                                 TurnEngine] = {}
         self._campaign_sessions: dict[tuple[Path, str, SaveGenerationSettings], tuple[CampaignProgram, CampaignSession]] = {}
         self._player_turn_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
@@ -569,11 +565,13 @@ class PlayerPortal:
             raise ValueError("scenario package changed; this save needs an explicit migration")
         return item
 
+    def _require_supported_save(self, game_id: str) -> None:
+        if any(work.kind == "npc_reply" for work in self.store.pending_work(game_id)):
+            raise TurnInputError("Unsupported legacy save (npc_reply); delete this save and start a new game.")
+
     def _default_generation_settings(self) -> SaveGenerationSettings:
-        compression_task = ("context_compression" if "context_compression" in self.config.task_models
-                            else "main_react")
-        window = min(self.config.context_window_for(task)
-                     for task in ("main_react", "npc_reply", compression_task))
+        window = min(self.config.context_window_for("single_turn"),
+                     self.config.runtime.context_window_tokens)
         temperature = float(self.config.model_generate_kwargs.get("temperature", 1.0))
         return SaveGenerationSettings(temperature, window)
 
@@ -606,54 +604,37 @@ class PlayerPortal:
             previous = self._generation_settings(game_id)
             settings = SaveGenerationSettings(float(temperature), context_window_tokens)
             self.save_generation_settings.put(game_id, settings, previous)
-            for cache in (self._react_sessions, self._campaign_sessions):
+            for cache in (self._turn_engines, self._campaign_sessions):
                 for key in tuple(cache):
                     if key[1] == game_id:
                         del cache[key]
         return self.get_save_settings(token, game_id)
 
-    def _react(self, item: GameListing, package: ScenarioPackage, game_id: str,
-               *, overnight_requires_rest: bool = False,
-               program: CampaignProgram | None = None) -> GameSession | TurnEngine:
+    def _turn_engine(self, item: GameListing, package: ScenarioPackage, game_id: str,
+                     *, overnight_requires_rest: bool = False,
+                     program: CampaignProgram | None = None) -> TurnEngine:
+        self._require_supported_save(game_id)
         settings = self._generation_settings(game_id)
         key = (item.package_path, game_id, settings, overnight_requires_rest)
-        if key in self._react_sessions:
-            return self._react_sessions[key]
+        if key in self._turn_engines:
+            return self._turn_engines[key]
         values = dict(os.environ)
         self._require_model_key(values)
         clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick,
                             overnight_requires_rest=overnight_requires_rest)
                  if package.ticks_per_day is not None else None)
-        model_task = ("single_turn" if "single_turn" in self.config.task_models
-                      else "main_react")
-        # Platform compatibility for persisted beta work; keep out of the future harness library.
-        legacy_reply = None
-        if any(work.kind == "npc_reply" for work in self.store.pending_work(game_id)):
-            legacy_pool = NpcAgentPool(
-                self.store,
-                lambda _game_id, _actor_id: self.config.create_model(
-                    "npc_reply", values, self.telemetry,
-                    temperature=settings.temperature,
-                ),
-                max_iters=self.config.runtime.npc_max_iters,
-                worldbook=package.worldbook, telemetry=self.telemetry,
-                story_clock=clock,
-                context_window_tokens=settings.context_window_tokens,
-            )
-            legacy_reply = make_npc_reply_handler(legacy_pool, package.role_cards,
-                                                  package.actor_names)
         session = TurnEngine(
             self.store, package,
-            self.config.create_model(model_task, values, self.telemetry,
+            self.config.create_model("single_turn", values, self.telemetry,
                                      temperature=settings.temperature),
             max_responders=self.config.runtime.max_npc_replies,
             context_window_tokens=settings.context_window_tokens,
             program=program, clock=clock, max_steps=self.config.runtime.max_steps,
-            telemetry=self.telemetry, legacy_npc_reply=legacy_reply,
+            telemetry=self.telemetry,
         )
-        self._react_sessions[key] = session
-        if len(self._react_sessions) > 128:
-            self._react_sessions.pop(next(iter(self._react_sessions)))
+        self._turn_engines[key] = session
+        if len(self._turn_engines) > 128:
+            self._turn_engines.pop(next(iter(self._turn_engines)))
         return session
 
     def _require_model_key(self, values: dict[str, str] | None = None) -> None:
@@ -667,11 +648,10 @@ class PlayerPortal:
         if key in self._campaign_sessions:
             return self._campaign_sessions[key]
         program = CampaignProgram.load(item.package_path / "campaign.json")
-        react = self._react(item, package, game_id, overnight_requires_rest=True,
-                            program=program)
-        single = isinstance(react, TurnEngine)
+        turn_engine = self._turn_engine(item, package, game_id, overnight_requires_rest=True,
+                                        program=program)
         result = (program, CampaignSession(
-            self.store, program, react, telemetry=self.telemetry,
+            self.store, program, turn_engine, telemetry=self.telemetry,
             turns_per_story_tick=item.turns_per_story_tick,
             scene_presenter=CampaignSceneNarrator(
                 package, program, self.config.create_model("narration", dict(os.environ), self.telemetry,
@@ -679,16 +659,14 @@ class PlayerPortal:
                 self.telemetry,
             ) if package.presentation_mode == "interactive" else None,
             novel_presenter=self._novel_presenter(package, game_id) if package.presentation_mode == "novel" else None,
-            message_writer=(None if single else
-                            NpcHeartMessageWriter(react.npc_pool, package.role_cards)),
-            message_batch_writer=(SingleCallMessageWriter(
+            message_batch_writer=SingleCallMessageWriter(
                 self.store, package,
                 self.config.create_model(
-                    "single_turn" if "single_turn" in self.config.task_models else "main_react",
+                    "single_turn",
                     dict(os.environ), self.telemetry, temperature=settings.temperature,
                 ), self.telemetry,
-            ) if single else None),
-            skip_react_presentation=single,
+            ),
+            scene_turn_includes_presentation=True,
         ))
         self._campaign_sessions[key] = result
         if len(self._campaign_sessions) > 128:
@@ -725,8 +703,7 @@ class PlayerPortal:
                               snapshot=None) -> tuple[ActionOption, ...]:
         if gate_id is not None or complete or not body.strip():
             return ()
-        task = ("followup_actions" if "followup_actions" in self.config.task_models
-                else "npc_selection")
+        task = "followup_actions"
         advisor = ActionOptionAdvisor(
             self.config.create_model(task, dict(os.environ), self.telemetry,
                                      temperature=self._generation_settings(game_id).temperature), self.telemetry,
@@ -864,6 +841,7 @@ class PlayerPortal:
 
     async def _resume_save_for_player(self, player_id: str, game_id: str) -> dict:
         record = self.accounts.get_save(player_id, game_id)
+        self._require_supported_save(game_id)
         item = self._verified_listing(record)
         latest = self.accounts.latest_turn_response(game_id)
         snapshot = self.store.load(game_id)
@@ -944,6 +922,7 @@ class PlayerPortal:
     async def _turn_for_player(self, player_id: str, game_id: str, text: str,
                                request_id: str | None, progress: TurnProgress | None) -> dict:
         record = self.accounts.get_save(player_id, game_id)
+        self._require_supported_save(game_id)
         item = self._verified_listing(record)
         mode = record.play_mode or item.mode
         preview = self.moderation.preview_for(game_id, player_id) is not None
@@ -993,8 +972,7 @@ class PlayerPortal:
                                    for item in self.store.observations_for(game_id, "player")}
                                   if review_status else set())
                 program, session = self._campaign(item, package, game_id)
-                single = (session.react if isinstance(session.react, TurnEngine)
-                          else None)
+                single = session.turn_engine
                 outcome = await session.submit(game_id, text, turn_id, progress=progress)
                 engine_usage = outcome.model_usage
                 visible_after = (tuple(
@@ -1014,19 +992,11 @@ class PlayerPortal:
                                                  turns_per_story_tick=item.turns_per_story_tick).advise(
                     game_id, snapshot, gate_id=outcome.gate_id,
                     complete=outcome.complete, visible_text=outcome.text)
-                if single is not None:
-                    leads = program.current_action_context(snapshot).get("leads", [])
-                    authored = tuple(ActionOption.model_validate(item) for item in leads)
-                    action_options = (single.proposed_options(game_id, turn_id, authored)
-                                      if outcome.gate_id is None and not outcome.complete
-                                      else ())
-                else:
-                    action_options = await self._action_options(
-                        outcome.text, package.presentation_mode,
-                        game_id=game_id, scenario_id=package.package_id,
-                        gate_id=outcome.gate_id, complete=outcome.complete,
-                        program=program, snapshot=snapshot,
-                    )
+                leads = program.current_action_context(snapshot).get("leads", [])
+                authored = tuple(ActionOption.model_validate(item) for item in leads)
+                action_options = (single.proposed_options(game_id, turn_id, authored)
+                                  if outcome.gate_id is None and not outcome.complete
+                                  else ())
                 view = self._view(game_id, item.game_id, mode, outcome.text,
                                   snapshot, guidance, complete=outcome.complete,
                                   turn_id=turn_id, segments=outcome.segments,
@@ -1036,21 +1006,15 @@ class PlayerPortal:
                                   action_options=action_options,
                                   status_fields=package.status_fields, time_unit=package.time_unit)
             else:
-                react = (self._react(item, package, game_id,
+                turn_engine = (self._turn_engine(item, package, game_id,
                                     overnight_requires_rest=True)
-                         if source_driven else self._react(item, package, game_id))
-                single = react if isinstance(react, TurnEngine) else None
-                outcome = (await react.run_turn(
+                         if source_driven else self._turn_engine(item, package, game_id))
+                single = turn_engine
+                outcome = await turn_engine.run_turn(
                     TurnInput(game_id, text, turn_id, package.version), progress=progress,
-                ) if single is not None else await react.run_turn(
-                    game_id, text, turn_id, progress=progress,
-                ))
+                )
                 engine_usage = getattr(outcome, "model_usage", ())
                 body, segments = outcome.narration, outcome.segments
-                if package.presentation_mode == "novel" and single is None:
-                    body, segments = await self._freeform_novel(
-                        package, game_id, text, turn_id, segments, progress,
-                    )
                 await emit(progress, "preview", body=body,
                            segments=[part.to_dict() for part in segments])
                 if any(field.automatically_updated for field in package.status_fields):
@@ -1061,12 +1025,7 @@ class PlayerPortal:
                 guidance = (GuidanceResult((), "source_story") if source_driven else
                             await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
                                 game_id, self.store.load(game_id), visible_text=body))
-                action_options = (single.proposed_options(game_id, turn_id)
-                                  if single is not None else
-                                  await self._action_options(
-                                      body, package.presentation_mode, game_id=game_id,
-                                      scenario_id=package.package_id,
-                                  ))
+                action_options = single.proposed_options(game_id, turn_id)
                 clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick)
                          if package.ticks_per_day is not None else None)
                 view = self._view(game_id, item.game_id, mode, body,
@@ -1115,30 +1074,21 @@ class PlayerPortal:
         history = self.store.player_inputs_for(game_id)
         if not history or history[-1].event_id != f"{turn_id}:{kind}":
             raise ValueError("a later turn has already started; resume the saved game")
-        react = (self._react(item, package, game_id, overnight_requires_rest=True)
-                 if package.story_blueprint is not None else self._react(item, package, game_id))
-        await react.run_ready_work(game_id)
+        turn_engine = (self._turn_engine(item, package, game_id, overnight_requires_rest=True)
+                 if package.story_blueprint is not None else self._turn_engine(item, package, game_id))
+        await turn_engine.run_ready_work(game_id)
         snapshot = self.store.load(game_id)
         visible = [observation for observation in self.store.observations_for(game_id, "player")
                    if observation.event_id.startswith(f"{turn_id}:")]
         segments = tuple(segment_for_observation(self.store, game_id, item) for item in visible)
         body = "\n\n".join(item.body_text for item in segments) or "上次操作已提交，暂时没有新的可见变化。"
-        if (package.presentation_mode == "novel"
-                and not isinstance(react, TurnEngine)):
-            body, segments = await self._freeform_novel(package, game_id, text, turn_id, segments)
-            snapshot = self.store.load(game_id)
-        await self._settle_status(package, game_id, turn_id, text, tuple(visible))
+        await self._settle_status(package, game_id, turn_id, text, tuple(visible), turn_engine)
         snapshot = self.store.load(game_id)
         guidance = (GuidanceResult((), "source_story") if package.story_blueprint else
                     await GuidanceAdvisor(self.store, package, telemetry=self.telemetry).advise(
                         game_id, snapshot, visible_text=body))
-        single = react
-        action_options = (single.proposed_options(game_id, turn_id)
-                          if isinstance(single, TurnEngine) else
-                          await self._action_options(
-                              body, package.presentation_mode, game_id=game_id,
-                              scenario_id=package.package_id,
-                          ))
+        single = turn_engine
+        action_options = single.proposed_options(game_id, turn_id)
         clock = (StoryClock(package.ticks_per_day * item.turns_per_story_tick)
                  if package.ticks_per_day is not None else None)
         return self._view(game_id, item.game_id, mode,

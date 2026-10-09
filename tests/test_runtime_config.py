@@ -19,22 +19,22 @@ class HarnessConfigTests(unittest.TestCase):
                              "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1")
             self.assertIn("deepseek-v4.1-flash", config.billing_policy.rates)
             self.assertEqual(config.runtime.turn_engine, "single_call")
-            model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-key"})
+            model = config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "test-key"})
             self.assertEqual(model.extra_body, {"enable_thinking": False})
             self.assertEqual(model.tool_choice_policy, "auto_only")
 
     def test_default_routes_are_loaded_without_a_secret(self) -> None:
         config = HarnessConfig.load(DEFAULT)
 
-        self.assertEqual(config.model_name("npc_selection"), "qwen3.8-flash")
-        self.assertEqual(config.model_name("main_react"), "qwen3.8-max")
+        self.assertEqual(config.model_name("followup_actions"), "qwen3.8-flash")
+        self.assertEqual(config.model_name("single_turn"), "qwen3.8-max")
         self.assertEqual(config.runtime.max_steps, 8)
         self.assertEqual(config.runtime.max_npc_replies, 3)
         self.assertEqual(config.storage.driver, "sqlite")
         self.assertEqual(config.tool_choice_policy, "auto_only")
         self.assertNotIn("sk-sp-", DEFAULT.read_text(encoding="utf-8"))
 
-        model = config.create_model("npc_reply", {"STORY_BAILIAN_API_KEY": "test-key"})
+        model = config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "test-key"})
         self.assertEqual(model.model_name, "qwen3.8-max")
         self.assertEqual(str(model.client.base_url), "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/")
 
@@ -43,7 +43,7 @@ class HarnessConfigTests(unittest.TestCase):
             path = Path(directory) / "harness.json"
             raw = json.loads(DEFAULT.read_text(encoding="utf-8"))
             raw["models"]["base_url"] = "https://example.invalid/v1"
-            raw["models"]["tasks"]["main_react"] = "another-model"
+            raw["models"]["tasks"]["single_turn"] = "another-model"
             raw["billing"]["models"]["another-model"] = dict(raw["billing"]["models"]["qwen3.8-max"])
             raw["runtime"]["max_steps"] = 3
             raw["runtime"]["max_npc_replies"] = 2
@@ -52,11 +52,11 @@ class HarnessConfigTests(unittest.TestCase):
 
             config = HarnessConfig.load(path)
 
-            self.assertEqual(config.model_name("main_react"), "another-model")
+            self.assertEqual(config.model_name("single_turn"), "another-model")
             self.assertEqual(config.runtime.max_steps, 3)
             self.assertEqual(config.runtime.max_npc_replies, 2)
             self.assertEqual(config.runtime.turn_engine, "single_call")
-            self.assertEqual(str(config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "x"}).client.base_url), "https://example.invalid/v1/")
+            self.assertEqual(str(config.create_model("single_turn", {"STORY_BAILIAN_API_KEY": "x"}).client.base_url), "https://example.invalid/v1/")
 
     def test_beta_and_unknown_engines_are_rejected(self) -> None:
         for engine in ("multi_agent_beta", "unknown"):
@@ -83,7 +83,7 @@ class HarnessConfigTests(unittest.TestCase):
             raw["models"]["api_key_file"] = "missing.local.json"
             path.write_text(json.dumps(raw), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "STORY_BAILIAN_API_KEY"):
-                HarnessConfig.load(path).create_model("npc_reply", {})
+                HarnessConfig.load(path).create_model("single_turn", {})
 
     def test_local_secret_file_is_loaded_at_startup_with_environment_override(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -102,7 +102,7 @@ class HarnessConfigTests(unittest.TestCase):
             self.assertEqual(config.model_api_key({"STORY_BAILIAN_API_KEY": "env-test-key"}),
                              "env-test-key")
             self.assertNotIn("file-test-key", repr(config))
-            self.assertEqual(config.create_model("main_react", {}).model_name, "qwen3.8-max")
+            self.assertEqual(config.create_model("single_turn", {}).model_name, "qwen3.8-max")
 
 
 if __name__ == "__main__":

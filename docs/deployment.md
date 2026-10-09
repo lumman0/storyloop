@@ -17,7 +17,7 @@
 ```cmd
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe scripts\build_harness.py --out-dir dist\harness
-.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.1.0-py3-none-any.whl -e ".[agents,portal]"
+.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.2.0-py3-none-any.whl -e ".[agents,portal]"
 .\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --profile local --catalog config\games.example.json --db game.sqlite3
 ```
 
@@ -68,3 +68,9 @@ python -m storyloop_platform.cli.portal_api --profile online --port 8765
 Build the pinned harness wheel and install `.[agents,portal,online]`, provide `DATABASE_URL`, `STORY_BAILIAN_API_KEY`, `STORY_ALLOWED_HOSTS`, and `STORY_CATALOG` as deployment environment variables, then run `python -m storyloop_platform.cli.portal_api --profile online`. `STORY_ALLOWED_ORIGINS` is needed for browser clients. The online API uses PostgreSQL, automatic Alembic migrations, and the same repository implementations as local SQLite. Run one API worker until distributed turn coordination is added.
 
 The deployment needs outbound HTTPS access to `models.base_url`. `/health` is a process liveness check, so verify model connectivity with a short real request after deployment. Model connection/response timeouts and retry count are configurable in the `models` section. Retrying a failed turn with its original request ID does not duplicate the game action or credit charge.
+
+## Harness 0.2 存档兼容性
+
+升级前备份数据库，并识别仍包含 `npc_reply` 待办的旧多 Agent 存档。这类存档不再续玩，可按存档 ID 删除并新建游戏，无需迁移。不要删除整个数据库：其中还保存账号、账务、内容与当前存档。服务读取存档不会自动删除数据，执行入口会在模型调用、世界写入和账务处理前拒绝旧任务。`single_npc_reply` 为当前引擎已生成发言的确定性交付，应保留。
+
+使用 `single_turn`、`narration`、`followup_actions` 模型路由；已移除 `main_react`、`npc_reply`、`npc_selection`、`work_selection` 路由和 `main_max_iters`、`npc_max_iters` 设置。场景窗口默认受 `single_turn` 模型与运行限制共同约束。现有私有配置的未使用额外字段不会触发自动迁移。

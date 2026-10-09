@@ -16,10 +16,10 @@ from agentscope.model._model_usage import ChatUsage
 from storyloop_platform.adapters.model_config import CompatibleOpenAIChatModel
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, configured_telemetry, observed_tool
-from storyloop_platform.legacy.main_agent import MainDecision, MainReActAgent
-from legacy_interaction import run_interaction_demo
-from storyloop_platform.runtime.game_session import GameSession
 from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.agents.scene_turn import SceneContextProjector
+from storyloop_harness.runtime.single_call import SingleCallGameSession
+from test_single_call import FakeGenerator, a_turn
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -56,64 +56,7 @@ class FakeLangfuse:
         return FakeContext(self.calls)
 
 
-class ScriptedMain:
-    async def decide(self, text):
-        return MainDecision(intent="inspect", entry_id="missing")
-
-    async def summarize(self, text, results):
-        return "\n".join(results)
-
-
-class SceneDecisionModel(ChatModelBase):
-    def __init__(self):
-        super().__init__(model_name="scene-test", stream=False)
-        self.calls = 0
-
-    async def __call__(self, messages, **kwargs):
-        self.calls += 1
-        if self.calls == 1:
-            return ChatResponse(content=[{
-                "type": "tool_use", "id": "scene-1", "name": "get_scene",
-                "input": {}, "raw_input": "{}",
-            }])
-        return ChatResponse(content=[{
-            "type": "tool_use", "id": "decision-1", "name": "generate_response",
-            "input": {"intent": "inspect", "target_ids": [], "channel": "speech", "entry_id": None},
-            "raw_input": '{"intent":"inspect"}',
-        }])
-
-
 class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
-    async def test_offline_demo_turns_also_share_a_langfuse_session(self):
-        active_session = ContextVar("test_offline_session", default=None)
-        roots: list[str | None] = []
-
-        @contextmanager
-        def propagate_attributes(*, session_id: str):
-            token = active_session.set(session_id)
-            try:
-                yield
-            finally:
-                active_session.reset(token)
-
-        class SessionClient(FakeLangfuse):
-            def start_as_current_observation(self, **kwargs):
-                if kwargs["name"] == "game-turn":
-                    roots.append(active_session.get())
-                return super().start_as_current_observation(**kwargs)
-
-        fake_langfuse = SimpleNamespace(propagate_attributes=propagate_attributes)
-        with patch.dict(sys.modules, {"langfuse": fake_langfuse}):
-            await run_interaction_demo(EXAMPLE, turns=2, telemetry=LangfuseTelemetry(SessionClient()))
-            await run_interaction_demo(
-                EXAMPLE.parent / "scheduled", turns=1,
-                telemetry=LangfuseTelemetry(SessionClient()),
-            )
-
-        self.assertEqual(roots[:2], ["harbor-freeform:demo-game"] * 2)
-        self.assertEqual(roots[2], "relay-schedule:demo-game")
-        self.assertIsNone(active_session.get())
-
     async def test_turns_share_game_session_across_root_and_child_observations(self):
         active_session = ContextVar("test_langfuse_session", default=None)
         sessions_seen: list[tuple[str, str | None]] = []
@@ -136,8 +79,8 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             package.seed_game(store, "game")
             client = SessionClient()
-            session = GameSession(
-                store, package, lambda _: ScriptedMain(), npc_pool=None,
+            session = SingleCallGameSession(
+                store, package, FakeGenerator(a_turn()), SceneContextProjector(store, package),
                 max_steps=2, telemetry=LangfuseTelemetry(client),
             )
             fake_langfuse = SimpleNamespace(propagate_attributes=propagate_attributes)
@@ -147,117 +90,50 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
                 package.seed_game(store, "港口-1")
                 await session.run_turn("港口-1", "查看周围", "turn-3")
 
-        root_sessions = [session_id for name, session_id in sessions_seen if name == "story-turn"]
+        root_sessions = [session_id for name, session_id in sessions_seen if name == "single-call-turn"]
         self.assertEqual(root_sessions[:2], ["harbor-freeform:game"] * 2)
         self.assertEqual(len(root_sessions), 3)
         self.assertTrue(root_sessions[2].isascii())
         self.assertNotEqual(root_sessions[2], "harbor-freeform:game")
-        self.assertTrue(all(session_id is not None for _, session_id in sessions_seen))
+        self.assertTrue(all(session_id is not None for name, session_id in sessions_seen
+                            if name == "single-call-turn"))
         self.assertIsNone(active_session.get())
-
-    async def test_offline_demo_uses_the_same_observability_adapter(self):
-        client = FakeLangfuse()
-
-        await run_interaction_demo(EXAMPLE, turns=1, telemetry=LangfuseTelemetry(client))
-
-        names = [value["name"] for kind, value in client.calls if kind == "start"]
-        self.assertIn("game-turn", names)
-        self.assertIn("work:npc_reply", names)
-        self.assertIn("npc-response", names)
-        self.assertTrue(any(kind == "score" and value["name"] == "story.work_processed"
-                            for kind, value in client.calls))
 
     async def test_incomplete_langfuse_credentials_are_reported(self):
         with patch.dict(os.environ, {"LANGFUSE_PUBLIC_KEY": "public", "LANGFUSE_SECRET_KEY": ""}):
             with self.assertRaisesRegex(ValueError, "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY"):
                 configured_telemetry()
 
-    async def test_main_context_and_world_tool_are_visible_as_separate_steps(self):
+    async def test_scene_trace_records_generation_and_failure_without_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             package = ScenarioPackage.load(EXAMPLE)
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             package.seed_game(store, "game")
             client = FakeLangfuse()
-            agent = MainReActAgent(
-                "game", store, package.worldbook, SceneDecisionModel(),
-                telemetry=LangfuseTelemetry(client),
-            )
-
-            decision = await agent.decide("看看周围")
-
-            self.assertEqual(decision.intent, "inspect")
-            starts = [value for kind, value in client.calls if kind == "start"]
-            context = next(item for item in starts if item["name"] == "main-context")
-            self.assertEqual(context["metadata"]["sources"], [
-                "current_state", "current_status", "prior_context_summary", "recent_player_inputs",
-                "recent_player_observations",
-            ])
-            tool = next(item for item in starts if item["name"] == "tool:get_scene")
-            self.assertEqual(tool["as_type"], "tool")
-
-    async def test_session_trace_covers_decision_work_and_narration_with_metrics(self):
-        with tempfile.TemporaryDirectory() as directory:
-            package = ScenarioPackage.load(EXAMPLE)
-            store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
-            package.seed_game(store, "game")
-            client = FakeLangfuse()
-            session = GameSession(
-                store, package, lambda _: ScriptedMain(), npc_pool=None,
-                max_steps=2, telemetry=LangfuseTelemetry(client),
-            )
-
-            result = await session.run_turn("game", "查看档案", "turn-123")
-
-            starts = [value for kind, value in client.calls if kind == "start"]
-            self.assertEqual(starts[0]["name"], "story-turn")
-            self.assertEqual(starts[0]["metadata"]["turn_id"], "turn-123")
-            self.assertEqual([item["name"] for item in starts[1:3]], ["main-decision", "work-queue"])
-            self.assertIn("main-narration", [item["name"] for item in starts])
-            self.assertTrue(any(
-                value.get("metadata", {}).get("processed_work_count") == len(result.processed_work_ids)
-                for kind, value in client.calls if kind == "update"
-            ))
-            self.assertTrue(any(
-                value.get("metadata", {}).get("narration_fallback") is False
-                for kind, value in client.calls if kind == "update"
-            ))
-            scores = {value["name"]: value["value"] for kind, value in client.calls if kind == "score"}
-            self.assertEqual(scores, {
-                "story.work_processed": float(len(result.processed_work_ids)),
-                "story.work_remaining": float(len(store.pending_work("game"))),
-                "story.player_observations": float(len(result.player_observations)),
-                "story.narration_fallback": 0.0,
-                "story.turn_success": 1.0,
-            })
-
-    async def test_game_trace_reports_failure_without_changing_exception(self):
-        class BrokenMain:
-            async def decide(self, text):
-                raise ValueError("decision unavailable")
-
-        with tempfile.TemporaryDirectory() as directory:
-            package = ScenarioPackage.load(EXAMPLE)
-            store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
-            package.seed_game(store, "game")
-            client = FakeLangfuse()
-            session = GameSession(store, package, lambda _: BrokenMain(), None, 1,
-                                  telemetry=LangfuseTelemetry(client))
-
-            with self.assertRaisesRegex(ValueError, "decision unavailable"):
-                await session.run_turn("game", "hi", "broken")
-
+            generator = FakeGenerator(a_turn())
+            session = SingleCallGameSession(store, package, generator,
+                SceneContextProjector(store, package), telemetry=LangfuseTelemetry(client))
+            await session.run_turn("game", "hello", "one")
+            names = [value["name"] for kind, value in client.calls if kind == "start"]
+            self.assertIn("single-call-turn", names)
+            self.assertIn("work:single_npc_reply", names)
+            self.assertTrue(any(kind == "score" and value["name"] == "story.turn_model_calls"
+                                and value["value"] == 1.0 for kind, value in client.calls))
+            before = store.load("game")
+            async def fail(*args):
+                raise ValueError("scene unavailable")
+            generator.generate = fail
+            with self.assertRaisesRegex(ValueError, "scene unavailable"):
+                await session.run_turn("game", "again", "two")
+            self.assertEqual(store.load("game"), before)
             self.assertTrue(any(kind == "exit" and value is ValueError for kind, value in client.calls))
-            self.assertTrue(any(
-                kind == "score" and value["name"] == "story.turn_success" and value["value"] == 0.0
-                for kind, value in client.calls
-            ))
 
     async def test_model_generation_reports_model_usage_and_omits_content_by_default(self):
         client = FakeLangfuse()
         model = CompatibleOpenAIChatModel(
             credential=OpenAICredential(api_key="never-log-this"),
             model="test-model", stream=False,
-            telemetry=LangfuseTelemetry(client), task="main_react",
+            telemetry=LangfuseTelemetry(client), task="single_turn",
         )
         response = ChatResponse(
             content=[{"type": "text", "text": "secret reply"}],
@@ -269,7 +145,7 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
         starts = [value for kind, value in client.calls if kind == "start"]
         self.assertEqual(starts[0]["as_type"], "generation")
         self.assertEqual(starts[0]["model"], "test-model")
-        self.assertEqual(starts[0]["metadata"]["task"], "main_react")
+        self.assertEqual(starts[0]["metadata"]["task"], "single_turn")
         updates = [value for kind, value in client.calls if kind == "update"]
         self.assertIn({"usage_details": {"input": 7, "output": 3}}, updates)
         self.assertNotIn("secret prompt", repr(client.calls))

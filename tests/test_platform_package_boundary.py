@@ -12,7 +12,6 @@ import pytest
     ("portal.service", "PlayerPortal"),
     ("adapters.sql_store", "SQLGameStore"),
     ("adapters.runtime_config", "HarnessConfig"),
-    ("legacy.npc_work", "make_npc_reply_handler"),
 ])
 def test_canonical_platform_objects_are_owned_by_platform(new, symbol):
     canonical = importlib.import_module(f"storyloop_platform.{new}")
@@ -43,6 +42,8 @@ def test_task_6_inventory_has_no_remaining_private_dependencies():
     assert consumers, "The historical consumer inventory must not be empty"
     for relative in consumers:
         source = root / relative
+        if not source.exists():
+            continue
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
             names = ([node.module or ""] if isinstance(node, ast.ImportFrom) else
                      [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
@@ -54,4 +55,4 @@ def test_platform_declares_versioned_harness_dependency():
     metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     assert metadata["project"]["name"] == "storyloop-platform"
     assert metadata["project"]["requires-python"] == ">=3.12"
-    assert "storyloop-harness>=0.1,<0.2" in metadata["project"]["dependencies"]
+    assert "storyloop-harness>=0.2,<0.3" in metadata["project"]["dependencies"]

@@ -71,7 +71,7 @@ class GuidanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("完成", result.items[0])
         self.assertNotIn("结束", result.items[0])
 
-    async def test_plain_react_game_gets_actionable_suggestions(self) -> None:
+    async def test_plain_turn_engine_game_gets_actionable_suggestions(self) -> None:
         advisor = GuidanceAdvisor(self.store, self.package)
 
         result = await advisor.advise("freeform", self.store.load("freeform"),

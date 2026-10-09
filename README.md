@@ -6,9 +6,9 @@ StoryLoop Platform 是面向 AI 互动叙事的运行时与玩家平台。当前
 
 ## Standalone platform repository / 独立平台仓库
 
-The repository root is `storyloop-platform`; `web/` and `deploy/` contain frontend and deployment files. The reusable `storyloop-harness` lives in a separate repository. Platform requires `storyloop-harness>=0.1,<0.2` and imports its public APIs.
+The repository root is `storyloop-platform`; `web/` and `deploy/` contain frontend and deployment files. The reusable `storyloop-harness` lives in a separate repository. Platform requires `storyloop-harness>=0.2,<0.3` and imports its public APIs.
 
-Harness 0.1.0 is pinned to `607fb706357f5d732a5bc588bd7f7587cd6ed3c9` in [storyloop0/storyloop-harness](https://github.com/storyloop0/storyloop-harness). CI, Docker and wheel tests build that commit through `scripts/build_harness.py`; `uv.lock` records the same source. Both projects use MIT. See [verification / 验证说明](docs/verification.md).
+Harness 0.2.0 is pinned to `fadbd74584852fec3ad097bb7ec8421935eaacfc` in [storyloop0/storyloop-harness](https://github.com/storyloop0/storyloop-harness). CI, Docker and wheel tests build that commit through `scripts/build_harness.py`; `uv.lock` records the same source. Both projects use MIT. See [verification / 验证说明](docs/verification.md).
 
 ## 解决的问题
 
@@ -22,7 +22,7 @@ Harness 0.1.0 is pinned to `607fb706357f5d732a5bc588bd7f7587cd6ed3c9` in [storyl
 | 模块 | 职责 |
 | --- | --- |
 | 剧本包与世界书 | 版本化的角色卡、初始状态、可变状态字段、可选的特殊行动规则、开场、剧情任务和 JSON 世界书；检索前按玩家或角色的可见权限过滤。 |
-| 叙事运行时 | 单次模型调用同时提出决策、场景正文、相关 NPC 回应、受限状态变化与三个行动建议；有界任务队列按因果顺序提交角色发言和环境事件。交互模式分开展示角色发言，小说模式统一输出第二人称正文。旧存档中的 NPC 待办由平台兼容适配器处理。 |
+| 叙事运行时 | 单次模型调用同时提出决策、场景正文、相关 NPC 回应、受限状态变化与三个行动建议；有界任务队列按因果顺序提交角色发言和环境事件。交互模式分开展示角色发言，小说模式统一输出第二人称正文。角色上下文是可持久化的数据，场景模型负责生成回应。 |
 | 状态与时间 | 事件提交后更新快照，并生成各接收者的观察；日程剧本支持剧情节点与按行动时长流逝的故事时间。剧本可声明玩家可见数值及受限的回合变化。 |
 | 玩家平台 | React 前端与 FastAPI API 提供注册登录、剧本目录、私有剧本上传、单人存档、续玩和历史记录；SSE 推送回合阶段与可见故事片段。 |
 | 内容治理 | 作者提交不可变剧本版本；审核员查看送审内容并隔离试玩；管理员管理角色、账号、公开版本、内测邀请码与操作审计。 |
@@ -39,9 +39,11 @@ flowchart LR
     Platform -->|injects GameStore / ModelPort / telemetry| Harness
 ```
 
-普通回合从玩家输入开始：上下文投影器分别读取玩家和相关角色有权知道的历史，场景模型一次返回完整故事回应和结构化提议。普通活动以事件经历保存；需要持久改变的物品或世界状态通过剧本声明的字段校验。发生值得回忆的共同互动时，同一结果可给直接参与的 NPC 留下简短事实记忆。运行时提交事件、生成观察，再按因果顺序处理待办工作。剧本选择与时间推进使用脚本数据；心动留言可在一次模型调用中为多位角色生成各自的短信。调度不依赖固定 Agent 图。当前唯一回合引擎是 `single_call`；旧存档中的 `npc_reply` 待办仍由平台兼容适配器处理。
+普通回合从玩家输入开始：上下文投影器分别读取玩家和相关角色有权知道的历史，场景模型一次返回完整故事回应和结构化提议。普通活动以事件经历保存；需要持久改变的物品或世界状态通过剧本声明的字段校验。发生值得回忆的共同互动时，同一结果可给直接参与的 NPC 留下简短事实记忆。运行时提交事件、生成观察，再按因果顺序处理待办工作。剧本选择与时间推进使用脚本数据；心动留言可在一次模型调用中为多位角色生成各自的短信。调度不依赖固定 Agent 图。当前唯一回合引擎是 `single_call`；不再支持包含旧 `npc_reply` 待办的存档；请删除这些旧存档并新建游戏。已生成发言的 `single_npc_reply` 确定性交付仍受支持。
 
-权威游戏数据与生成上下文分开保存。`GameStore` 管理事件、观察、快照和待办工作；SQLAlchemy 仓储支持本地 SQLite 与线上 PostgreSQL。当前引擎每轮从完整历史中选取近期事件与较早的相关经历，分别投影到玩家和各 NPC 的上下文，不额外调用模型压缩。原始事件不会删除，玩家画像 Mem0 也不参与故事事实。`models.context_windows` 与 `runtime.context_window_tokens` 限制模型输入。世界书使用带可见范围的 JSON 条目检索，目前不是向量 RAG。模型调用通过 OpenAI 兼容接口按任务配置；浏览器会话在线上使用 `Secure`、`HttpOnly` Cookie。
+角色上下文保存身份、可见历史和经历，不对应独立运行的 ReAct 实例。同一个场景模型会看到多名角色的上下文，因此这属于角色视角投影与行为约束，不构成角色之间的硬信息隔离。
+
+权威游戏数据与生成上下文分开保存。`GameStore` 管理事件、观察、快照和待办工作；SQLAlchemy 仓储支持本地 SQLite 与线上 PostgreSQL。当前引擎每轮从完整历史中选取近期事件与较早的相关经历，分别投影到玩家和各 NPC 的上下文，不额外调用模型压缩。原始事件不会删除，玩家画像 Mem0 也不参与故事事实。`models.context_windows` 与 `runtime.context_window_tokens` 限制模型输入，存档默认窗口取当前 `single_turn` 模型限制与运行限制中的较小值。必须配置 `single_turn`、`narration`、`followup_actions` 路由；旧 ReAct 路由和每角色迭代参数已删除。世界书使用带可见范围的 JSON 条目检索，目前不是向量 RAG。模型调用通过 OpenAI 兼容接口按任务配置；浏览器会话在线上使用 `Secure`、`HttpOnly` Cookie。
 
 ## 项目结构
 
@@ -67,7 +69,7 @@ deploy/ecs/   单机 ECS Docker Compose 部署配置
 ```cmd
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe scripts\build_harness.py --out-dir dist\harness
-.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.1.0-py3-none-any.whl -e ".[agents,portal]"
+.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.2.0-py3-none-any.whl -e ".[agents,portal]"
 .\.venv\Scripts\python.exe scripts\check_environment.py --config config\local.json
 ```
 
@@ -82,7 +84,7 @@ py -3.12 -m venv .venv
 开发回归使用当前工作树的独立解释器；`pytest` 同时收集现有 unittest 类和函数式回归测试：
 
 ```cmd
-.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.1.0-py3-none-any.whl -e ".[agents,portal,observability,player-memory,test]"
+.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.2.0-py3-none-any.whl -e ".[agents,portal,observability,player-memory,test]"
 .\.venv\Scripts\python.exe -m pytest tests -q
 cd web
 node --experimental-strip-types --test tests/*.test.mjs

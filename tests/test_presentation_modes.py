@@ -13,7 +13,7 @@ from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 from storyloop_platform.runtime.novel_presentation import recover_last_freeform_novel
 from storyloop_harness.runtime.presentation import SceneContext, StorySegment
-from storyloop_harness.runtime.player_input import submit_player_input
+from committed_input import commit_player_input
 from storyloop_harness.world.scenario import ScenarioPackage
 
 
@@ -253,7 +253,7 @@ class PresentationModeTests(unittest.TestCase):
             store = SQLiteGameStore(str(Path(directory) / "story.sqlite3"))
             package = ScenarioPackage.load(EXAMPLE)
             package.seed_game(store, "game")
-            submit_player_input(store, "game", "turn-1:input", "你好")
+            commit_player_input(store, "game", "turn-1:input", "你好")
             presenter = FakeNovelPresenter()
             resumed = []
 

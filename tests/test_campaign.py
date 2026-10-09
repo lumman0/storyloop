@@ -12,12 +12,14 @@ from storyloop_harness.runtime.schedule import scenario_cue
 from storyloop_harness.runtime.story_clock import StoryClock
 
 
-class FakeReact:
+class FakeSceneEngine:
+    package = SimpleNamespace(version="1")
     def __init__(self, store):
         self.store = store
         self.calls = []
 
-    async def run_turn(self, game_id, text, turn_id):
+    async def run_turn(self, turn, *, max_tick=None, progress=None):
+        game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
         self.calls.append(text)
         before = self.store.load(game_id)
         after = self.store.commit(game_id, before.version,
@@ -62,8 +64,8 @@ class CampaignTests(unittest.TestCase):
                        "m2": {"location": "villa"}},
             "campaign": self.program.initial_state(["m1", "m2"]),
         }))
-        self.react = FakeReact(self.store)
-        self.session = CampaignSession(self.store, self.program, self.react)
+        self.turn_engine = FakeSceneEngine(self.store)
+        self.session = CampaignSession(self.store, self.program, self.turn_engine)
 
     def tearDown(self):
         self.directory.cleanup()
@@ -72,8 +74,9 @@ class CampaignTests(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_open_action_marks_target_met_without_positive_affinity(self):
-        class ActionReact(FakeReact):
-            async def run_turn(self, game_id, text, turn_id):
+        class ActionSceneEngine(FakeSceneEngine):
+            async def run_turn(self, turn, *, max_tick=None, progress=None):
+                game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                 before = self.store.load(game_id)
                 after = self.store.commit(
                     game_id, before.version,
@@ -87,7 +90,7 @@ class CampaignTests(unittest.TestCase):
                                        decision=SimpleNamespace(intent="action", target_ids=["m1"],
                                                                 duration="brief"), snapshot=after)
 
-        session = CampaignSession(self.store, self.program, ActionReact(self.store))
+        session = CampaignSession(self.store, self.program, ActionSceneEngine(self.store))
         self.run_async(session.submit("g", "/choose m1", "badge"))
         result = self.run_async(session.submit("g", "推了甲一下", "action-turn"))
 
@@ -122,7 +125,7 @@ class CampaignTests(unittest.TestCase):
                         if context.opening else "窗外的雪仍在落，刚才的交谈让屋里安静了一瞬。")
 
         presenter = Presenter()
-        session = CampaignSession(self.store, guided, FakeReact(self.store),
+        session = CampaignSession(self.store, guided, FakeSceneEngine(self.store),
                                   turns_per_story_tick=3, scene_presenter=presenter)
         self.run_async(session.start("guided"))
         first = self.run_async(session.submit("guided", "/choose m1", "badge-turn"))
@@ -159,7 +162,7 @@ class CampaignTests(unittest.TestCase):
             "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
             "campaign": paced.initial_state(["m1"]),
         }))
-        session = CampaignSession(self.store, paced, FakeReact(self.store), turns_per_story_tick=3)
+        session = CampaignSession(self.store, paced, FakeSceneEngine(self.store), turns_per_story_tick=3)
         self.run_async(session.start("paced"))
         self.run_async(session.submit("paced", "/choose m1", "paced-choice"))
 
@@ -190,8 +193,10 @@ class CampaignTests(unittest.TestCase):
         }))
         clock = StoryClock(6)
 
-        class TimedReact:
-            async def run_turn(self, game_id, text, turn_id):
+        class TimedSceneEngine:
+            package = SimpleNamespace(version="1")
+            async def run_turn(self, turn, *, max_tick=None, progress=None):
+                game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                 duration = "extended" if text == "逛了一下午" else "brief"
                 before = self_store.load(game_id)
                 delta = clock.elapsed(duration, before.tick)
@@ -205,7 +210,7 @@ class CampaignTests(unittest.TestCase):
                     snapshot=after)
 
         self_store = self.store
-        session = CampaignSession(self.store, paced, TimedReact(), turns_per_story_tick=3)
+        session = CampaignSession(self.store, paced, TimedSceneEngine(), turns_per_story_tick=3)
         self.run_async(session.start("timed"))
         self.run_async(session.submit("timed", "/choose m1", "choice"))
         first = self.run_async(session.submit("timed", "打个招呼", "first"))
@@ -221,13 +226,13 @@ class CampaignTests(unittest.TestCase):
         self.assertNotIn("暂时没有可见变化", morning.text)
         self.assertEqual(evening.segments[-1].kind, "time")
 
-    def test_gate_blocks_react_and_scheduled_scene_advances_once(self):
+    def test_gate_blocks_turn_engine_and_scheduled_scene_advances_once(self):
         start = self.run_async(self.session.start("g"))
         self.assertEqual(start.gate_id, "arrival")
         self.assertEqual(start.segments[-1].kind, "prompt")
         blocked = self.run_async(self.session.submit("g", "随便聊聊", "t0"))
         self.assertEqual(blocked.gate_id, "arrival")
-        self.assertEqual(self.react.calls, [])
+        self.assertEqual(self.turn_engine.calls, [])
         chosen = self.run_async(self.session.submit("g", "/choose m1", "t1"))
         self.assertIn("节目开始", chosen.text)
         self.assertEqual([part.kind for part in chosen.segments], ["narration", "scene"])
@@ -269,18 +274,17 @@ class CampaignTests(unittest.TestCase):
         class Writer:
             calls = []
 
-            async def prepare(self, game_id, actor_id, player_note):
-                self.calls.append((game_id, actor_id, player_note))
-                return SimpleNamespace(speech="今晚想起我们聊过的话。",
-                                       confirm=lambda: None, abort=lambda: None)
+            async def write(self, game_id, senders, recipient, player_note, fallback):
+                self.calls.append((game_id, senders, recipient, player_note))
+                return SimpleNamespace(prose="", messages={"m1": "今晚想起我们聊过的话。"})
 
         writer = Writer()
-        self.session.message_writer = writer
+        self.session.message_batch_writer = writer
         self.run_async(self.session.start("g"))
         self.run_async(self.session.submit("g", "/choose m1", "mw-choice"))
         self.run_async(self.session.submit("g", "和甲聊天", "mw-talk"))
         result = self.run_async(self.session.submit("g", "/choose m1 我爱你", "mw-message"))
-        self.assertEqual(writer.calls, [("g", "m1", "我爱你")])
+        self.assertEqual(writer.calls, [("g", ("m1",), "m1", "我爱你")])
         self.assertIn("你发给甲的心动留言：我爱你", result.text)
         self.assertIn("来自甲的心动留言：今晚想起我们聊过的话。", result.text)
 
@@ -384,7 +388,7 @@ class CampaignTests(unittest.TestCase):
                 calls.append(("span", name, metadata, kwargs))
                 return Span()
 
-        session = CampaignSession(self.store, self.program, self.react, telemetry=Telemetry())
+        session = CampaignSession(self.store, self.program, self.turn_engine, telemetry=Telemetry())
         self.run_async(session.start("g"))
         self.run_async(session.submit("g", "/choose m1", "trace-choice"))
         roots = [call for call in calls if call[0] == "span" and call[1] in {"campaign-start", "campaign-turn"}]
@@ -393,13 +397,14 @@ class CampaignTests(unittest.TestCase):
         self.assertTrue(any(call[:2] == ("span", "campaign-choice") for call in calls))
 
     def test_inspection_does_not_raise_affinity_even_if_target_was_proposed(self):
-        class InspectReact(FakeReact):
-            async def run_turn(self, game_id, text, turn_id):
-                result = await super().run_turn(game_id, text, turn_id)
+        class InspectSceneEngine(FakeSceneEngine):
+            async def run_turn(self, turn, *, max_tick=None, progress=None):
+                game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
+                result = await super().run_turn(turn, max_tick=max_tick, progress=progress)
                 result.decision.intent = "inspect"
                 return result
 
-        session = CampaignSession(self.store, self.program, InspectReact(self.store))
+        session = CampaignSession(self.store, self.program, InspectSceneEngine(self.store))
         self.run_async(session.start("g"))
         self.run_async(session.submit("g", "/choose m1", "inspect-gate"))
         result = self.run_async(session.submit("g", "看看周围", "inspect-turn"))
@@ -478,7 +483,7 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(result.snapshot.data["campaign"]["day"], 2)
 
     def test_next_drains_due_world_work_before_campaign_gate(self):
-        class QueueReact(FakeReact):
+        class QueueSceneEngine(FakeSceneEngine):
             async def run_ready_work(self, game_id):
                 return await TurnRunner(self.store, {"scenario_cue": scenario_cue}, 8).run_async(game_id)
 
@@ -493,7 +498,7 @@ class CampaignTests(unittest.TestCase):
             "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
             "campaign": self.program.initial_state(["m1"]),
         }), (cue,))
-        session = CampaignSession(self.store, self.program, QueueReact(self.store))
+        session = CampaignSession(self.store, self.program, QueueSceneEngine(self.store))
         self.run_async(session.start("queue"))
         self.run_async(session.submit("queue", "/choose m1", "queue-choice"))
         result = self.run_async(session.submit("queue", "/next", "queue-next"))
@@ -502,16 +507,17 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(self.store.pending_work("queue"), [])
         self.assertIn("雪停了，天空变亮", result.text)
 
-    def test_react_turn_drains_work_left_by_its_step_budget_before_campaign_gate(self):
+    def test_turn_engine_turn_drains_work_left_by_its_step_budget_before_campaign_gate(self):
         cue = PendingWork("chat-cue", "scenario_cue", 1, 10, None, {
             "event_kind": "weather_changed", "summary": "雪停了",
             "effects": [{"path": ["world", "weather"], "value": "clear"}],
             "location": "villa", "sensory": "雪停了，天空变亮。",
         })
 
-        class BudgetReact(FakeReact):
-            async def run_turn(self, game_id, text, turn_id):
-                result = await super().run_turn(game_id, text, turn_id)
+        class BudgetSceneEngine(FakeSceneEngine):
+            async def run_turn(self, turn, *, max_tick=None, progress=None):
+                game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
+                result = await super().run_turn(turn, max_tick=max_tick, progress=progress)
                 self.store.commit(game_id, result.snapshot.version, None, (), (cue,))
                 return result
 
@@ -524,7 +530,7 @@ class CampaignTests(unittest.TestCase):
             "actors": {"player": {"location": "villa"}, "m1": {"location": "villa"}},
             "campaign": self.program.initial_state(["m1"]),
         }))
-        session = CampaignSession(self.store, self.program, BudgetReact(self.store))
+        session = CampaignSession(self.store, self.program, BudgetSceneEngine(self.store))
         self.run_async(session.start("chat-queue"))
         self.run_async(session.submit("chat-queue", "/choose m1", "chat-choice"))
         result = self.run_async(session.submit("chat-queue", "你好", "chat-turn"))
@@ -585,7 +591,7 @@ class CampaignTests(unittest.TestCase):
             {"actor_id": "m1", "player_message": "你好", "duration_ticks": 2},
         ),))
 
-        with self.assertRaisesRegex(ValueError, "campaign.*duration_ticks"):
+        with self.assertRaisesRegex(ValueError, "legacy save.*new game"):
             self.run_async(self.session.submit("g", "/next", "next-turn"))
         self.assertEqual(self.store.load("g").tick, 0)
         self.assertFalse(self.store.event_exists("g", "next-turn:advance"))
@@ -598,7 +604,7 @@ class CampaignTests(unittest.TestCase):
                           WorldEvent("recover:input", "player_input", "player", None, 1, (),
                                      {"text": "hi", "target_ids": ["m1"], "channel": "speech"}), (), ())
         result = self.run_async(self.session.submit("g", "hi", "recover"))
-        self.assertEqual(self.react.calls, [])
+        self.assertEqual(self.turn_engine.calls, [])
         self.assertEqual(result.snapshot.data["campaign"]["affinity"]["m1"], 1)
         self.assertEqual(result.gate_id, "message")
         repeated = self.run_async(self.session.submit("g", "hi", "recover"))
@@ -611,7 +617,7 @@ class CampaignTests(unittest.TestCase):
         self.store.commit("g", before.version,
                           WorldEvent("unfinished:input", "player_input", "player", None, 1, (),
                                      {"text": "hi", "target_ids": ["m1"], "channel": "speech"}), (), ())
-        resumed = CampaignSession(self.store, self.program, self.react)
+        resumed = CampaignSession(self.store, self.program, self.turn_engine)
         result = self.run_async(resumed.start("g"))
         self.assertEqual(result.snapshot.data["campaign"]["affinity"]["m1"], 1)
         self.assertTrue(result.snapshot.data["campaign"]["met"]["m1"])

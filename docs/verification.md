@@ -1,6 +1,6 @@
 # 平台验证
 
-根 pyproject 与 uv.lock 固定公开 harness 提交 `607fb706357f5d732a5bc588bd7f7587cd6ed3c9`（v0.1.0）。两仓采用 MIT。升级 harness 时显式更新完整 rev，用 uv 0.11.25 执行 `uv lock` 并评审差异，然后运行以下全部检查。
+根 pyproject 与 uv.lock 固定公开 harness 提交 `fadbd74584852fec3ad097bb7ec8421935eaacfc`（0.2.0 候选版本）。两仓采用 MIT。升级 harness 时显式更新完整 rev，用 uv 0.11.25 执行 `uv lock` 并评审差异，然后运行以下全部检查。
 
 构建目录 `dist/harness` 应为空。安装时显式传入该目录内的精确 wheel 路径，不能仅用 `--find-links` 搭配范围依赖，因为包索引仍可能提供其他兼容版本。
 
@@ -25,4 +25,10 @@ npm run test:e2e
 
 发布前本地检查允许显式设置 `STORYLOOP_TEST_HARNESS_WHEEL` 为已验证 harness wheel 的绝对路径。这只证明本地制品兼容，不证明 Git 固定版本安装。CI 不设置此变量，正式验收必须移除它。
 
-CI 安装锁定的第三方依赖以及固定 Git 构建的 harness wheel，再安装平台 wheel，运行 pip check、checkout 外 smoke、Windows/Linux 后端测试，以及 Linux 前端和浏览器检查。浏览器测试模拟 API/SSE；不能代替真实后端联调、PostgreSQL 并发或真实模型质量验收。远程 Actions 与 Docker 尚需发布阶段取得执行证据。
+CI 安装锁定的第三方依赖以及固定 Git 构建的 harness wheel，再安装平台 wheel，运行 pip check、checkout 外 smoke、Windows/Linux 后端测试，以及 Linux 前端和浏览器检查。浏览器测试模拟 API/SSE；不能代替真实后端联调、PostgreSQL 并发或真实模型质量验收。先前 main 的远程 Actions 已通过；本次清理变更仍须取得对应提交的远程 CI 结果，Docker 运行验证尚未完成。
+
+## 上下文投影清理回归
+
+`tests/test_context_projection_cleanup.py` 验证仅当前路由配置以及 HTTP/SSE 对当前或未来 `npc_reply` 的拒绝，断言模型、世界、队列和账务均无副作用。`test_agent_context_window.py`、`test_scene_responder_context.py` 验证 SQL 重启后的角色历史、可见范围和输入预算；`test_single_call.py` 保留普通回合、确定性交付、取消与重试；`test_campaign.py` 保留批量留言、时钟、门槛与恢复；`test_turn_settlement_recovery.py` 验证计量快照及幂等结算。
+
+已移除的每 NPC ReAct 工具循环、代理缓存和模型压缩器不再属于活动测试面。角色视角投影不表示共享模型内的硬隔离。测试均使用离线模型替身，不产生供应商模型费用。
