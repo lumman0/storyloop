@@ -29,6 +29,9 @@
       "kind": "chat",
       "provider": "default",
       "model": "qwen3.8-flash",
+      "timeout_seconds": 60,
+      "connect_timeout_seconds": 10,
+      "max_retries": 1,
       "tool_choice_policy": "auto_only",
       "structured_output_transport": "tool_call",
       "rate": {
@@ -47,6 +50,9 @@
       "kind": "embedding",
       "provider": "default",
       "model": "text-embedding-v4",
+      "timeout_seconds": 60,
+      "connect_timeout_seconds": 10,
+      "max_retries": 1,
       "dimensions": 1024
     }
   },

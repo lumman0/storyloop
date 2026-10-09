@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
+from ipaddress import IPv4Address, IPv6Address
 from typing import Annotated, Literal, Self
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 Name = Annotated[str, Field(min_length=1, pattern=r"\S")]
 EnvName = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
@@ -28,13 +38,39 @@ class ProviderSettings(SettingsModel):
     api_key_env: EnvName
     base_url_env: EnvName | None = None
 
-    @model_validator(mode="after")
-    def no_url_credentials(self) -> Self:
-        from urllib.parse import urlsplit
-
-        if urlsplit(self.base_url).username is not None:
-            raise ValueError("provider base_url must not contain credentials")
-        return self
+    @field_validator("base_url")
+    @classmethod
+    def valid_endpoint(cls, value: str) -> str:
+        # urlsplit parses authorities permissively and its errors can echo input.
+        try:
+            parsed = urlsplit(value)
+            host, port = parsed.hostname, parsed.port
+            if parsed.username is not None:
+                raise ValueError("credentials")
+            if not host or port == 0:
+                raise ValueError("host or port")
+            authority = parsed.netloc
+            if authority.startswith("["):
+                IPv6Address(host)
+                suffix = authority[authority.index("]") + 1 :]
+            else:
+                suffix = ":" + authority.split(":", 1)[1] if ":" in authority else ""
+                if re.fullmatch(r"[0-9.]+", host):
+                    IPv4Address(host)
+                elif len(host) > 253 or any(
+                    not re.fullmatch(
+                        r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label
+                    )
+                    for label in host.removesuffix(".").split(".")
+                ):
+                    raise ValueError("host")
+            if suffix and not re.fullmatch(r":[0-9]+", suffix):
+                raise ValueError("port")
+        except ValueError:
+            raise ValueError(
+                "provider base_url requires a valid host and port without credentials"
+            ) from None
+        return value
 
 
 class GenerationSettings(SettingsModel):
@@ -91,6 +127,22 @@ class EmbeddingModelSettings(ModelSettings):
     dimensions: PositiveInt
 
 
+def _validate_model_kind(value: object) -> object:
+    # Pydantic's union_tag_invalid message embeds the raw discriminator value,
+    # even with hide_input_in_errors. Reject it before union dispatch instead.
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    if kind not in ("chat", "embedding"):
+        raise ValueError("model kind must be chat or embedding")
+    return value
+
+
+ModelProfile = Annotated[
+    ChatModelSettings | EmbeddingModelSettings,
+    Field(discriminator="kind"),
+    BeforeValidator(_validate_model_kind),
+]
+
+
 class RuntimeSettings(SettingsModel):
     max_steps: PositiveInt = 8
     max_npc_replies: PositiveInt = 3
@@ -126,12 +178,7 @@ class CreditsSettings(SettingsModel):
 class PlatformSettings(SettingsModel):
     environment: Literal["local", "online"]
     providers: dict[Name, ProviderSettings]
-    models: dict[
-        Name,
-        Annotated[
-            ChatModelSettings | EmbeddingModelSettings, Field(discriminator="kind")
-        ],
-    ]
+    models: dict[Name, ModelProfile]
     routes: dict[Task, Name]
     runtime: RuntimeSettings
     storage: StorageSettings
