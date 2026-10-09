@@ -5,4 +5,4 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /opt/storyloop/deploy/ecs/renew-certificate.sh
+ExecStart=/bin/sh /opt/storyloop-platform/deploy/ecs/renew-certificate.sh

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -13,4 +13,6 @@ config/application.local.json
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo
+web/test-results/
+web/playwright-report/
 deploy/ecs/private/

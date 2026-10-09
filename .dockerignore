@@ -7,6 +7,10 @@
 **/*.pyc
 **/*.sqlite3
 **/*.egg-info
+**/build
+**/dist
+**/node_modules
+.pytest_cache
 web/node_modules
 web/dist
 web/*.tsbuildinfo

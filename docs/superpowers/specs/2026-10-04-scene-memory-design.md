@@ -1,5 +1,7 @@
 # Complete actions and selective shared memory
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 The default story turn should follow the scope of the player's action. If the player chooses to cook a meal, one generated response may cover the cooking and its immediate social outcome. The system must not split that activity into mandatory ingredient, stove, and serving turns. A player who asks to do only one step should still receive only that step.
 
 The authoritative event log already stores player input and the model's visible scene. Keep that log as the record of ordinary activities. Do not introduce a separate procedural state field for each routine activity. Scripted choices, time, knowledge boundaries, and durable objects retain their existing structured state where necessary.

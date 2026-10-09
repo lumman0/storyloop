@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.core.contracts import Snapshot
-from story_harness.agents.main_agent import MainReActAgent
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.world.worldbook import Worldbook
+from storyloop_harness.core.contracts import Snapshot
+from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.world.worldbook import Worldbook
 
 
 class ToolThenPlanModel(ChatModelBase):
@@ -27,6 +27,8 @@ class ToolThenPlanModel(ChatModelBase):
                 "input": request, "raw_input": json.dumps(request),
             }])
         decision = {"intent": "speech", "target_ids": ["A"], "channel": "speech", "entry_id": None, "action_id": None}
+        if kwargs.get("structured_model") is not None:
+            return ChatResponse(content=[{"type": "text", "text": "已决定交谈"}], metadata=decision)
         return ChatResponse(content=[{
             "type": "tool_use", "id": "plan-1", "name": "generate_response",
             "input": decision, "raw_input": json.dumps(decision),

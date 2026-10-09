@@ -2,7 +2,7 @@
 set -eu
 
 data_dir=${STORY_DATA_DIR:-/srv/storyloop-data}
-compose_dir=${STORY_COMPOSE_DIR:-/opt/storyloop/deploy/ecs}
+compose_dir=${STORY_COMPOSE_DIR:-/opt/storyloop-platform/deploy/ecs}
 
 docker run --rm \
   -v "$data_dir/acme-challenge:/var/www/acme" \

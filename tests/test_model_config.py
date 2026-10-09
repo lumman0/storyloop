@@ -2,16 +2,19 @@ import unittest
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agentscope.model import OpenAIChatModel
 from openai.types.chat import ChatCompletion
+from pydantic import BaseModel
 
-from story_harness.adapters.model_config import BailianModelRouter, NpcModelConfig
-from story_harness.adapters.runtime_config import HarnessConfig
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.main_agent import MainReActAgent
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.model_config import BailianModelRouter, NpcModelConfig
+from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_platform.portal.billing import collect_usage
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 class NpcModelConfigTests(unittest.TestCase):
@@ -55,6 +58,46 @@ class NpcModelConfigTests(unittest.TestCase):
             NpcModelConfig.from_environment({"STORY_NPC_MODEL": "small"})
 
 
+class ReplySchema(BaseModel):
+    text: str
+
+
+class MissingUsageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_response_without_usage_cannot_be_collected(self) -> None:
+        model = NpcModelConfig("test-model", "test-key").create_model()
+        response = SimpleNamespace(content="hello", usage=None)
+        with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock,
+                          return_value=response):
+            with collect_usage() as usage:
+                with self.assertRaisesRegex(RuntimeError, "model did not report token usage"):
+                    await model([{"role": "user", "content": "hello"}])
+                self.assertEqual(usage.records, [])
+
+    async def test_structured_response_without_usage_cannot_be_collected(self) -> None:
+        model = NpcModelConfig("test-model", "test-key").create_model()
+        response = SimpleNamespace(content={"text": "hello"}, usage=None)
+        with patch.object(OpenAIChatModel, "generate_structured_output", new_callable=AsyncMock,
+                          return_value=response):
+            with collect_usage() as usage:
+                with self.assertRaisesRegex(RuntimeError, "model did not report token usage"):
+                    await model([{"role": "user", "content": "hello"}],
+                                structured_model=ReplySchema)
+                self.assertEqual(usage.records, [])
+
+    async def test_missing_usage_is_allowed_without_collection(self) -> None:
+        model = NpcModelConfig("test-model", "test-key").create_model()
+        response = SimpleNamespace(content="hello", usage=None)
+        with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock,
+                          return_value=response):
+            self.assertIs(await model([{"role": "user", "content": "hello"}]), response)
+        structured = SimpleNamespace(content={"text": "hello"}, usage=None)
+        with patch.object(OpenAIChatModel, "generate_structured_output", new_callable=AsyncMock,
+                          return_value=structured):
+            result = await model([{"role": "user", "content": "hello"}],
+                                 structured_model=ReplySchema)
+            self.assertEqual(result.metadata, structured.content)
+
+
 class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_auto_only_policy_converts_forced_tool_choice(self) -> None:
         model = NpcModelConfig(
@@ -64,7 +107,7 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock) as call:
             await model([{"role": "user", "content": "hello"}], tools=[{"type": "function"}], tool_choice="required")
 
-        self.assertEqual(call.await_args.kwargs["tool_choice"], "auto")
+        self.assertEqual(call.await_args.kwargs["tool_choice"].mode, "auto")
 
     async def test_native_policy_preserves_forced_tool_choice(self) -> None:
         model = NpcModelConfig(
@@ -74,7 +117,7 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(OpenAIChatModel, "__call__", new_callable=AsyncMock) as call:
             await model([{"role": "user", "content": "hello"}], tools=[{"type": "function"}], tool_choice="required")
 
-        self.assertEqual(call.await_args.kwargs["tool_choice"], "required")
+        self.assertEqual(call.await_args.kwargs["tool_choice"].mode, "required")
 
     async def test_main_react_sends_auto_to_qwen_compatible_endpoint(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -93,19 +136,21 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             async def completion(**kwargs: object) -> ChatCompletion:
                 choice = kwargs.get("tool_choice")
                 choices.append(choice if isinstance(choice, str) else None)
+                tool_names = [item.get("function", {}).get("name")
+                              for item in kwargs.get("tools", [])]
                 message = (
                     {"role": "assistant", "content": "我会和码头工打招呼。"}
-                    if choice == "none" else
+                    if choice != "auto" or "GenerateStructuredOutput" not in tool_names else
                     {"role": "assistant", "content": None, "tool_calls": [{
                         "id": "decision-1", "type": "function", "function": {
-                            "name": "generate_response", "arguments": json.dumps(decision),
+                            "name": "GenerateStructuredOutput", "arguments": json.dumps(decision),
                         },
                     }]}
                 )
                 return ChatCompletion.model_validate({
                     "id": "chatcmpl-test", "created": 0, "model": "qwen3.8-max",
                     "object": "chat.completion", "choices": [{
-                        "finish_reason": "stop" if choice == "none" else "tool_calls",
+                        "finish_reason": "tool_calls" if choice == "auto" and "GenerateStructuredOutput" in tool_names else "stop",
                         "index": 0, "message": message,
                     }],
                 })
@@ -115,7 +160,8 @@ class ToolChoiceCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             result = await agent.decide("hi")
 
             self.assertEqual(result.target_ids, ["dockhand"])
-            self.assertEqual(choices[0], "auto")
+            self.assertIn("auto", choices)
+            self.assertNotIn("required", choices)
 
 
 if __name__ == "__main__":

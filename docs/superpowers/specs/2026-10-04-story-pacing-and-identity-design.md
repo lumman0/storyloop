@@ -1,5 +1,7 @@
 # Story pacing and player identity knowledge
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 The save `df0cbdbe0e9d4e569ccd95d3060e312b` spent three turns and roughly 1,700 Chinese characters on looking at a nameplate, taking it, and a short greeting. The opening did not explain the nameplate's purpose. The narration named strangers before they introduced themselves. This design fixes those causes without adding model calls or procedural steps for small actions.
 
 ## Turn contract

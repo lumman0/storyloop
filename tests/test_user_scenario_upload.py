@@ -18,10 +18,10 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
-from story_harness.portal.user_scenarios import UserScenarioService
-from story_harness.portal import user_scenarios as upload_module
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.portal.user_scenarios import UserScenarioService
+from storyloop_platform.portal import user_scenarios as upload_module
 
 
 ROOT = Path(__file__).resolve().parents[1]

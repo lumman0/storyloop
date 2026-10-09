@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type AuditEvent, type ManagedUser, type PublicRelease,
-  type ReviewDetail, type ReviewSubmission, type Session } from "../lib/api";
+  type ReviewSubmission, type Session } from "../lib/api";
+import { canDecideReview, emptyReviewSelection, reviewSelectionReducer } from "../lib/reviewSelection";
 import { errorMessage } from "../lib/session";
 import { Loading, Notice } from "../components/Feedback";
 import { Button } from "../components/ui/button";
@@ -17,8 +18,10 @@ export function ManagePage({ session }: { session: Session }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [releases, setReleases] = useState<PublicRelease[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [detail, setDetail] = useState<ReviewDetail | null>(null);
-  const [reason, setReason] = useState("");
+  const [review, dispatchReview] = useReducer(reviewSelectionReducer, emptyReviewSelection);
+  const { detail, reason, loading: detailLoading } = review;
+  const reviewRequest = useRef(0);
+  const reviewReady = canDecideReview(review);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -39,21 +42,43 @@ export function ManagePage({ session }: { session: Session }) {
     return () => { active = false; };
   }, [tab, refresh]);
 
+  useEffect(() => () => { reviewRequest.current += 1; }, []);
+
+  function selectTab(next: Tab) {
+    if (busy) return;
+    reviewRequest.current += 1;
+    dispatchReview({ type: "clear" });
+    setTab(next);
+  }
+
   async function openReview(id: string) {
-    setError(""); setDetail(null); setReason("");
-    try { setDetail(await api.reviewDetail(id)); }
-    catch (cause) { setError(errorMessage(cause)); }
+    if (busy) return;
+    const request = ++reviewRequest.current;
+    setError("");
+    dispatchReview({ type: "select", id, request });
+    try {
+      const result = await api.reviewDetail(id);
+      if (request !== reviewRequest.current) return;
+      if (result.submission_id !== id) throw new Error("审核详情与所选申请不匹配，请重新选择。");
+      dispatchReview({ type: "loaded", request, detail: result });
+    } catch (cause) {
+      if (request === reviewRequest.current) {
+        dispatchReview({ type: "failed", request });
+        setError(errorMessage(cause));
+      }
+    }
   }
 
   async function decide(decision: "approved" | "rejected") {
-    if (!detail) return;
+    if (!detail || !reviewReady || busy) return;
     if (decision === "rejected" && !reason.trim()) {
       setError("驳回时请写明原因，作者才能修改后提交新版本。"); return;
     }
     setBusy(true); setError("");
     try {
       await api.reviewDecide(detail.submission_id, decision, reason.trim());
-      setDetail(null); setReason("");
+      reviewRequest.current += 1;
+      dispatchReview({ type: "clear" });
       setMessage(decision === "approved" ? "该版本已通过审核并进入公共目录。" : "审核意见已送达作者。");
       setRefresh((value) => value + 1);
     } catch (cause) { setError(errorMessage(cause)); }
@@ -61,7 +86,7 @@ export function ManagePage({ session }: { session: Session }) {
   }
 
   async function preview() {
-    if (!detail) return;
+    if (!detail || !reviewReady || busy) return;
     setBusy(true); setError("");
     try {
       const view = await api.reviewPreview(detail.submission_id);
@@ -102,11 +127,11 @@ export function ManagePage({ session }: { session: Session }) {
       <h1>内容与账号管理</h1><p>审核针对固定剧本版本；每项决定都会记录操作者与原因。</p>
     </header>
     <div className="manage-tabs" role="tablist" aria-label="管理功能">
-      <button type="button" role="tab" aria-selected={tab === "reviews"} onClick={() => { setTab("reviews"); setDetail(null); }}>审核队列</button>
-      {admin && <button type="button" role="tab" aria-selected={tab === "users"} onClick={() => setTab("users")}>用户权限</button>}
-      {admin && <button type="button" role="tab" aria-selected={tab === "invites"} onClick={() => setTab("invites")}>邀请码</button>}
-      {admin && <button type="button" role="tab" aria-selected={tab === "releases"} onClick={() => setTab("releases")}>公开剧本</button>}
-      {admin && <button type="button" role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}>操作记录</button>}
+      <button type="button" role="tab" disabled={busy} aria-selected={tab === "reviews"} onClick={() => selectTab("reviews")}>审核队列</button>
+      {admin && <button type="button" role="tab" disabled={busy} aria-selected={tab === "users"} onClick={() => selectTab("users")}>用户权限</button>}
+      {admin && <button type="button" role="tab" disabled={busy} aria-selected={tab === "invites"} onClick={() => selectTab("invites")}>邀请码</button>}
+      {admin && <button type="button" role="tab" disabled={busy} aria-selected={tab === "releases"} onClick={() => selectTab("releases")}>公开剧本</button>}
+      {admin && <button type="button" role="tab" disabled={busy} aria-selected={tab === "audit"} onClick={() => selectTab("audit")}>操作记录</button>}
     </div>
     {error && <Notice message={error} />}
     {message && <p className="upload-success" role="status">{message}</p>}
@@ -115,26 +140,30 @@ export function ManagePage({ session }: { session: Session }) {
       {tab === "reviews" && <div className="manage-review-layout">
         <section className="manage-panel"><h2>待审核 · {reviews.length}</h2>
           {reviews.length ? reviews.map((item) => <button className="manage-row-button" type="button" key={item.submission_id}
-            onClick={() => void openReview(item.submission_id)}>
+            disabled={busy} aria-pressed={review.id === item.submission_id} onClick={() => void openReview(item.submission_id)}>
             <strong>{item.title}</strong><span>{item.author_name} · {item.mode === "campaign" ? "章节故事" : "自由探索"} · {new Date(item.submitted_at * 1000).toLocaleString()}</span>
           </button>) : <p className="manage-empty">当前没有待审核的剧本。</p>}
         </section>
-        <section className="manage-panel manage-detail" aria-live="polite">
-          {!detail ? <p className="manage-empty">选择左侧剧本，查看送审时固定的内容和版本。</p> : <>
+        <section className="manage-panel manage-detail" aria-live="polite" aria-busy={detailLoading}>
+          {detailLoading ? <Loading label="正在读取所选版本…" /> : !detail ? <p className="manage-empty">选择左侧剧本，查看送审时固定的内容和版本。</p> : <>
             <span className="section-label">版本 {detail.package_version}</span><h2>{detail.title}</h2>
             <p>{detail.summary || "作者未填写简介。"}</p>
             <p className="manage-hash">内容指纹：{detail.package_hash}</p>
-            <Button size="small" variant="secondary" disabled={busy} onClick={() => void preview()}>隔离试玩预览</Button>
+            {!reviewReady && <p className="form-error" role="status">这次申请已不在待审核状态，请重新读取审核队列。</p>}
+            {!reviewReady && <Button size="small" variant="secondary" disabled={busy}
+              onClick={() => { selectTab("reviews"); setRefresh((value) => value + 1); }}>刷新审核队列</Button>}
+            <Button size="small" variant="secondary" disabled={busy || !reviewReady} onClick={() => void preview()}>隔离试玩预览</Button>
             <p className="manage-preview-note">预览使用审核员自己的临时存档，最多 12 回合；模型费用由平台承担，不扣玩家积分。</p>
             <details open><summary>剧本结构</summary><pre>{JSON.stringify(detail.manifest, null, 2)}</pre></details>
             <details><summary>世界书与角色卡</summary><pre>{JSON.stringify(detail.worldbook, null, 2)}</pre></details>
             {detail.campaign && <details><summary>剧情日程</summary><pre>{JSON.stringify(detail.campaign, null, 2)}</pre></details>}
             {detail.story_blueprint && <details><summary>原文依据与剧情线索</summary><pre>{JSON.stringify(detail.story_blueprint, null, 2)}</pre></details>}
             <label className="manage-reason-label" htmlFor="review-reason">审核意见；驳回或管理员审核自己的剧本时必填</label>
-            <textarea id="review-reason" value={reason} maxLength={1000} rows={3} onChange={(event) => setReason(event.target.value)} />
+            <textarea id="review-reason" value={reason} maxLength={1000} rows={3} disabled={busy || !reviewReady}
+              onChange={(event) => dispatchReview({ type: "reason", id: detail.submission_id, reason: event.target.value })} />
             <div className="manage-actions">
-              <Button disabled={busy} onClick={() => void decide("approved")}>通过并公开</Button>
-              <Button disabled={busy} variant="secondary" onClick={() => void decide("rejected")}>驳回</Button>
+              <Button disabled={busy || !reviewReady} onClick={() => void decide("approved")}>通过并公开</Button>
+              <Button disabled={busy || !reviewReady} variant="secondary" onClick={() => void decide("rejected")}>驳回</Button>
             </div>
           </>}
         </section>

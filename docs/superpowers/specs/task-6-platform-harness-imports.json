@@ -1,0 +1,139 @@
+{
+  "adapters/model_config.py": [
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.models.agentscope: CompatibleOpenAIChatModel, ToolChoicePolicy, StructuredOutputTransport"
+  ],
+  "adapters/sql_store.py": [
+    "storyloop_harness.core.contracts: AgentContextCheckpoint, AgentContextEntry, Observation, PendingWork, PlayerInput, Snapshot, WorldEvent",
+    "storyloop_harness.core.state: apply_event"
+  ],
+  "adapters/telemetry.py": [
+    "storyloop_harness.adapters.telemetry: Telemetry, TraceSpan, _NoopSpan, session_id_for_game"
+  ],
+  "generators/novel_narrator.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.runtime.player_preferences: current_player_preferences",
+    "storyloop_harness.runtime.presentation: SceneContext"
+  ],
+  "generators/prologue_generator.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter"
+  ],
+  "generators/scene_messages.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter"
+  ],
+  "generators/scene_narrator.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.runtime.player_preferences: current_player_preferences",
+    "storyloop_harness.runtime.presentation: SceneContext"
+  ],
+  "generators/status_adjudicator.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.core.contracts: Snapshot",
+    "storyloop_harness.world.status_fields: StatusField, _value_at"
+  ],
+  "generators/story_opening.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.runtime.player_knowledge: PlayerEncounter, accepted_encounters, merge_knowledge"
+  ],
+  "legacy/action_resolver.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.core.contracts: Effect, Snapshot",
+    "storyloop_harness.core.open_actions: OpenActionOutcome, _read_path"
+  ],
+  "legacy/main_agent.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.core.actions: ActionRule",
+    "storyloop_harness.core.decisions: MainDecision",
+    "storyloop_harness.runtime.player_preferences: current_player_preferences",
+    "storyloop_harness.runtime.story_clock: StoryClock",
+    "storyloop_harness.world.status_fields: StatusField, project_status_fields",
+    "storyloop_harness.world.worldbook: Worldbook"
+  ],
+  "legacy/npc_agent.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.runtime.story_clock: StoryClock",
+    "storyloop_harness.world.worldbook: Worldbook"
+  ],
+  "legacy/npc_work.py": [
+    "storyloop_harness.core.contracts: Observation, PendingWork, Snapshot, WorldEvent",
+    "storyloop_harness.runtime.runner: WorkHandler, WorkResult"
+  ],
+  "legacy/selector_agent.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.core.contracts: PendingWork, Snapshot"
+  ],
+  "portal/billing.py": [
+    "storyloop_harness.models.usage: ModelUsage, UsageCollector, collect_usage, record_model_usage"
+  ],
+  "portal/presentation.py": [
+    "storyloop_harness.core.contracts: Snapshot"
+  ],
+  "portal/service.py": [
+    "storyloop_harness.agents.action_advisor: ActionOption, ActionOptionAdvisor",
+    "storyloop_harness.agents.scene_turn: SceneContextProjector, SingleSceneGenerator",
+    "storyloop_harness.core.contracts: Observation, Snapshot, WorldEvent",
+    "storyloop_harness.runtime.player_preferences: player_preferences_scope",
+    "storyloop_harness.runtime.presentation: StorySegment, segment_for_observation",
+    "storyloop_harness.runtime.single_call: SingleCallGameSession",
+    "storyloop_harness.runtime.story_clock: StoryClock",
+    "storyloop_harness.runtime.turn_progress: TurnProgress, emit",
+    "storyloop_harness.world.prepared_opening: render_prepared_opening",
+    "storyloop_harness.world.status_fields: StatusField, project_status_fields"
+  ],
+  "portal/user_scenarios.py": [
+    "storyloop_harness.world.prepared_opening: validate_prepared_opening",
+    "storyloop_harness.world.prologue: save_prologue"
+  ],
+  "runtime/agent_context.py": [
+    "storyloop_harness.adapters.agentscope_message: Msg",
+    "storyloop_harness.agents.openai_formatter: ThinkingSafeOpenAIChatFormatter",
+    "storyloop_harness.core.contracts: AgentContextCheckpoint, AgentContextEntry",
+    "storyloop_harness.core.token_budget: estimate_tokens"
+  ],
+  "runtime/campaign.py": [
+    "storyloop_harness.core.contracts: Effect, Observation, Snapshot, WorldEvent",
+    "storyloop_harness.runtime.presentation: SceneContext, StorySegment, segment_for_observation",
+    "storyloop_harness.runtime.story_clock: StoryClock",
+    "storyloop_harness.runtime.turn_progress: TurnProgress, emit"
+  ],
+  "runtime/game_session.py": [
+    "storyloop_harness.core.actions: adjudicate_action",
+    "storyloop_harness.core.contracts: Observation, PendingWork, Snapshot, WorldEvent",
+    "storyloop_harness.core.decisions: MainDecision",
+    "storyloop_harness.core.open_actions: OpenActionOutcome, validate_open_effects",
+    "storyloop_harness.core.perception: physical_observations",
+    "storyloop_harness.core.turn_result: TurnOutcome",
+    "storyloop_harness.runtime.player_input: submit_player_input",
+    "storyloop_harness.runtime.presentation: StorySegment, segment_for_observation",
+    "storyloop_harness.runtime.runner: RunResult, TurnRunner, WorkSelector",
+    "storyloop_harness.runtime.schedule: scenario_cue",
+    "storyloop_harness.runtime.story_clock: StoryClock",
+    "storyloop_harness.runtime.turn_progress: TurnProgress, emit"
+  ],
+  "runtime/guidance.py": [
+    "storyloop_harness.core.contracts: Snapshot"
+  ],
+  "runtime/novel_presentation.py": [
+    "storyloop_harness.core.contracts: WorldEvent",
+    "storyloop_harness.runtime.presentation: SceneContext, StorySegment, segment_for_observation",
+    "storyloop_harness.runtime.story_clock: StoryClock",
+    "storyloop_harness.runtime.turn_progress: TurnProgress, emit"
+  ],
+  "runtime/react_factory.py": [
+    "storyloop_harness.runtime.story_clock: StoryClock"
+  ],
+  "runtime/status_update.py": [
+    "storyloop_harness.core.contracts: Observation, Snapshot, WorldEvent",
+    "storyloop_harness.world.status_fields: StatusField, _value_at, status_effects"
+  ]
+}

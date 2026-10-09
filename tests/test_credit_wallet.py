@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from sqlalchemy import text
 
-from story_harness.adapters.sql_database import open_database, sqlite_url, upgrade_database
-from story_harness.core.billing import BillingPolicy, ModelUsage, record_model_usage
-from story_harness.portal.service import PlayerPortal
-from story_harness.portal.sql_billing import SQLBillingRepository
-from story_harness.portal.sql_repository import SQLPlayerRepository
+from storyloop_platform.adapters.sql_database import open_database, sqlite_url, upgrade_database
+from storyloop_platform.portal.billing import BillingPolicy, ModelUsage, record_model_usage
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.portal.sql_billing import SQLBillingRepository
+from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
 
 class CreditWalletTests(unittest.TestCase):

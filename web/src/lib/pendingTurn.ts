@@ -1,6 +1,24 @@
 type TurnStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export type StoredPendingTurn = { id: string; text: string };
+export type StoredPendingTurn = { id: string; text: string; retryable?: false; error?: string };
+
+export type TurnFailure = {
+  commit_state?: "not_started" | "committed" | "unknown";
+  request_id?: string | null;
+  code?: string;
+  retryable?: boolean;
+};
+
+export function discardUnstartedTurn(
+  gameId: string,
+  requestId: string,
+  failure: TurnFailure | undefined,
+  storage: TurnStorage = sessionStorage,
+): boolean {
+  if (failure?.commit_state !== "not_started" || failure.request_id !== requestId) return false;
+  clearPendingTurn(gameId, storage);
+  return true;
+}
 
 function key(gameId: string): string {
   return `storyloop.pending.${gameId}`;
@@ -19,7 +37,15 @@ export function readPendingTurn(
       "id" in value && typeof value.id === "string" &&
       /^[A-Za-z0-9_-]{1,64}$/.test(value.id) &&
       "text" in value && typeof value.text === "string" && value.text.trim()
-    ) return { id: value.id, text: value.text };
+    ) {
+      const turn: StoredPendingTurn = { id: value.id, text: value.text };
+      if ("retryable" in value && value.retryable === false) {
+        turn.retryable = false;
+        turn.error = "error" in value && typeof value.error === "string" && value.error.trim()
+          ? value.error.slice(0, 2000) : "这条行动需要人工恢复，请联系管理员。";
+      }
+      return turn;
+    }
   } catch {
     // An unavailable or damaged tab store cannot prevent the game from loading.
   }

@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.core.contracts import Snapshot
-from story_harness.portal.presentation import campaign_interaction
-from story_harness.runtime.campaign import CampaignProgram, CampaignSession
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.core.contracts import Snapshot
+from storyloop_platform.portal.presentation import campaign_interaction
+from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 
 
 class CampaignPrologueTests(unittest.TestCase):

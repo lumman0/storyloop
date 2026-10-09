@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.main_agent import MainReActAgent
-from story_harness.agents.npc_agent import NpcAgentPool
-from story_harness.core.contracts import Snapshot, WorldEvent
-from story_harness.runtime.player_input import submit_player_input
-from story_harness.world.worldbook import Worldbook
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.main_agent import MainReActAgent
+from storyloop_platform.legacy.npc_agent import NpcAgentPool
+from storyloop_harness.core.contracts import Snapshot, WorldEvent
+from storyloop_harness.runtime.player_input import submit_player_input
+from storyloop_harness.world.worldbook import Worldbook
 
 
 class DecisionModel(ChatModelBase):

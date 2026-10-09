@@ -2,12 +2,17 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY pyproject.toml alembic.ini ./
-COPY src/ ./src/
+COPY pyproject.toml LICENSE /build/platform/
+COPY src/ /build/platform/src/
+COPY scripts/build_harness.py /build/platform/scripts/build_harness.py
+RUN python /build/platform/scripts/build_harness.py --out-dir /wheels \
+    && pip wheel --wheel-dir /wheels /wheels/storyloop_harness-*.whl "/build/platform[agents,portal,online,observability,player-memory]" \
+    && pip install --no-cache-dir --no-index --find-links=/wheels "storyloop-platform[agents,portal,online,observability,player-memory]==0.1.0"
+COPY alembic.ini ./
 COPY config/online.json ./config/online.json
-RUN pip install --no-cache-dir ".[agents,portal,online,observability,player-memory]"
 
 EXPOSE 8765
-CMD ["python", "-m", "story_harness.cli.portal_api", "--profile", "online", "--config", "/app/config/online.json", "--port", "8765"]
+CMD ["python", "-m", "storyloop_platform.cli.portal_api", "--profile", "online", "--config", "/app/config/online.json", "--port", "8765"]

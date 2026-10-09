@@ -1,5 +1,7 @@
 # ECS Docker Compose 部署
 
+> API 镜像从根 pyproject 固定的公开 harness Git 提交构建 wheel；平台依赖解析显式使用该 wheel。
+
 这个部署将网站、API 和 PostgreSQL 放在一台按量付费 Linux ECS 上。公开仓库只包含程序；私有剧本和密钥分别放在服务器的私有目录和 `.env` 中。当前方案使用单个 API worker。
 
 ## 服务器准备
@@ -42,13 +44,13 @@ curl -fsS -H 'Host: <ECS 公网 IP>' http://127.0.0.1/health
 线上注册需要一次性邀请码。首次启动后，在 `deploy/ecs` 目录执行下面的命令生成邀请码，再通过安全渠道交给内测玩家。每个邀请码只能注册一个账号，默认 30 天有效；登录不需要邀请码。
 
 ```sh
-docker compose exec api python -m story_harness.cli.signup_invite --count 5
+docker compose exec api python -m storyloop_platform.cli.signup_invite --count 5
 ```
 
 首个管理员应先注册普通站内账号，再由有服务器权限的运维人员指定该用户名执行引导命令：
 
 ```sh
-docker compose exec api python -m story_harness.cli.bootstrap_admin <站内用户名> --config /app/config/online.json
+docker compose exec api python -m storyloop_platform.cli.bootstrap_admin <站内用户名> --config /app/config/online.json
 ```
 
 命令只为现有账号授予管理员角色，不创建默认账号或密码。管理员重新加载页面后可打开“管理工作台”，授予审核员角色、审核用户提交的固定剧本版本、调整公开版本状态，并查看操作记录。审核员的隔离试玩最多 12 回合，费用由平台承担。

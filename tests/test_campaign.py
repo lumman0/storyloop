@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
-from story_harness.runtime.campaign import CampaignProgram, CampaignSession
-from story_harness.runtime.runner import TurnRunner
-from story_harness.runtime.schedule import scenario_cue
-from story_harness.runtime.story_clock import StoryClock
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
+from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
+from storyloop_harness.runtime.runner import TurnRunner
+from storyloop_harness.runtime.schedule import scenario_cue
+from storyloop_harness.runtime.story_clock import StoryClock
 
 
 class FakeReact:

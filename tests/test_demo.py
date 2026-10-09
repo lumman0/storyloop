@@ -4,7 +4,7 @@ import subprocess
 import sys
 import unittest
 
-from story_harness.cli.demo import run_demo
+from storyloop_platform.cli.demo import run_demo
 
 
 class DemoTests(unittest.TestCase):
@@ -28,11 +28,11 @@ class DemoTests(unittest.TestCase):
 
     def test_cli_outputs_chinese_when_terminal_default_is_cp950(self) -> None:
         environment = os.environ.copy()
-        environment["PYTHONPATH"] = "src"
+        environment.pop("PYTHONPATH", None)
         environment["PYTHONIOENCODING"] = "cp950"
 
         completed = subprocess.run(
-            [sys.executable, "-m", "story_harness.cli.demo"],
+            [sys.executable, "-m", "storyloop_platform.cli.demo"],
             env=environment,
             capture_output=True,
             check=False,

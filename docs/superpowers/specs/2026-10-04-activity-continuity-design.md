@@ -1,5 +1,7 @@
 # Activity continuity and delayed reveals
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 The default single-call engine must carry player identity, public rules, recent prose, and recent suggestions into every ordinary turn. Each NPC still receives only its own stored observations and role card. The model proposes a scene, but declared mutable fields remain the authority for activity progress.
 
 An optional `transitions` map on a mutable field restricts its next value based on its current value. This lets a script model a multi-step activity without hard-coding cooking, dates, or any other specific scene into the harness. The projector sends only currently allowed next values. Invalid proposals are discarded before an event is committed.

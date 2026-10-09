@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.adapters.runtime_config import HarnessConfig
+from storyloop_platform.adapters.runtime_config import HarnessConfig
 
 
 DEFAULT = Path(__file__).resolve().parents[1] / "config" / "bailian-token-plan.json"
@@ -20,8 +20,8 @@ class HarnessConfigTests(unittest.TestCase):
             self.assertIn("deepseek-v4.1-flash", config.billing_policy.rates)
             self.assertEqual(config.runtime.turn_engine, "single_call")
             model = config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "test-key"})
-            self.assertEqual(model.generate_kwargs, {"extra_body": {"enable_thinking": False}})
-            self.assertTrue(model._structured_output_fallback)
+            self.assertEqual(model.extra_body, {"enable_thinking": False})
+            self.assertEqual(model.tool_choice_policy, "auto_only")
 
     def test_default_routes_are_loaded_without_a_secret(self) -> None:
         config = HarnessConfig.load(DEFAULT)
@@ -47,7 +47,7 @@ class HarnessConfigTests(unittest.TestCase):
             raw["billing"]["models"]["another-model"] = dict(raw["billing"]["models"]["qwen3.8-max"])
             raw["runtime"]["max_steps"] = 3
             raw["runtime"]["max_npc_replies"] = 2
-            raw["runtime"]["turn_engine"] = "multi_agent_beta"
+            raw["runtime"]["turn_engine"] = "single_call"
             path.write_text(json.dumps(raw), encoding="utf-8")
 
             config = HarnessConfig.load(path)
@@ -55,8 +55,18 @@ class HarnessConfigTests(unittest.TestCase):
             self.assertEqual(config.model_name("main_react"), "another-model")
             self.assertEqual(config.runtime.max_steps, 3)
             self.assertEqual(config.runtime.max_npc_replies, 2)
-            self.assertEqual(config.runtime.turn_engine, "multi_agent_beta")
+            self.assertEqual(config.runtime.turn_engine, "single_call")
             self.assertEqual(str(config.create_model("main_react", {"STORY_BAILIAN_API_KEY": "x"}).client.base_url), "https://example.invalid/v1/")
+
+    def test_beta_and_unknown_engines_are_rejected(self) -> None:
+        for engine in ("multi_agent_beta", "unknown"):
+            with self.subTest(engine=engine), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "harness.json"
+                raw = json.loads(DEFAULT.read_text(encoding="utf-8"))
+                raw["runtime"]["turn_engine"] = engine
+                path.write_text(json.dumps(raw), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "runtime.turn_engine must be single_call"):
+                    HarnessConfig.load(path)
 
     def test_invalid_budget_and_missing_key_fail_before_model_call(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

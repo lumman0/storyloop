@@ -1,5 +1,7 @@
 # 双呈现模式与后续行动建议
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 剧本包在 `manifest.json` 中设置 `presentation_mode`，取值为 `interactive` 或 `novel`；未设置的旧剧本保持交互模式。该字段只控制玩家看到的正文，与目录中的 `campaign` / `freeform` 流程类型相互独立。
 
 两种模式共享主控 ReAct、NPC 独立上下文、事件提交、可见性过滤、时间与存档。交互模式按事件顺序呈现角色回应与场景承接。小说模式在同一轮的所有可见结果提交后，由主控侧的呈现器生成一段玩家第二人称正文。正文单独保存以支持重试；它不产生世界效果，也不写入 NPC 或玩家的权威观察。流式进度仍报告执行阶段，但小说模式在整合前不向玩家展示原始 NPC 片段。

@@ -1,5 +1,7 @@
 # Presentation Modes and Follow-up Actions Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 > **For agentic workers:** Implement in the existing isolated worktree. The user requested a focused verification pass after the full feature, rather than a test for each small edit.
 
 **Goal:** Support interactive and novel presentation for the same authoritative game loop, then offer three clickable, model-suggested player actions after ordinary turns.

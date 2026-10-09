@@ -4,12 +4,12 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.core.contracts import Observation, Snapshot, WorldEvent
-from story_harness.runtime.status_update import settle_status
-from story_harness.portal.service import PlayerPortal
-from story_harness.runtime.guidance import GuidanceResult
-from story_harness.world.status_fields import parse_status_fields, project_status_fields, status_effects
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.core.contracts import Observation, Snapshot, WorldEvent
+from storyloop_platform.runtime.status_update import settle_status
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.runtime.guidance import GuidanceResult
+from storyloop_harness.world.status_fields import parse_status_fields, project_status_fields, status_effects
 
 
 class StatusFieldTests(unittest.TestCase):

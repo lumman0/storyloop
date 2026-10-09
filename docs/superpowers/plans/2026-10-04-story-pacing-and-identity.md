@@ -1,5 +1,7 @@
 # Story Pacing and Identity Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Make day-one story replies concise and consequential, explain the nameplate rule, and keep stranger identity aligned with what the player has learned.
 
 **Architecture:** Preserve one model call per turn. Add a small identity sidecar to opening and turn schemas, validate and persist it with the scene event, and project it into the next prompt and cast API. Version the winter scenario separately.

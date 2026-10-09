@@ -5,12 +5,12 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-from story_harness.agents.scene_narrator import CampaignSceneNarrator
-from story_harness.core.contracts import Snapshot
-from story_harness.runtime.campaign import CampaignProgram, SceneContext
-from story_harness.runtime.presentation import StorySegment
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.world.worldbook import Worldbook, WorldbookEntry
+from storyloop_platform.generators.scene_narrator import CampaignSceneNarrator
+from storyloop_harness.core.contracts import Snapshot
+from storyloop_platform.runtime.campaign import CampaignProgram, SceneContext
+from storyloop_harness.runtime.presentation import StorySegment
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.world.worldbook import Worldbook, WorldbookEntry
 
 
 class SceneNarratorTests(unittest.TestCase):

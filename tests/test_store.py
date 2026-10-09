@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.core.contracts import Effect, Observation, PendingWork, Snapshot, WorldEvent
-from story_harness.adapters.store import SQLiteGameStore
+from storyloop_harness.core.contracts import Effect, Observation, PendingWork, Snapshot, WorldEvent
+from storyloop_platform.adapters.store import SQLiteGameStore
 
 
 def initial(game_id: str = "game-1") -> Snapshot:

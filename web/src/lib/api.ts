@@ -1,3 +1,5 @@
+import type { TurnFailure } from "./pendingTurn";
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 export type Game = {
@@ -105,6 +107,7 @@ export type Save = {
   title: string;
   mode: string | null;
   available: boolean;
+  unavailable_reason?: string | null;
   tick: number;
   day: number | null;
   complete: boolean;
@@ -209,12 +212,13 @@ export type TurnStreamEvent =
   | { type: "segment"; segment: StorySegment }
   | { type: "preview"; body: string; segments: StorySegment[] }
   | { type: "complete"; view: View }
-  | { type: "error"; message: string };
+  | ({ type: "error"; message: string } & TurnFailure);
 
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly failure?: TurnFailure,
   ) {
     super(message);
   }
@@ -245,7 +249,7 @@ async function request<T>(
       payload && typeof payload === "object" && "detail" in payload
         ? String(payload.detail)
         : "请求未能完成，请稍后重试。";
-    throw new ApiError(detail, response.status);
+    throw new ApiError(detail, response.status, payload as TurnFailure | undefined);
   }
   return payload as T;
 }
@@ -320,6 +324,7 @@ async function streamTurn(
         ? payload.detail
         : "请求未能完成，请稍后重试。",
       response.status,
+      payload ?? undefined,
     );
   }
   if (!response.body) throw new ApiError("浏览器无法读取实时响应。", 0);
@@ -339,7 +344,7 @@ async function streamTurn(
         .map((line) => line.slice(6)).join("\n");
       if (data) {
         const event = JSON.parse(data) as TurnStreamEvent;
-        if (event.type === "error") throw new ApiError(event.message, 400);
+        if (event.type === "error") throw new ApiError(event.message, 400, event);
         onEvent(event);
         if (event.type === "complete") completed = event.view;
       }
@@ -366,6 +371,7 @@ export const api = {
   logout: () => request<{ status: string }>("/v1/sessions/current", "DELETE"),
   catalog: () => request<{ games: Game[] }>("/v1/catalog"),
   myScenarios: () => request<{ scenarios: UserScenario[] }>("/v1/my-scenarios"),
+  mySubmissions: () => request<{ submissions: ReviewSubmission[] }>("/v1/my-submissions"),
   uploadScenario,
   uploadScenarioVersion,
   publishScenario: (id: string) =>

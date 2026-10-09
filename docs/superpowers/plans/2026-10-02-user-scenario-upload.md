@@ -1,5 +1,7 @@
 # User Scenario Upload Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Let signed-in authors upload a valid ZIP scenario, keep it private as a draft, publish it for their own play, and retain old published versions for existing saves.
 
 **Architecture:** SQL stores ownership, metadata, and immutable version references. A local package store writes validated ZIP contents under a persistent directory; `UserScenarioService` exposes draft and published listings to the portal. The browser sends a bounded multipart ZIP upload and displays the author's uploads. The storage boundary stays replaceable with OSS later.

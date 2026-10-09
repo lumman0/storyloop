@@ -2,11 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatModelBase, ChatResponse
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.action_resolver import ModelActionResolver
-from story_harness.world.scenario import ScenarioPackage
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.legacy.action_resolver import ModelActionResolver
+from storyloop_harness.world.scenario import ScenarioPackage
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"

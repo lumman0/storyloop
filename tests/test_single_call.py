@@ -7,18 +7,18 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
-from story_harness.agents.scene_messages import MessageScene
-from story_harness.core.contracts import AgentContextEntry, Observation, WorldEvent
-from story_harness.core.open_actions import parse_mutable_fields, validate_open_effects
-from story_harness.core.contracts import Effect
-from story_harness.agents.action_advisor import ActionOption
-from story_harness.runtime.campaign import CampaignProgram, CampaignSession
-from story_harness.runtime.single_call import SingleCallGameSession
-from story_harness.runtime.story_clock import StoryClock
-from story_harness.world.scenario import ScenarioPackage
-from story_harness.world.worldbook import Worldbook, WorldbookEntry
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_harness.agents.scene_turn import SceneContextProjector, SceneTurn, SingleSceneGenerator
+from storyloop_platform.generators.scene_messages import MessageScene
+from storyloop_harness.core.contracts import AgentContextEntry, Observation, WorldEvent
+from storyloop_harness.core.open_actions import parse_mutable_fields, validate_open_effects
+from storyloop_harness.core.contracts import Effect
+from storyloop_harness.agents.action_advisor import ActionOption
+from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
+from storyloop_harness.runtime.single_call import SingleCallGameSession
+from storyloop_harness.runtime.story_clock import StoryClock
+from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.world.worldbook import Worldbook, WorldbookEntry
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -135,6 +135,33 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.segments[1].speaker_id, "dockhand")
         self.assertEqual(generator.calls, 1)
 
+    async def test_source_scene_does_not_commit_unprojected_reply_or_shared_memory(self):
+        from test_scene_responder_context import source_package
+
+        package = source_package()
+        package.seed_game(self.store, "group")
+        generator = FakeGenerator(a_turn(
+            decision={"intent": "speech", "target_ids": ["dockhand", "guide"]},
+            prose="Dockhand and Guide greet you.",
+            replies=[{"actor_id": actor_id, "speech": "Welcome."}
+                     for actor_id in ("dockhand", "guide")],
+            memories=[{"actor_id": actor_id, "fact": "Greeted the visitor."}
+                      for actor_id in ("dockhand", "guide")],
+            story_first=True,
+        ))
+        session = SingleCallGameSession(self.store, package, generator,
+                                         SceneContextProjector(self.store, package))
+
+        outcome = await session.run_turn("group", "Hello everyone", "turn-group")
+
+        self.assertEqual([part.speaker_id for part in outcome.segments if part.kind == "dialogue"],
+                         ["dockhand"])
+        self.assertFalse(self.store.event_exists("group", "turn-group:input:reply:guide:spoken"))
+        self.assertFalse(any(item.channel == "shared_experience"
+                             for item in self.store.observations_for("group", "guide")))
+        self.assertTrue(any(item.channel == "shared_experience"
+                            for item in self.store.observations_for("group", "dockhand")))
+
     async def test_actor_contexts_stay_separate_and_room_speech_is_observed(self):
         state = deepcopy(self.package.initial_state)
         state["actors"]["vendor"] = {"location": "harbor_square"}
@@ -231,7 +258,7 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("约定第二天在港口见", recalled[0]["text"])
 
-    async def test_default_generation_asks_for_story_without_status_or_action_plan(self):
+    async def test_default_generation_keeps_story_first_with_optional_status(self):
         class CapturingModel:
             def __init__(self):
                 self.schema = None
@@ -270,7 +297,7 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model.calls, 1)
         self.assertEqual(set(model.schema.model_fields) - {"prose"},
                          {"replies", "options", "memories", "participants",
-                          "interaction", "duration", "delivery", "witnessed"})
+                          "interaction", "duration", "delivery", "witnessed", "status_changes"})
         self.assertEqual(turn.prose, "你和码头工做完饭，又坐下来吃了晚餐。")
         self.assertEqual(outcome.narration, turn.prose)
         self.assertEqual(turn.action.effects, [])

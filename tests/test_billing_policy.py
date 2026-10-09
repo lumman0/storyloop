@@ -2,7 +2,7 @@ import unittest
 from decimal import Decimal
 from types import SimpleNamespace
 
-from story_harness.core.billing import (BillingPolicy, ModelUsage, UsageCollector,
+from storyloop_platform.portal.billing import (BillingPolicy, ModelUsage, UsageCollector,
                                         collect_usage, record_model_usage)
 
 

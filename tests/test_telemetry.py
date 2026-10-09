@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from story_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
-from story_harness.runtime.runner import TurnRunner, WorkResult
-from story_harness.adapters.store import SQLiteGameStore
-from story_harness.adapters.telemetry import LangfuseTelemetry
+from storyloop_harness.core.contracts import Effect, PendingWork, Snapshot, WorldEvent
+from storyloop_harness.runtime.runner import TurnRunner, WorkResult
+from storyloop_platform.adapters.store import SQLiteGameStore
+from storyloop_platform.adapters.telemetry import LangfuseTelemetry
 
 
 class FakeSpan:

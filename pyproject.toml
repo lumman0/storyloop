@@ -1,20 +1,23 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "story-harness"
+name = "storyloop-platform"
 version = "0.1.0"
-description = "Causal runtime for interactive story agents"
+description = "Player and creator platform for StoryLoop"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
+  "storyloop-harness>=0.1,<0.2",
   "SQLAlchemy>=2.0,<3",
   "alembic>=1.13,<2",
 ]
 
 [project.optional-dependencies]
 agents = [
-  "agentscope==1.0.21",
+  "agentscope==2.0.9",
   "SQLAlchemy[asyncio]>=2.0,<3",
   "mcp==1.30.0",
   "tqdm==4.70.1",
@@ -34,9 +37,16 @@ online = [
 player-memory = [
   "mem0ai==2.2.1",
 ]
+test = [
+  "pytest>=8,<10",
+  "httpx>=0.27,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-story_harness = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
+storyloop_platform = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
+
+[tool.uv.sources]
+storyloop-harness = { git = "https://github.com/storyloop0/storyloop-harness.git", rev = "607fb706357f5d732a5bc588bd7f7587cd6ed3c9" }

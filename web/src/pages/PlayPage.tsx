@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight, Feather, Moon, Plus, Send, SlidersHorizontal, Sparkles } from "lucide-react";
-import { api, type CastMember, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
+import { api, ApiError, type CastMember, type History, type SaveSettings, type StorySegment, type View } from "../lib/api";
 import { errorMessage } from "../lib/session";
 import { Button } from "../components/ui/button";
 import { Loading, Notice } from "../components/Feedback";
@@ -10,8 +10,9 @@ import { CastPanel } from "../components/CastPanel";
 import { PlayerCardPanel, usePlayerCard } from "../components/PlayerCardPanel";
 import { ChoicePanel } from "../components/ChoicePanel";
 import { containsStoryCommand, isStoryCommandInput, playerFacingText, storyLineBreaks } from "../lib/playerText";
-import { clearPendingTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
+import { clearPendingTurn, discardUnstartedTurn, readPendingTurn, savePendingTurn } from "../lib/pendingTurn";
 import { createRequestId } from "../lib/requestId";
+import { limitTurnInput } from "../lib/turnInput";
 
 function playerAction(text: string | null, previous: View | null | undefined) {
   if (!text) return "早期存档的行动记录不可用";
@@ -37,6 +38,7 @@ type PendingTurn = {
   segments: StorySegment[];
   body: string;
   error: string;
+  retryable?: boolean;
   startedAt: number;
 };
 
@@ -133,7 +135,7 @@ export function PlayPage() {
         } else {
           setPending(savedPending ? {
             ...savedPending, stage: "received", segments: [], body: "",
-            error: "上次行动的结果尚未确认。请用原请求重试。", startedAt: Date.now(),
+            error: savedPending.error || "上次行动的结果尚未确认。请用原请求重试。", startedAt: Date.now(),
           } : null);
         }
       })
@@ -161,7 +163,7 @@ export function PlayPage() {
 
   async function submitText(text: string): Promise<boolean> {
     if (!text.trim() || busy || (current?.complete && !pending?.error)) return false;
-    if (pending && (!pending.error || pending.text !== text)) return false;
+    if (pending && (!pending.error || pending.text !== text || pending.retryable === false)) return false;
     setError("");
     let requestId: string;
     try {
@@ -200,13 +202,25 @@ export function PlayPage() {
           : previous,
       );
       setCurrent(response);
+      setDraft("");
       window.dispatchEvent(new Event("story:billing-updated"));
       clearPendingTurn(gameId);
       setPending(null);
       return true;
     } catch (cause) {
+      if (cause instanceof ApiError && discardUnstartedTurn(gameId, requestId, cause.failure)) {
+        setPending(null);
+        setDraft(text);
+        setError(errorMessage(cause));
+        return false;
+      }
+      if (cause instanceof ApiError && cause.failure?.retryable === false &&
+          cause.failure.request_id === requestId) {
+        savePendingTurn(gameId, { id: requestId, text, retryable: false, error: errorMessage(cause) });
+      }
       setPending((previous) => previous?.id === requestId
-        ? { ...previous, error: errorMessage(cause) } : previous);
+        ? { ...previous, error: errorMessage(cause),
+            retryable: cause instanceof ApiError ? cause.failure?.retryable : undefined } : previous);
       return false;
     } finally {
       setBusy(false);
@@ -403,7 +417,7 @@ export function PlayPage() {
                       )}
                       {pending.error && (
                         <div className="pending-actions">
-                          <Button type="button" onClick={() => void submitText(pending.text)}>重试这条行动</Button>
+                          {pending.retryable !== false && <Button type="button" onClick={() => void submitText(pending.text)}>重试这条行动</Button>}
                         </div>
                       )}
                     </div>
@@ -428,6 +442,7 @@ export function PlayPage() {
                 interaction={current.interaction}
                 busy={busy || !!pending}
                 onChoose={submitText}
+                initialInput={draft}
                 error={error}
               />
             ) : (
@@ -492,10 +507,9 @@ export function PlayPage() {
                     <textarea
                       id="turn-input"
                       value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
+                      onChange={(event) => setDraft(limitTurnInput(event.target.value))}
                       placeholder="此刻，你想做什么？"
                       rows={3}
-                      maxLength={10000}
                       disabled={busy || !!pending || current.complete}
                       onKeyDown={(event) => {
                         if (
@@ -520,7 +534,7 @@ export function PlayPage() {
                   <div className="composer-hint">
                     <span>Enter 发送 · Shift + Enter 换行</span>
                     <span>
-                      {busy ? "世界正在回应…" : `${draft.length}/10000`}
+                      {busy ? "世界正在回应…" : `${Array.from(draft).length}/10000`}
                     </span>
                   </div>
                   {error && (

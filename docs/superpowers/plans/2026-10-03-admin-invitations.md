@@ -1,5 +1,7 @@
 # Administrator Invitations Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Let administrators issue and manage registration invitations during the private test while retaining a narrow policy boundary for later player issuance after a first completed turn.
 
 **Architecture:** Keep invitation persistence in `portal`, separate from game runtime and credits. The database stores only hashes of one-time codes. An invitation service checks issuance policy and records the issuer, usage, expiry, revocation, and management audit. The API returns plaintext codes only on creation; the management page shows them until the page is left or refreshed.

@@ -11,10 +11,10 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from story_harness.portal.http_api import create_app
-from story_harness.portal.service import PlayerPortal
-from story_harness.core.contracts import Observation, WorldEvent
-from story_harness.runtime.campaign import CampaignProgram, CampaignSession
+from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.portal.service import PlayerPortal
+from storyloop_harness.core.contracts import Observation, WorldEvent
+from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 
 
 ROOT = Path(__file__).resolve().parents[1]
