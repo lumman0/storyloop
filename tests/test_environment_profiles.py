@@ -69,7 +69,7 @@ class EnvironmentProfileSmokeTest(unittest.TestCase):
         for profile in ("local", "online"):
             self.assertEqual(
                 json.loads((ROOT / "config" / f"{profile}.json").read_text(encoding="utf-8")),
-                json.loads((ROOT / "packages/platform/src" / "storyloop_platform" / "defaults" /
+                json.loads((ROOT / "src" / "storyloop_platform" / "defaults" /
                             f"{profile}.json").read_text(encoding="utf-8")),
             )
         config = HarnessConfig.load(ROOT / "config" / "online.json")

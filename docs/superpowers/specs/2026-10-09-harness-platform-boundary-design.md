@@ -1,5 +1,7 @@
 # StoryLoop harness 与 platform 包边界
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 日期：2026-10-09
 
 ## 目标与范围

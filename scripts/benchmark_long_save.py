@@ -27,7 +27,7 @@ import tracemalloc
 ROOT = Path(__file__).resolve().parents[1]
 # A directly invoked script must benchmark this checkout rather than another
 # editable installation sharing the same package name.
-sys.path.insert(0, str(ROOT / "packages/platform/src"))
+sys.path.insert(0, str(ROOT / "src"))
 
 from sqlalchemy import event, inspect, text
 from sqlalchemy.exc import OperationalError

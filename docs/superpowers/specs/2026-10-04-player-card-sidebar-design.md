@@ -1,5 +1,7 @@
 # 玩家角色卡侧栏设计
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 ## 目标
 
 完成随机或自定义建档后，在游玩页右栏显示该存档的玩家角色卡。资料来自开场已持久化的 `player_profile`，不额外调用模型，也不改动 NPC 可见名单或玩家画像 Mem0。

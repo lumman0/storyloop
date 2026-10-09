@@ -1,5 +1,7 @@
 # Environment Profiles Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Run the same player portal and game harness in local SQLite and online PostgreSQL environments by changing configuration and deployment secrets.

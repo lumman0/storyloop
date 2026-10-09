@@ -1,5 +1,7 @@
 # Structured Romance Web Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Make a private romance campaign playable in the browser from opening through a saved ending, with readable, structured story responses.
 
 **Architecture:** The runtime emits ordered, player-visible presentation segments alongside its legacy text. The portal serializes these segments and the current campaign gate into its existing save and turn responses. The React reader renders segments and submits gate choices through the existing turn endpoint. Scenario content remains in the private local catalog and package.

@@ -1,5 +1,7 @@
 # Harness Package Boundary Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the default StoryLoop narrative runtime an independently installable `storyloop-harness` Python package while the player product becomes a separate `storyloop-platform` package in the same repository.

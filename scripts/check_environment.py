@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
         print("error: storyloop_platform is not importable", file=sys.stderr)
         return 1
     print(f"storyloop_platform: {location}")
-    if location != (root / "packages/platform/src/storyloop_platform/__init__.py").resolve():
+    if location != (root / "src/storyloop_platform/__init__.py").resolve():
         print("error: import root does not match this checkout", file=sys.stderr)
         return 1
 

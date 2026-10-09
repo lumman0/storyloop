@@ -1,24 +1,52 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "storyloop-workspace"
+name = "storyloop-platform"
 version = "0.1.0"
-description = "Development workspace for the StoryLoop harness and platform"
+description = "Player and creator platform for StoryLoop"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = ["storyloop-platform>=0.1,<0.2"]
+dependencies = [
+  "storyloop-harness>=0.1,<0.2",
+  "SQLAlchemy>=2.0,<3",
+  "alembic>=1.13,<2",
+]
 
 [project.optional-dependencies]
-agents = ["storyloop-platform[agents]>=0.1,<0.2"]
-observability = ["storyloop-platform[observability]>=0.1,<0.2"]
-portal = ["storyloop-platform[portal]>=0.1,<0.2"]
-online = ["storyloop-platform[online]>=0.1,<0.2"]
-player-memory = ["storyloop-platform[player-memory]>=0.1,<0.2"]
-test = ["pytest>=8,<10", "httpx>=0.27,<1"]
+agents = [
+  "agentscope==2.0.9",
+  "SQLAlchemy[asyncio]>=2.0,<3",
+  "mcp==1.30.0",
+  "tqdm==4.70.1",
+]
+observability = [
+  "langfuse>=4.8.1,<5",
+]
+portal = [
+  "fastapi>=0.115,<1",
+  "python-multipart>=0.0.9,<1",
+  "uvicorn>=0.30,<1",
+  "pywin32>=306; sys_platform == 'win32'",
+]
+online = [
+  "psycopg[binary]>=3.1,<4",
+]
+player-memory = [
+  "mem0ai==2.2.1",
+]
+test = [
+  "pytest>=8,<10",
+  "httpx>=0.27,<1",
+]
 
-[tool.uv]
-package = false
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+storyloop_platform = ["defaults/*.json", "migrations/*.py", "migrations/versions/*.py"]
 
 [tool.uv.sources]
-storyloop-harness = { workspace = true }
-storyloop-platform = { workspace = true }
-
-[tool.uv.workspace]
-members = ["packages/harness", "packages/platform"]
+storyloop-harness = { git = "https://github.com/storyloop0/storyloop-harness.git", rev = "607fb706357f5d732a5bc588bd7f7587cd6ed3c9" }

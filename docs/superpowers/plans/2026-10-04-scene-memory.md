@@ -1,5 +1,7 @@
 # Complete actions and selective memory implementation plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Let one player action produce a complete scene while preserving only notable NPC experiences.
 
 **Architecture:** Keep event-sourced action history; add a small optional recipient-scoped memory field to the single-call result. Retire the romance meal phase graph in a new private package revision.

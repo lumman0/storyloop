@@ -24,8 +24,8 @@ services:
 
   api:
     build:
-      context: ../../../..
-      dockerfile: packages/platform/deploy/ecs/Dockerfile.api
+      context: ../..
+      dockerfile: deploy/ecs/Dockerfile.api
     restart: unless-stopped
     logging: *json-logging
     environment:
@@ -59,8 +59,8 @@ services:
 
   web:
     build:
-      context: ../../../..
-      dockerfile: packages/platform/deploy/ecs/Dockerfile.web
+      context: ../..
+      dockerfile: deploy/ecs/Dockerfile.web
     restart: unless-stopped
     logging: *json-logging
     ports:

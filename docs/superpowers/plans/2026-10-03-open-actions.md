@@ -1,5 +1,7 @@
 # Open Player Actions Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Let players attempt any contextual action while keeping durable world changes validated and visible to the right characters.
 
 **Architecture:** Preserve declared action rules for special scripted transitions. Route other physical actions through a structured resolver that produces a committed event, a player-visible outcome, nearby witnesses, and targeted NPC follow-up. Validate all proposed state effects against explicitly declared mutable fields rather than a verb list. An internal resolution failure commits nothing and cannot advance the clock or settle billing.

@@ -1,5 +1,7 @@
 # Story-first turn design
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 The default one-call engine should preserve the quality and scope of a direct DeepSeek story response. The harness contributes relevant earlier events and recipient-scoped NPC knowledge; it does not make the model complete a workflow of action phases or state fields before telling the story.
 
 ## Turn contract

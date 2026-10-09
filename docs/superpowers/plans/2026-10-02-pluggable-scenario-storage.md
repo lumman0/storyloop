@@ -1,5 +1,7 @@
 # Pluggable Scenario Storage Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Keep local scenario deployment working while making catalog metadata and published package storage independently replaceable.
 
 **Architecture:** `ScenarioCatalogSource` returns published listing metadata. `ScenarioPackageStore` materializes a package reference as a local read-only directory for the existing runtime. `GameCatalog` validates and fingerprints the materialized package on load and access. The local adapters keep the existing JSON catalog and filesystem package format. A later PostgreSQL source and OSS store can implement the same interfaces without changing the runtime or save schema.

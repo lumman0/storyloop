@@ -1,5 +1,7 @@
 # Web frontend design
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 ## Goal
 
 Provide a browser interface for the existing single-player story platform. A player can register or log in, browse a game catalog, create or resume a save, read the story transcript, submit an action, and see suggestions in a separate region.

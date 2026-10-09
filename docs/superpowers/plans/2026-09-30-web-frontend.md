@@ -1,5 +1,7 @@
 # Web Frontend Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Deliver a playable browser interface backed by the existing FastAPI portal.
 
 **Architecture:** `web/` is a separately built React application and uses the `/v1` JSON API. The portal gains only catalog presentation fields and authenticated transcript retrieval.

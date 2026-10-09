@@ -1,5 +1,7 @@
 # Prepared story start
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 The source-driven scenario path currently creates a new prologue, player identity, and nine NPC cards during every save request. The winter source document defines cast constraints but no complete cast; the winter v11 package therefore contains generation prompts in its NPC cards. This adds roughly 30 seconds before the player sees the opening and lets the cast vary between saves.
 
 For a prepared scenario version, the published package owns the opening template, opening options, complete named NPC cards, and a small pool of player identities for random start. Custom player setup overrides a local default identity. Save creation selects a player identity, renders explicit player placeholders in the opening, copies the package cast into save state, and persists the result without a model call. A version without these prepared assets must be completed or rejected before it becomes playable; it must not silently fall back to generation during save creation. Existing saves remain bound to their original package versions.

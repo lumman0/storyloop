@@ -4,11 +4,11 @@
 
 StoryLoop Platform is a runtime and player platform for AI interactive fiction. Its only current engine, `single_call`, assembles player-visible history, each relevant NPC's own experience, and world state into one scene context. One structured model call generates an ordinary turn; the backend validates and commits events, then updates each character's knowledge separately. The former multi-agent ReAct engine is archived for historical reference.
 
-## Independent packages
+## Standalone platform repository / 独立平台仓库
 
-This repository contains two installable Python distributions: [storyloop-harness](packages/harness/README.md), the reusable narrative library, and [storyloop-platform](packages/platform/README.md), the player and creator product. Platform 0.1.0 declares `storyloop-harness>=0.1,<0.2`; CI installs the exact `0.1.0` wheel produced by the harness job. Platform imports only public harness surfaces; harness has no platform dependency. No package has been published by this migration.
+The repository root is `storyloop-platform`; `web/` and `deploy/` contain frontend and deployment files. The reusable `storyloop-harness` lives in a separate repository. Platform requires `storyloop-harness>=0.1,<0.2` and imports its public APIs.
 
-For library-only use, run `python -m pip install ./packages/harness`, then `python packages/harness/examples/offline_turn.py`. Python 3.12+ is required; no account, SQL database, frontend or model key is needed for this example. See [verification](docs/verification.md) for wheel builds and independent installation.
+Harness 0.1.0 is pinned to `607fb706357f5d732a5bc588bd7f7587cd6ed3c9` in [storyloop0/storyloop-harness](https://github.com/storyloop0/storyloop-harness). CI, Docker and wheel tests build that commit through `scripts/build_harness.py`; `uv.lock` records the same source. Both projects use MIT. See [verification / 验证说明](docs/verification.md).
 
 ## Problems it addresses
 
@@ -46,29 +46,30 @@ Authoritative game data is separate from generation context. `GameStore` manages
 ## Repository layout
 
 ```text
-packages/harness/   storyloop-harness Python runtime
-packages/platform/
-  src/storyloop_platform/   API, SQL, config, billing and CLI
-  web/                      React frontend
-  deploy/                   Deployment files
+src/storyloop_platform/   API, SQL, config, billing and CLI
+web/                      React frontend
+deploy/                   Deployment files
 config/       Local and online configuration examples
 examples/     Public synthetic scenario packages
-packages/platform/deploy/ecs/   Single-ECS Docker Compose deployment
+deploy/ecs/   Single-ECS Docker Compose deployment
 ```
 
 ## Quick start
+
+Build into an empty `dist/harness` directory. Installation names the generated wheel explicitly, so the index cannot substitute another harness release.
 
 Use Python 3.12+ and Node.js 20.19+. From the repository root, run these commands in Windows CMD or PowerShell:
 
 ```cmd
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e packages/harness -e "packages/platform[agents,portal]"
+.\.venv\Scripts\python.exe scripts\build_harness.py --out-dir dist\harness
+.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.1.0-py3-none-any.whl -e ".[agents,portal]"
 ```
 
-Run an offline example without a model key:
+After installing the test extra, run the offline installation regression:
 
 ```cmd
-.\.venv\Scripts\python.exe packages\harness\examples\offline_turn.py
+.\.venv\Scripts\python.exe -m pytest tests/test_platform_wheel.py -q
 ```
 
 For live models, create a local credentials file and set `models.api_key` to a pay-as-you-go Bailian key. Git ignores the file. `config/local.json` defaults to `deepseek-v4.1-flash` on the Hong Kong endpoint; use `config/bailian-token-plan.json` for the separate Token Plan profile. `STORY_BAILIAN_API_KEY` overrides the file when present.
@@ -83,7 +84,7 @@ copy config\application.local.example.json config\application.local.json
 Start the frontend in another terminal:
 
 ```cmd
-cd packages/platform/web
+cd web
 npm install
 npm run dev
 ```

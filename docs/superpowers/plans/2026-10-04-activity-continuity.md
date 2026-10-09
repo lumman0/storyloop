@@ -1,5 +1,7 @@
 # Activity continuity implementation plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Keep ordinary turns grounded in player identity and evolving activity state, and publish a revised romance scenario without changing existing saves.
 
 **Architecture:** Extend optional mutable-field transition validation and context projection; refine single-call option selection; create a separate private scenario version with authored stages and delayed identity reveal.

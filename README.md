@@ -4,11 +4,11 @@
 
 StoryLoop Platform 是面向 AI 互动叙事的运行时与玩家平台。当前唯一引擎 `single_call` 将玩家可见历史、相关 NPC 各自的经历和世界状态组装成一个场景上下文，以一次结构化模型调用生成普通回合；后端校验并提交事件，再分别更新角色认知。原有多 Agent ReAct 引擎已归档为历史参考。
 
-## 两个独立包
+## Standalone platform repository / 独立平台仓库
 
-本仓库包含两个可安装的 Python 发行包：[storyloop-harness](packages/harness/README.md) 是可复用的叙事库，[storyloop-platform](packages/platform/README.md) 是玩家与创作者产品。Platform 0.1.0 声明 `storyloop-harness>=0.1,<0.2`；CI 安装 harness 作业产出的精确 `0.1.0` wheel。平台只导入 harness 公开接口，harness 不依赖平台。本轮没有向包索引发布发行包。
+The repository root is `storyloop-platform`; `web/` and `deploy/` contain frontend and deployment files. The reusable `storyloop-harness` lives in a separate repository. Platform requires `storyloop-harness>=0.1,<0.2` and imports its public APIs.
 
-仅使用库时执行 `python -m pip install ./packages/harness`，再运行 `python packages/harness/examples/offline_turn.py`。需要 Python 3.12+；该离线示例无需账号、SQL 数据库、前端或模型 Key。独立构建与安装步骤见[可复现验证](docs/verification.md)。
+Harness 0.1.0 is pinned to `607fb706357f5d732a5bc588bd7f7587cd6ed3c9` in [storyloop0/storyloop-harness](https://github.com/storyloop0/storyloop-harness). CI, Docker and wheel tests build that commit through `scripts/build_harness.py`; `uv.lock` records the same source. Both projects use MIT. See [verification / 验证说明](docs/verification.md).
 
 ## 解决的问题
 
@@ -48,42 +48,43 @@ flowchart LR
 当前包职责、主要执行路径与剩余限制见[架构说明](docs/architecture.md)。
 
 ```text
-packages/harness/   storyloop-harness Python runtime
-packages/platform/
-  src/storyloop_platform/   API, SQL, config, billing and CLI
-  web/                      React frontend
-  deploy/                   Deployment files
+src/storyloop_platform/   API, SQL, config, billing and CLI
+web/                      React frontend
+deploy/                   Deployment files
 config/       本地与线上配置示例
 examples/     可公开使用的合成剧本包
-packages/platform/deploy/ecs/   单机 ECS Docker Compose 部署配置
+deploy/ecs/   单机 ECS Docker Compose 部署配置
 ```
 
 ## 快速开始
 
-本工作区的正式代码根目录是 `D:/ai/storyloop-secure-session`，请在该目录创建独立 `.venv`。旧目录的用途、待归并改动和外部启动入口见[工作区清单](docs/workspace-map.md)。启动前清除终端继承的 `PYTHONPATH`，避免导入另一工作树。
+请使用空的 `dist/harness` 构建目录。安装命令显式指定生成的 wheel，不会从包索引替换为其他 harness 版本。
+
+请在当前平台仓库根目录创建独立 `.venv`。旧目录关系见[历史工作区清单](docs/workspace-map.md)。启动前清除终端继承的 `PYTHONPATH`，避免导入另一工作树。
 
 需要 Python 3.12+ 和 Node.js 20.19+。以下命令适用于 Windows CMD 与 PowerShell，在仓库根目录执行：
 
 ```cmd
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e packages/harness -e "packages/platform[agents,portal]"
+.\.venv\Scripts\python.exe scripts\build_harness.py --out-dir dist\harness
+.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.1.0-py3-none-any.whl -e ".[agents,portal]"
 .\.venv\Scripts\python.exe scripts\check_environment.py --config config\local.json
 ```
 
 检查必须成功，并且 `python` 和 `storyloop_platform` 都指向当前工作树；脚本报告 Git HEAD、配置路径和存储驱动，不读取或输出数据库连接密码、模型 Key。它只检查版本入口，不验证完整配置、数据库或模型连通性。`git_sha` 是提交版本，未提交的改动需另行核对。
 
-先运行无需模型 Key 的离线示例：
+安装 test extra 后运行离线安装回归：
 
 ```cmd
-.\.venv\Scripts\python.exe packages\harness\examples\offline_turn.py
+.\.venv\Scripts\python.exe -m pytest tests/test_platform_wheel.py -q
 ```
 
 开发回归使用当前工作树的独立解释器；`pytest` 同时收集现有 unittest 类和函数式回归测试：
 
 ```cmd
-.\.venv\Scripts\python.exe -m pip install -e packages/harness -e "packages/platform[agents,portal,observability,player-memory,test]"
+.\.venv\Scripts\python.exe -m pip install dist/harness/storyloop_harness-0.1.0-py3-none-any.whl -e ".[agents,portal,observability,player-memory,test]"
 .\.venv\Scripts\python.exe -m pytest tests -q
-cd packages/platform/web
+cd web
 node --experimental-strip-types --test tests/*.test.mjs
 npm run build
 ```
@@ -104,7 +105,7 @@ copy config\application.local.example.json config\application.local.json
 另开终端启动前端：
 
 ```cmd
-cd packages/platform/web
+cd web
 npm install
 npm run dev
 ```

@@ -1,5 +1,7 @@
 # Administration and Scenario Moderation Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 **Goal:** Add server-enforced player, reviewer, and administrator roles; immutable version review; public scenario listings; and a management UI without changing story runtime semantics.
 
 **Architecture:** Keep authorization and moderation in `portal`. The existing private publication remains author-only. Review submissions snapshot a package version and display metadata. Approval creates a public release; listing and save access resolve through a centralized visibility policy. Audit records are append-only.

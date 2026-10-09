@@ -7,9 +7,11 @@ def test_platform_imports_only_public_harness_modules():
     allowed = {'storyloop_harness', 'storyloop_harness.contracts', 'storyloop_harness.ports',
                'storyloop_harness.advanced', 'storyloop_harness.generation',
                'storyloop_harness.telemetry', 'storyloop_harness.usage'}
-    root = Path(__file__).parents[1] / 'packages/platform/src/storyloop_platform'
+    root = Path(__file__).parents[1] / 'src/storyloop_platform'
     violations = []
-    for path in root.rglob('*.py'):
+    sources = list(root.rglob('*.py'))
+    assert sources, f'No platform sources found in {root}'
+    for path in sources:
         for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
             modules = ([node.module] if isinstance(node, ast.ImportFrom) else
                        [item.name for item in node.names] if isinstance(node, ast.Import) else [])

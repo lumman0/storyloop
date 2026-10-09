@@ -1,5 +1,7 @@
 # Prepared Story Start Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 > **For agentic workers:** Implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make source-driven save creation read prepared story assets with no model call.

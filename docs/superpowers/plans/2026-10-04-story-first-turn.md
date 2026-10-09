@@ -1,5 +1,7 @@
 # Story-first Turn Implementation Plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 > **For agentic workers:** Execute inline in this session. Keep changes focused and verify before claiming completion.
 
 **Goal:** Make the default single-call engine narrative-first while retaining player recall and independent NPC contexts.

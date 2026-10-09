@@ -1,5 +1,7 @@
 # Single-call turn engine implementation plan
 
+> Historical planning record: paths and commands describe the pre-split repository, not current installation instructions.
+
 > **For agentic workers:** Execute this plan inline in the existing isolated worktree. Keep the legacy multi-agent engine selectable for beta use; the web profile uses the single-call engine.
 
 **Goal:** Complete an ordinary player turn with one structured model request while preserving a separate committed history for every NPC.

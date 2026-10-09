@@ -86,7 +86,7 @@ ZIP 根目录需直接包含 `manifest.json` 和其中引用的世界书 JSON；
 
 官方目录条目还可配置 `public_profiles`，将角色 ID 映射到玩家可见的简短人物介绍。它只在玩家已经遇见该角色后出现在人物卡；角色私有世界书、NPC 上下文压缩摘要不会直接返回给玩家。共同经历保存在已提交事件中。单次场景结果仅在发生值得回忆的互动时，给在场且直接参与的 NPC 留一条简短事实记忆；普通活动不额外提炼，也不为记忆再次调用模型。玩家保留该场景的完整正文。
 
-`GameCatalog` 从 `ScenarioCatalogSource` 读取官方目录，并由 `ScenarioPackageStore` 定位发布包。用户上传包经 `PublishedPackageStore` 写入，当前实现为 `LocalPublishedPackageStore`。接口位于 `packages/platform/src/storyloop_platform/portal/scenario_storage.py`：
+`GameCatalog` 从 `ScenarioCatalogSource` 读取官方目录，并由 `ScenarioPackageStore` 定位发布包。用户上传包经 `PublishedPackageStore` 写入，当前实现为 `LocalPublishedPackageStore`。接口位于 `src/storyloop_platform/portal/scenario_storage.py`：
 
 - `ScenarioCatalogSource.games()` 返回目录条目；包引用由服务端生成。
 - `ScenarioPackageStore.materialize(reference)` 返回包含 manifest、世界书和可选 campaign 的本地目录。远端实现应在返回前完成原子缓存写入。
