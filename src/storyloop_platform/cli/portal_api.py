@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
-from pathlib import Path
 
-from storyloop_platform.config import load_settings
-from storyloop_platform.cli.config_paths import select_config
+from storyloop_platform.cli.startup import launch_portal
 from storyloop_platform.portal.http_api import serve
 from storyloop_platform.portal.local_config import LocalPreferences
 from storyloop_platform.portal.service import PlayerPortal
@@ -18,25 +15,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", help="scenario catalog; remembered after first launch")
     parser.add_argument("--profile", choices=("local", "online"), default="local")
-    parser.add_argument("--config", help="model config; remembered after first launch")
+    parser.add_argument("--config", help="deployment settings; remembered after successful local launch")
     parser.add_argument("--db", help="SQLite database path (local mode only)")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     preferences = LocalPreferences() if args.profile == "local" else None
-    saved = preferences.load_settings() if preferences else {}
-    catalog = args.catalog or saved.get("catalog") or os.environ.get("STORY_CATALOG")
-    if not catalog:
-        parser.error("--catalog is required on first launch")
-    default_config = Path(__file__).resolve().parents[1] / "defaults" / f"{args.profile}.json"
-    config = select_config(args.config, saved.get("config"), default_config)
-    if load_settings(config).environment != args.profile:
-        parser.error("--profile and config environment disagree")
-    portal = PlayerPortal(catalog, load_settings(config), args.db or saved.get("db"))
-    if preferences:
-        preferences.save_settings(catalog, config, portal.db_path)
-        if not portal.model_factory.api_key(portal.settings.model_for("single_turn").provider):
-            preferences.activate_model_key(portal.settings.providers[portal.settings.model_for("single_turn").provider].api_key_env, prompt=sys.stdin.isatty())
+    try:
+        portal = launch_portal(profile=args.profile, config=args.config, catalog=args.catalog,
+                               db=args.db, preferences=preferences, prompt=sys.stdin.isatty(),
+                               portal_factory=PlayerPortal)
+    except FileNotFoundError:
+        parser.error("selected settings or catalog file does not exist")
+    except ValueError as error:
+        parser.error(str(error))
     serve(portal, args.host or ("0.0.0.0" if args.profile == "online" else "127.0.0.1"), args.port)
 
 
