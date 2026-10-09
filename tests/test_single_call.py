@@ -430,17 +430,54 @@ class SingleCallTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_concurrent_retry_generates_and_delivers_speech_once(self):
         import asyncio
+        entered, release, retry_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
         generator = FakeGenerator(a_turn())
+        original = generator.generate
+
+        async def paused(*args):
+            result = await original(*args)
+            entered.set()
+            await release.wait()
+            return result
+
+        generator.generate = paused
+        self.package = replace(self.package, presentation_mode="interactive")
         session = self.session(generator)
-        first, replay = await asyncio.gather(
-            session.run_turn("game", "hello", "same-turn"),
-            session.run_turn("game", "hello", "same-turn"),
-        )
+
+        async def retry():
+            retry_started.set()
+            # No suspension before run_turn reaches its lock or the paused generator.
+            return await session.run_turn("game", "hello", "same-turn")
+
+        first_task = asyncio.create_task(session.run_turn("game", "hello", "same-turn"))
+        replay_task = None
+        try:
+            await entered.wait()
+            replay_task = asyncio.create_task(retry())
+            await retry_started.wait()
+            self.assertFalse(first_task.done())
+            self.assertFalse(replay_task.done())
+            self.assertEqual(generator.calls, 1)
+        finally:
+            release.set()
+            tasks = [first_task] + ([replay_task] if replay_task is not None else [])
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        first, replay = first_task.result(), replay_task.result()
         self.assertEqual(generator.calls, 1)
         self.assertEqual(first.snapshot, replay.snapshot)
+        self.assertEqual(first.narration, replay.narration)
+        self.assertEqual(first.player_observations, replay.player_observations)
         replies = [entry for entry in self.store.agent_context_entries("game", "dockhand")
                    if entry.entry_id == "same-turn:input:reply:dockhand:spoken"]
         self.assertEqual(len(replies), 1)
+        self.assertEqual(first.processed_work_ids, ("same-turn:input:reply:dockhand",))
+        self.assertEqual(replay.processed_work_ids, ())
+        self.assertEqual([work.work_id for work in self.store.pending_work("game")],
+                         ["harbor-opening-cue"])
+        deliveries = [item for item in self.store.observations_for("game", "player")
+                      if item.event_id == "same-turn:input:reply:dockhand:spoken"]
+        self.assertEqual(len(deliveries), 1)
 
     async def test_failed_commit_leaves_character_history_unchanged_until_retry(self):
         from unittest.mock import patch

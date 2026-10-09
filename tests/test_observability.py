@@ -4,6 +4,7 @@ import os
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -60,6 +61,7 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_turns_share_game_session_across_root_and_child_observations(self):
         active_session = ContextVar("test_langfuse_session", default=None)
         sessions_seen: list[tuple[str, str | None]] = []
+        observations_per_turn = []
 
         @contextmanager
         def propagate_attributes(*, session_id: str):
@@ -85,18 +87,30 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             )
             fake_langfuse = SimpleNamespace(propagate_attributes=propagate_attributes)
             with patch.dict(sys.modules, {"langfuse": fake_langfuse}):
-                await session.run_turn("game", "查看周围", "turn-1")
-                await session.run_turn("game", "再看一次", "turn-2")
                 package.seed_game(store, "港口-1")
-                await session.run_turn("港口-1", "查看周围", "turn-3")
+                for game_id, text, turn_id in (
+                    ("game", "查看周围", "turn-1"),
+                    ("game", "再看一次", "turn-2"),
+                    ("港口-1", "查看周围", "turn-3"),
+                ):
+                    start = len(sessions_seen)
+                    await session.run_turn(game_id, text, turn_id)
+                    observations_per_turn.append(sessions_seen[start:])
 
         root_sessions = [session_id for name, session_id in sessions_seen if name == "single-call-turn"]
         self.assertEqual(root_sessions[:2], ["harbor-freeform:game"] * 2)
         self.assertEqual(len(root_sessions), 3)
         self.assertTrue(root_sessions[2].isascii())
         self.assertNotEqual(root_sessions[2], "harbor-freeform:game")
-        self.assertTrue(all(session_id is not None for name, session_id in sessions_seen
-                            if name == "single-call-turn"))
+        self.assertEqual(root_sessions[2], "game-" +
+                         sha256("harbor-freeform:港口-1".encode("utf-8")).hexdigest())
+        for expected_session, observations in zip(root_sessions, observations_per_turn):
+            for name in ("single-call-turn", "game-turn", "work:single_npc_reply"):
+                self.assertEqual([session_id for observed_name, session_id in observations
+                                  if observed_name == name], [expected_session])
+            self.assertTrue(all(session_id == expected_session
+                                for _, session_id in observations))
+        self.assertTrue(all(session_id is not None for _, session_id in sessions_seen))
         self.assertIsNone(active_session.get())
 
     async def test_incomplete_langfuse_credentials_are_reported(self):
@@ -113,12 +127,20 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             generator = FakeGenerator(a_turn())
             session = SingleCallGameSession(store, package, generator,
                 SceneContextProjector(store, package), telemetry=LangfuseTelemetry(client))
-            await session.run_turn("game", "hello", "one")
+            result = await session.run_turn("game", "hello", "one")
             names = [value["name"] for kind, value in client.calls if kind == "start"]
             self.assertIn("single-call-turn", names)
             self.assertIn("work:single_npc_reply", names)
-            self.assertTrue(any(kind == "score" and value["name"] == "story.turn_model_calls"
-                                and value["value"] == 1.0 for kind, value in client.calls))
+            self.assertEqual(result.processed_work_ids, ("one:input:reply:dockhand",))
+            self.assertEqual([work.work_id for work in store.pending_work("game")],
+                             ["harbor-opening-cue"])
+            scores = {value["name"]: value["value"]
+                      for kind, value in client.calls if kind == "score"}
+            self.assertEqual(scores, {
+                "story.turn_model_calls": 1.0,
+                "story.work_processed": float(len(result.processed_work_ids)),
+                "story.work_remaining": float(len(store.pending_work("game"))),
+            })
             before = store.load("game")
             async def fail(*args):
                 raise ValueError("scene unavailable")
