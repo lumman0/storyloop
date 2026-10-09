@@ -61,7 +61,12 @@ class Mem0PlayerMemory:
         ):
             definition = factory.settings.models[profile]
             timeout = Timeout(definition.timeout_seconds, connect=definition.connect_timeout_seconds)
-            model.client = model.client.with_options(timeout=timeout, max_retries=definition.max_retries)
+            model.client = model.client.with_options(
+                api_key=factory.api_key(definition.provider),
+                base_url=factory.base_url(definition.provider),
+                timeout=timeout,
+                max_retries=definition.max_retries,
+            )
         self._lock = RLock()
 
     def list_memories(self, player_id: str) -> list[dict[str, str]]:
