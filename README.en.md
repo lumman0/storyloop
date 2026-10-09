@@ -4,6 +4,12 @@
 
 StoryLoop Platform is a runtime and player platform for AI interactive fiction. Its only current engine, `single_call`, assembles player-visible history, each relevant NPC's own experience, and world state into one scene context. One structured model call generates an ordinary turn; the backend validates and commits events, then updates each character's knowledge separately. The former multi-agent ReAct engine is archived for historical reference.
 
+## Independent packages
+
+This repository contains two installable Python distributions: [storyloop-harness](packages/harness/README.md), the reusable narrative library, and [storyloop-platform](packages/platform/README.md), the player and creator product. Platform 0.1.0 declares `storyloop-harness>=0.1,<0.2`; CI installs the exact `0.1.0` wheel produced by the harness job. Platform imports only public harness surfaces; harness has no platform dependency. No package has been published by this migration.
+
+For library-only use, run `python -m pip install ./packages/harness`, then `python packages/harness/examples/offline_turn.py`. Python 3.12+ is required; no account, SQL database, frontend or model key is needed for this example. See [verification](docs/verification.md) for wheel builds and independent installation.
+
 ## Problems it addresses
 
 - **Consistent character knowledge:** world facts, character knowledge, and player-visible information have separate boundaries. Committed events define world state; observations and worldbook entries are delivered according to visibility rules.
@@ -27,19 +33,10 @@ StoryLoop Platform is a runtime and player platform for AI interactive fiction. 
 
 ```mermaid
 flowchart LR
-    UI[React / Vite] --> API[FastAPI player API]
-    API --> Portal[Accounts · saves · billing]
-    Portal --> Runtime[Game session]
-    Runtime --> Context[Separate player and NPC context projections]
-    Context --> Main[One scene model call]
-    Runtime --> Queue[Bounded work queue]
-    Queue --> NPC[NPC speech and observation delivery]
-    Queue --> Cues[Story and environment work]
-    Main --> Book[Visibility-filtered worldbook]
-    Runtime --> Store[Events · observations · snapshots]
-    Store --> SQL[(SQLite / PostgreSQL)]
-    Portal -. player opt-in .-> Mem0[Optional player profile]
-    Runtime -. traces / metrics .-> Langfuse[Optional Langfuse]
+    UI[React / Vite] --> Platform[storyloop-platform: API / auth / content / wallet]
+    Platform -->|public API| Harness[storyloop-harness: single_call / projection / events]
+    Platform --> SQL[(SQL / settlement / receipts)]
+    Platform -->|injects GameStore / ModelPort / telemetry| Harness
 ```
 
 On an ordinary turn, a context projector reads the histories visible to the player and to each relevant character. The scene model returns one structured proposal. Durable state changes pass validation against scenario-declared fields before the runtime commits events and delivers recipient-specific observations. Scripted choices and time advances remain data-driven. One model request can write messages for several characters at a heart-message gate. The only current engine is `single_call`; persisted `npc_reply` work is still processed by a platform compatibility adapter.

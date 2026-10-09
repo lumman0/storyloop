@@ -30,6 +30,8 @@ outcome = await engine.run_turn(
 )
 ```
 
+Version `0.1.0` is built locally in this repository; this migration does not publish it to a package index. To consume a built artifact, run `python -m pip install /path/to/storyloop_harness-0.1.0-py3-none-any.whl`.
+
 The top-level facade exports exactly `ScenarioPackage`, `TurnEngine`,
 `TurnInput`, `TurnOutcome`, `GameStore`, `ModelPort`, and the optional `CampaignContext` protocol.
 `TurnInput.scenario_version` must match both the engine's package and the saved
@@ -85,3 +87,27 @@ python -m pytest tests -q
 Platform credentials, billing, SQL, service telemetry configuration and the
 web application live in the separate `storyloop-platform` distribution.
 The former `story_harness` import namespace has been removed.
+
+## Execution and extension limits
+
+`single_call` is the only supported current engine. An ordinary turn uses one
+structured scene-generation call, followed by validation and deterministic event
+commits; this does not promise one network call for every scheduled or legacy
+work item. Failed generation does not commit proposed world changes. Projecting
+separate character histories into one model context is not a hard isolation
+boundary between characters.
+
+Implement `GameStore` from `ports` for persistence and `ModelPort` for another
+model transport. `contracts` exposes the facade input/output contracts; `testing`
+provides deterministic fixtures. The documented facade, `contracts`, `ports`,
+`advanced`, `generation`, `telemetry`, `usage`, and `testing` are the supported
+surfaces. Internal `core`, `runtime`, `world`, `agents`, `models`, and `adapters`
+module paths are not extension APIs. There is no generic plugin or alternate
+engine registry. The platform owns the injected handler for saved `npc_reply`
+work; the archived beta is not a selectable engine.
+
+A store adapter must preserve snapshot/event/observation/pending-work fields and
+expected-version commit semantics. Durable settlement, request ownership and
+recovery after a committed turn belong to the caller; harness alone does not
+provide billing recovery or distributed execution guarantees. See the platform's
+[recovery contract](../../docs/turn-recovery.md).

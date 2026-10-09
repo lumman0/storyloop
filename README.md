@@ -4,6 +4,12 @@
 
 StoryLoop Platform 是面向 AI 互动叙事的运行时与玩家平台。当前唯一引擎 `single_call` 将玩家可见历史、相关 NPC 各自的经历和世界状态组装成一个场景上下文，以一次结构化模型调用生成普通回合；后端校验并提交事件，再分别更新角色认知。原有多 Agent ReAct 引擎已归档为历史参考。
 
+## 两个独立包
+
+本仓库包含两个可安装的 Python 发行包：[storyloop-harness](packages/harness/README.md) 是可复用的叙事库，[storyloop-platform](packages/platform/README.md) 是玩家与创作者产品。Platform 0.1.0 声明 `storyloop-harness>=0.1,<0.2`；CI 安装 harness 作业产出的精确 `0.1.0` wheel。平台只导入 harness 公开接口，harness 不依赖平台。本轮没有向包索引发布发行包。
+
+仅使用库时执行 `python -m pip install ./packages/harness`，再运行 `python packages/harness/examples/offline_turn.py`。需要 Python 3.12+；该离线示例无需账号、SQL 数据库、前端或模型 Key。独立构建与安装步骤见[可复现验证](docs/verification.md)。
+
 ## 解决的问题
 
 - **多角色认知一致性**：世界事实、角色所知和玩家所见分别建模。世界状态由已提交事件决定；观察和世界书条目按可见范围投递，避免 NPC 凭空知道其他角色的经历。
@@ -27,19 +33,10 @@ StoryLoop Platform 是面向 AI 互动叙事的运行时与玩家平台。当前
 
 ```mermaid
 flowchart LR
-    UI[React / Vite] --> API[FastAPI 玩家入口]
-    API --> Portal[账号 · 存档 · 计费]
-    Portal --> Runtime[游戏会话]
-    Runtime --> Context[玩家与各 NPC 的独立上下文投影]
-    Context --> Main[单次场景模型调用]
-    Runtime --> Queue[有界任务队列]
-    Queue --> NPC[NPC 发言与观察投递]
-    Queue --> Cues[剧情与环境任务]
-    Main --> Book[权限过滤的世界书]
-    Runtime --> Store[事件 · 观察 · 快照]
-    Store --> SQL[(SQLite / PostgreSQL)]
-    Portal -. 玩家授权 .-> Mem0[可选玩家画像]
-    Runtime -. trace / metrics .-> Langfuse[可选 Langfuse]
+    UI[React / Vite] --> Platform[storyloop-platform: API / auth / content / wallet]
+    Platform -->|public API| Harness[storyloop-harness: single_call / projection / events]
+    Platform --> SQL[(SQL / settlement / receipts)]
+    Platform -->|injects GameStore / ModelPort / telemetry| Harness
 ```
 
 普通回合从玩家输入开始：上下文投影器分别读取玩家和相关角色有权知道的历史，场景模型一次返回完整故事回应和结构化提议。普通活动以事件经历保存；需要持久改变的物品或世界状态通过剧本声明的字段校验。发生值得回忆的共同互动时，同一结果可给直接参与的 NPC 留下简短事实记忆。运行时提交事件、生成观察，再按因果顺序处理待办工作。剧本选择与时间推进使用脚本数据；心动留言可在一次模型调用中为多位角色生成各自的短信。调度不依赖固定 Agent 图。当前唯一回合引擎是 `single_call`；旧存档中的 `npc_reply` 待办仍由平台兼容适配器处理。
@@ -48,7 +45,7 @@ flowchart LR
 
 ## 项目结构
 
-当前模块职责、主要执行路径与尚未拆分的边界见[架构说明](docs/architecture.md)。
+当前包职责、主要执行路径与剩余限制见[架构说明](docs/architecture.md)。
 
 ```text
 packages/harness/   storyloop-harness Python runtime
