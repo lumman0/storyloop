@@ -41,7 +41,11 @@ async def check_models(factory: ModelFactory, tasks: Iterable[str]) -> list[dict
                 result.update(_failure(error))
             finally:
                 if model is not None:
-                    await model.client.close()
+                    try:
+                        await model.client.close()
+                    except Exception as error:
+                        if "error_type" not in result:
+                            result.update(_failure(error))
             results.append(result)
     finally:
         logging.disable(previous)

@@ -107,3 +107,52 @@ def test_cli_selected_task_does_not_require_unused_provider_or_memory_keys(check
     monkeypatch.setattr(sys, "argv", ["model_check", "--config", str(path), "--profile", "online", "--task", "single_turn"])
     assert check.main() == 0
     assert len(sdk) == 1
+
+
+@pytest.mark.parametrize("request_fails", [False, True], ids=["close-only", "request-and-close"])
+def test_cli_close_failure_keeps_task_outcome_and_continues(check, sdk, monkeypatch, capsys, tmp_path,
+                                                          request_fails):
+    sdk_init = AsyncClient.__init__
+    real_close = AsyncClient.close
+    clients = []
+
+    def init(client, *args, **kwargs):
+        sdk_init(client, *args, **kwargs)
+        clients.append(client)
+        if len(clients) == 1:
+            if request_fails:
+                error = APIStatusError("private-request", response=Response(
+                    429, request=Request("POST", "https://private.invalid/v1")), body=None)
+                client.chat.completions.create = AsyncMock(side_effect=error)
+
+            async def close():
+                await real_close(client)
+                raise RuntimeError("private-cleanup")
+
+            client.close = close
+
+    monkeypatch.setattr(AsyncClient, "__init__", init)
+    monkeypatch.setenv("STORY_MODEL_API_KEY", "offline")
+    data = default_settings().model_dump(mode="json")
+    for profile in data["models"].values():
+        profile["max_retries"] = 1
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(data))
+    monkeypatch.setattr(sys, "argv", ["model_check", "--config", str(path),
+                                     "--task", "single_turn", "--task", "followup_actions"])
+
+    assert check.main() == 1
+    captured = capsys.readouterr()
+    assert "private-" not in captured.out + captured.err
+    results = json.loads(captured.out)
+    assert results[0] == {
+        "task": "single_turn", "model": data["models"][data["routes"]["single_turn"]]["model"],
+        "ok": False, "error_type": "APIStatusError" if request_fails else "RuntimeError",
+        "status_code": 429 if request_fails else None,
+    }
+    assert results[1] == {
+        "task": "followup_actions", "model": data["models"][data["routes"]["followup_actions"]]["model"],
+        "ok": True,
+    }
+    assert len(clients) == 2
+    assert len(sdk) == (1 if request_fails else 2)
