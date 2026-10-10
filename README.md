@@ -25,7 +25,7 @@ React / Vite → FastAPI 平台 → StoryLoop Harness
               SQL 存档与账务
 ```
 
-平台负责鉴权、内容生命周期、模型适配、持久化、计费和部署；harness 负责可复用的叙事运行契约。当前依赖范围为 `storyloop-harness>=0.2,<0.3`，`pyproject.toml` 与 `uv.lock` 固定源码提交 `16a95c6ac0cf2499a3227e6f7296d6597383eeab`。`scripts/build_harness.py` 从该提交构建 wheel；下方安装命令显式使用这个产物。
+平台负责鉴权、内容生命周期、模型适配、持久化、计费和部署；harness 负责可复用的叙事运行契约。当前依赖范围为 `storyloop-harness>=0.2,<0.3`，`pyproject.toml` 与 `uv.lock` 固定源码提交 `94b0c749dad7811dc765431f20f77eb50dc6f049`。`scripts/build_harness.py` 从该提交构建 wheel；下方安装命令显式使用这个产物。
 
 `bootstrap.build_portal` 围绕同一个 SQL Engine 组装生产资源并负责关闭。`PlayerPortal` 完成请求鉴权后，把存档生命周期与查询交给 `GameplayService`，把回合执行与恢复交给 `TurnExecutionService`。两个服务共享内容访问、玩家操作锁与 `GameplayRuntime`；测试通过 `runtime_factory_builder` 注入离线运行时或模型实现。
 

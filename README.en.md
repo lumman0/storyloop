@@ -25,7 +25,7 @@ React / Vite → FastAPI platform → StoryLoop Harness
                  SQL saves and accounting
 ```
 
-The platform owns authentication, content lifecycle, model adapters, persistence, billing, and deployment; harness owns the reusable narrative execution contract. The dependency range is `storyloop-harness>=0.2,<0.3`, with source revision `16a95c6ac0cf2499a3227e6f7296d6597383eeab` pinned in `pyproject.toml` and `uv.lock`. `scripts/build_harness.py` builds a wheel from that revision, and the installation below names that artifact explicitly.
+The platform owns authentication, content lifecycle, model adapters, persistence, billing, and deployment; harness owns the reusable narrative execution contract. The dependency range is `storyloop-harness>=0.2,<0.3`, with source revision `94b0c749dad7811dc765431f20f77eb50dc6f049` pinned in `pyproject.toml` and `uv.lock`. `scripts/build_harness.py` builds a wheel from that revision, and the installation below names that artifact explicitly.
 
 `bootstrap.build_portal` composes production resources around one SQL Engine and owns their cleanup. `PlayerPortal` authenticates requests and delegates save lifecycle and queries to `GameplayService`, and execution and recovery to `TurnExecutionService`. Both services share content access, player operation locks, and a `GameplayRuntime`; tests inject offline runtime/model implementations through `runtime_factory_builder`.
 
