@@ -34,15 +34,18 @@ export async function readTurnStream(response: Response, onEvent: (event: TurnSt
   try {
     while (true) {
       const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+      buffer = (buffer + decoder.decode(value, { stream: !done })).replace(/\r\n/g, "\n");
       let boundary = buffer.indexOf("\n\n");
       while (boundary !== -1) {
         const frame = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
-        const data = frame.split("\n").filter((line) => line.startsWith("data: "))
-          .map((line) => line.slice(6)).join("\n");
-        if (data) {
-          const event = parseStreamData(data);
+        const dataLines = frame.split("\n").filter((line) => line === "data" || line.startsWith("data:"))
+          .map((line) => {
+            const value = line.slice(5);
+            return value.startsWith(" ") ? value.slice(1) : value;
+          });
+        if (dataLines.length) {
+          const event = parseStreamData(dataLines.join("\n"));
           if (event.type === "error") throw new ApiError(event.message, 400, event);
           onEvent(event);
           if (event.type === "complete") completed = event.view;
