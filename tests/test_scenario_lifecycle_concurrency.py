@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import asyncio
 import io
 import threading
+from unittest.mock import AsyncMock
 from pathlib import Path
 import zipfile
 
@@ -33,7 +34,7 @@ def portal(tmp_path, monkeypatch):
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
     instance = build_portal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                             str(tmp_path / "test.sqlite3"),
-                            prologue_generator=lambda *_: "A quiet opening.")
+                            prologue_generator=AsyncMock(return_value='A quiet opening.'))
     try:
         yield instance
     finally:
@@ -43,7 +44,7 @@ def portal(tmp_path, monkeypatch):
 @pytest.mark.parametrize("command", ["publish_scenario", "submit_scenario"])
 def test_delete_cannot_remove_a_concurrently_published_or_submitted_scenario(portal, command):
     token = portal.register("author", "password-123")["token"]
-    draft = portal.upload_scenario(token, "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(token, "Story", "", archive()))
     deleting = threading.Event()
     release = threading.Event()
 
@@ -79,26 +80,24 @@ def test_delete_cannot_remove_a_concurrently_published_or_submitted_scenario(por
 
 def test_version_upload_revalidates_after_slow_generation(portal):
     token = portal.register("author", "password-123")["token"]
-    draft = portal.upload_scenario(token, "Story", "", archive())
-    generating = threading.Event()
-    release = threading.Event()
-
-    def generate(*args):
-        generating.set()
-        assert release.wait(10), "generation barrier timed out"
-        return "A revised opening."
-
-    portal.user_scenarios.prologue_generator = generate
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        upload = pool.submit(portal.upload_scenario_version, token, draft["id"],
-                             "Revision", "", archive())
+    draft = asyncio.run(portal.upload_scenario(token, "Story", "", archive()))
+    async def run():
+        generating, release = asyncio.Event(), asyncio.Event()
+        async def generate(*args):
+            generating.set()
+            await release.wait()
+            return "A revised opening."
+        portal.user_scenarios.prologue_generator = generate
+        upload = asyncio.create_task(portal.upload_scenario_version(
+            token, draft["id"], "Revision", "", archive()))
         try:
-            assert generating.wait(10)
+            await asyncio.wait_for(generating.wait(), 2)
             portal.delete_scenario_draft(token, draft["id"])
         finally:
             release.set()
         with pytest.raises(KeyError, match="scenario not found"):
-            upload.result(timeout=10)
+            await upload
+    asyncio.run(run())
     with portal.accounts.engine.connect() as db:
         assert db.execute(text("SELECT COUNT(*) FROM user_scenario_versions")).scalar_one() == 0
     assert not portal.user_scenarios.package_store.materialize(
@@ -107,14 +106,14 @@ def test_version_upload_revalidates_after_slow_generation(portal):
 
 def test_post_commit_response_failure_does_not_remove_a_saved_version(portal, monkeypatch):
     token = portal.register("author", "password-123")["token"]
-    draft = portal.upload_scenario(token, "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(token, "Story", "", archive()))
 
     def unavailable_list(*args):
         raise RuntimeError("database connection lost after commit")
 
     monkeypatch.setattr(portal.user_scenarios, "list_mine", unavailable_list)
     with pytest.raises(RuntimeError, match="after commit"):
-        portal.upload_scenario_version(token, draft["id"], "Revision", "", archive())
+        asyncio.run(portal.upload_scenario_version(token, draft["id"], "Revision", "", archive()))
     with portal.accounts.engine.connect() as db:
         references = db.execute(text("SELECT package_ref FROM user_scenario_versions")).scalars().all()
     assert len(references) == 2
@@ -127,7 +126,7 @@ def test_post_commit_response_failure_does_not_remove_a_saved_version(portal, mo
 ])
 def test_publication_winning_the_race_protects_its_package(portal, command, barrier_sql):
     token = portal.register("author", "password-123")["token"]
-    draft = portal.upload_scenario(token, "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(token, "Story", "", archive()))
     publishing = threading.Event()
     release = threading.Event()
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -15,6 +15,7 @@ from openai import APIConnectionError, APITimeoutError, InternalServerError, Rat
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
+from storyloop_platform.lifecycle import ServiceStopping, GRACE_TIMEOUT, CANCEL_TIMEOUT
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.portal.access import AccessDenied
 from storyloop_platform.portal.sql_repository import SESSION_TTL_SECONDS
@@ -23,6 +24,7 @@ from storyloop_platform.portal.turn_errors import TurnRecoveryRequired, turn_fai
 
 
 logger = logging.getLogger(__name__)
+SSE_KEEPALIVE_SECONDS = 15
 TRANSIENT_MODEL_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
 
 
@@ -106,42 +108,29 @@ def _http_error(error: Exception) -> HTTPException:
     raise error
 
 
-def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
-               turn_cancel_timeout: float = 5) -> FastAPI:
+def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRACE_TIMEOUT,
+               operation_cancel_timeout: float = CANCEL_TIMEOUT) -> FastAPI:
+    operations = portal.operations
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        worker = asyncio.create_task(portal.memory_service.run_worker())
+        operations.start(portal.memory_service.run_worker, name="memory-worker", service=True)
         try:
             yield
         finally:
-            _app.state.accepting_turns = False
-            active = set(_app.state.active_turn_tasks)
-            if active:
-                _, remaining = await asyncio.wait(active, timeout=turn_shutdown_timeout)
-                if remaining:
-                    logger.warning("cancelling %d overdue turn tasks during shutdown", len(remaining))
-                    for task in remaining:
-                        task.cancel()
-                    _, remaining = await asyncio.wait(remaining, timeout=turn_cancel_timeout)
-                if remaining:
-                    # Closing shared stores while work is still using them is
-                    # unsafe. Fail shutdown visibly; the process supervisor owns
-                    # forced termination of a non-cooperative model/client.
-                    logger.critical("turn tasks ignored cancellation; shared resources remain open")
-                    raise RuntimeError("turn tasks did not stop before shutdown deadline")
-            worker.cancel()
-            with suppress(asyncio.CancelledError):
-                await worker
-            portal.close()
+            await portal.shutdown(grace_timeout=operation_shutdown_timeout,
+                                  cancel_timeout=operation_cancel_timeout)
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
-    app.state.active_turn_tasks = set()
-    app.state.accepting_turns = True
 
     def stopping_failure(request_id: str | None) -> dict:
         message = "服务正在重启，这条行动尚未开始，请稍后再提交。"
         return {"code": "SERVICE_STOPPING", "message": message, "detail": message,
                 "retryable": False, "commit_state": "not_started", "request_id": request_id}
+    @app.exception_handler(ServiceStopping)
+    async def service_stopping(_request: Request, _error: ServiceStopping) -> JSONResponse:
+        return JSONResponse(status_code=503, content=stopping_failure(None))
+
     online_cookie = portal.settings.environment == "online"
     cookie_name = "__Host-storyloop" if online_cookie else "storyloop-session"
 
@@ -289,7 +278,10 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
     @app.get("/v1/me/memory")
     async def player_memory(auth: str = Depends(token)) -> dict:
         try:
-            return await portal.memory_status(auth)
+            return await operations.run(
+                lambda: portal.memory_status(auth), name="memory-status")
+        except ServiceStopping:
+            raise
         except Exception as error:
             logger.exception("player memory status failed")
             raise HTTPException(status_code=503, detail="玩家画像暂时不可用") from error
@@ -298,14 +290,16 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
     async def set_player_memory(body: PlayerMemorySettingsBody,
                                 auth: str = Depends(token)) -> dict:
         try:
-            return await portal.set_memory_enabled(auth, body.enabled)
+            return await operations.run(
+                lambda: portal.set_memory_enabled(auth, body.enabled), name="set-memory-enabled")
         except ValueError as error:
             raise _http_error(error) from error
 
     @app.delete("/v1/me/memory")
     async def clear_player_memory(auth: str = Depends(token)) -> dict:
         try:
-            return await portal.clear_memory(auth)
+            return await operations.run(
+                lambda: portal.clear_memory(auth), name="clear-memory")
         except ValueError as error:
             raise _http_error(error) from error
 
@@ -332,7 +326,8 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
                               file: UploadFile = File(...), auth: str = Depends(token)) -> dict:
         content = await read_scenario_archive(file)
         try:
-            return await asyncio.to_thread(portal.upload_scenario, auth, title, summary, content)
+            return await operations.run(
+                lambda: portal.upload_scenario(auth, title, summary, content), name="upload")
         except ValueError as error:
             raise _http_error(error) from error
         except (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError) as error:
@@ -344,8 +339,9 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
                                       auth: str = Depends(token)) -> dict:
         content = await read_scenario_archive(file)
         try:
-            return await asyncio.to_thread(portal.upload_scenario_version, auth, scenario_id,
-                                           title, summary, content)
+            return await operations.run(
+                lambda: portal.upload_scenario_version(auth, scenario_id, title, summary, content),
+                name="upload-version")
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
         except (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError) as error:
@@ -386,7 +382,8 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
     @app.post("/v1/manage/submissions/{submission_id}/preview")
     async def review_preview(submission_id: str, auth: str = Depends(token)) -> dict:
         try:
-            return await portal.create_review_preview(auth, submission_id)
+            return await operations.run(
+                lambda: portal.create_review_preview(auth, submission_id), name="create-review-preview")
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
@@ -510,15 +507,17 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
     @app.post("/v1/saves", status_code=201)
     async def create_save(body: SaveBody, auth: str = Depends(token)) -> dict:
         try:
-            return await portal.create_save(auth, body.catalog_id, body.play_mode,
-                                            body.story_setup)
+            return await operations.run(
+                lambda: portal.create_save(auth, body.catalog_id, body.play_mode,
+                                            body.story_setup), name="create-save")
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
     @app.post("/v1/saves/{game_id}/resume")
     async def resume(game_id: str, auth: str = Depends(token)) -> dict:
         try:
-            return await portal.resume_save(auth, game_id)
+            return await operations.run(
+                lambda: portal.resume_save(auth, game_id), name="resume-save")
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
@@ -533,19 +532,21 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
     async def update_save_settings(game_id: str, body: SaveSettingsBody,
                                    auth: str = Depends(token)) -> dict:
         try:
-            return await portal.set_save_settings(auth, game_id,
-                                                  body.temperature, body.context_window_tokens)
+            return await operations.run(
+                lambda: portal.set_save_settings(auth, game_id,
+                                                  body.temperature, body.context_window_tokens), name="set-save-settings")
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
     @app.post("/v1/saves/{game_id}/turns")
     async def turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> dict:
-        if not app.state.accepting_turns:
+        if not operations.accepting:
             return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
-        task = asyncio.current_task()
-        app.state.active_turn_tasks.add(task)
         try:
-            return await portal.turn(auth, game_id, body.text, body.request_id)
+            return await operations.run(
+                lambda: portal.turn(auth, game_id, body.text, body.request_id), name="turn")
+        except ServiceStopping:
+            return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
         except (ValueError, KeyError, PermissionError) as error:
             failure = turn_failure(error, body.request_id)
             return JSONResponse(status_code=_http_error(error).status_code,
@@ -557,18 +558,16 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
                                    code="MODEL_UNAVAILABLE")
             return JSONResponse(status_code=mapped.status_code,
                                 content={"detail": failure["message"], **failure})
-        finally:
-            app.state.active_turn_tasks.discard(task)
 
     @app.post("/v1/saves/{game_id}/turns/stream")
     async def stream_turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> StreamingResponse:
-        if not app.state.accepting_turns:
+        if not operations.accepting:
             return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
 
         async def events():
             # Headers and iteration are separate scheduling points. Recheck so
             # a response created just before shutdown cannot launch late work.
-            if not app.state.accepting_turns:
+            if not operations.accepting:
                 yield f'data: {json.dumps({"type": "error", **stopping_failure(body.request_id)}, ensure_ascii=False)}\n\n'
                 return
             queue: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -594,13 +593,15 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
                 finally:
                     await queue.put(None)
 
-            task = asyncio.create_task(run_turn())
-            app.state.active_turn_tasks.add(task)
-            task.add_done_callback(app.state.active_turn_tasks.discard)
+            try:
+                operations.start(run_turn, name="stream-turn")
+            except ServiceStopping:
+                yield f'data: {json.dumps({"type": "error", **stopping_failure(body.request_id)}, ensure_ascii=False)}\n\n'
+                return
             yield 'data: {"type":"stage","stage":"received"}\n\n'
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    event = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_SECONDS)
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue

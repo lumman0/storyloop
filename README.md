@@ -29,6 +29,8 @@ React / Vite → FastAPI 平台 → StoryLoop Harness
 
 `bootstrap.build_portal` 围绕同一个 SQL Engine 组装生产资源并负责关闭。`PlayerPortal` 完成请求鉴权后，把存档生命周期与查询交给 `GameplayService`，把回合执行与恢复交给 `TurnExecutionService`。两个服务共享内容访问、玩家操作锁与 `GameplayRuntime`；测试通过 `runtime_factory_builder` 注入离线运行时或模型实现。
 
+HTTP 与 CLI 使用同一个 `portal.operations` 管理耗时操作；请求断开不会取消已接收的回合。上传与序章生成采用异步命令，文件和记忆线程按实际完成状态跟踪。`await portal.shutdown()` 先停止接收新操作并通知记忆 worker，再等待 30 秒、取消后再等待 5 秒；仍未结束则显式报错并保留资源，由进程管理器决定终止。同步 `portal.close()` 只允许在操作已结束时调用。上述时限不包含服务器自身的请求排空和同步资源释放。
+
 共享场景模型会看到多个角色的上下文，视角投影和行为约束不构成角色之间的硬信息隔离。长局上下文从已提交历史中选择近期与相关经历，原始事件保留；当前世界书使用 JSON 条目检索。普通回合的一次场景生成也不代表开场、行动建议或其他功能都只调用一次模型。
 
 项目仍在孵化，API、配置和存储格式可直接调整，不承诺向后兼容。当前唯一回合引擎为 `single_call`；包含旧 `npc_reply` 待办的存档会被拒绝，应重新创建存档。

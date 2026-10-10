@@ -12,7 +12,7 @@ def test_review_preview_is_permission_checked_unbilled_profile_free_and_limited(
     author = portal.register("preview-author", "password-123")
     reviewer = portal.register("preview-admin", "password-123")
     portal.access.bootstrap_admin("preview-admin")
-    draft = portal.upload_scenario(author["token"], "Preview", "", archive())
+    draft = asyncio.run(portal.upload_scenario(author["token"], "Preview", "", archive()))
     submission = portal.submit_scenario(author["token"], draft["id"])
     with pytest.raises(PermissionError):
         asyncio.run(portal.create_review_preview(author["token"], submission["submission_id"]))

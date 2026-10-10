@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,7 @@ def portal(tmp_path, monkeypatch):
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
     instance = build_portal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                             str(tmp_path / "portal.sqlite3"),
-                            prologue_generator=lambda *_: "A quiet opening.",
+                            prologue_generator=AsyncMock(return_value='A quiet opening.'),
                             runtime_factory_builder=OfflineRuntimeFactory)
     try:
         yield instance
@@ -75,7 +76,7 @@ def test_blocked_public_save_does_not_hide_other_saves_or_mask_authentication(po
     reader = portal.register("reader", "password-123")
     admin = portal.register("administrator", "password-123")
     portal.access.bootstrap_admin("administrator")
-    draft = portal.upload_scenario(author["token"], "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(author["token"], "Story", "", archive()))
     submission = portal.submit_scenario(author["token"], draft["id"])
     portal.review_decide(admin["token"], submission["submission_id"], "approved")
     blocked = asyncio.run(portal.create_save(reader["token"], draft["id"]))["game_id"]
@@ -93,7 +94,7 @@ def test_blocked_public_save_does_not_hide_other_saves_or_mask_authentication(po
 
 def test_missing_uploaded_package_only_disables_its_save(portal):
     author = portal.register("author", "password-123")
-    draft = portal.upload_scenario(author["token"], "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(author["token"], "Story", "", archive()))
     portal.publish_scenario(author["token"], draft["id"])
     broken = asyncio.run(portal.create_save(author["token"], draft["id"]))["game_id"]
     normal = asyncio.run(portal.create_save(author["token"], "npc-chat"))["game_id"]

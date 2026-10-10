@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from storyloop_harness.advanced import TurnProgress
@@ -10,6 +10,7 @@ from storyloop_harness.advanced import TurnProgress
 from storyloop_platform.config import PlatformSettings, PlatformResources
 from storyloop_platform.gameplay.service import GameplayService
 from storyloop_platform.gameplay.turns import TurnExecutionService
+from storyloop_platform.lifecycle import OperationSupervisor, GRACE_TIMEOUT, CANCEL_TIMEOUT
 from storyloop_platform.memory.service import PlayerMemoryService
 from storyloop_platform.portal.access import AccessService
 from storyloop_platform.portal.invitations import InvitationService
@@ -27,7 +28,9 @@ class PlayerPortal:
                  invitations: InvitationService, user_scenarios: UserScenarioService,
                  moderation: ScenarioModerationService, billing: SQLBillingRepository | None,
                  memory_service: PlayerMemoryService, gameplay: GameplayService,
-                 turns: TurnExecutionService, close_resources: Callable[[], None]) -> None:
+                 turns: TurnExecutionService, operations: OperationSupervisor,
+                 close_resources: Callable[[], None],
+                 shutdown_resources: Callable[[float, float], Awaitable[None]]) -> None:
         self.settings = settings
         self.resources = resources
         self.db_path = db_path
@@ -40,10 +43,16 @@ class PlayerPortal:
         self.memory_service = memory_service
         self.gameplay = gameplay
         self.turns = turns
-        self.close_resources = close_resources
+        self.operations = operations
+        self._close_resources = close_resources
+        self._shutdown_resources = shutdown_resources
 
     def close(self) -> None:
-        self.close_resources()
+        self._close_resources()
+
+    async def shutdown(self, *, grace_timeout: float = GRACE_TIMEOUT,
+                       cancel_timeout: float = CANCEL_TIMEOUT) -> None:
+        await self._shutdown_resources(grace_timeout, cancel_timeout)
 
     async def memory_status(self, token: str) -> dict:
         return await self.memory_service.status(self.accounts.resolve_token(token))
@@ -88,14 +97,14 @@ class PlayerPortal:
         return {"player_id": player_id, "roles": list(self.access.roles(player_id)),
                 "capabilities": list(self.access.capabilities(player_id))}
 
-    def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
+    async def upload_scenario(self, token: str, title: str, summary: str, archive: bytes) -> dict:
         player_id = self.accounts.resolve_token(token)
-        return self.user_scenarios.upload(player_id, title, summary, archive)
+        return await self.user_scenarios.upload(player_id, title, summary, archive)
 
-    def upload_scenario_version(self, token: str, scenario_id: str, title: str,
-                                summary: str, archive: bytes) -> dict:
+    async def upload_scenario_version(self, token: str, scenario_id: str, title: str,
+                                      summary: str, archive: bytes) -> dict:
         player_id = self.accounts.resolve_token(token)
-        return self.user_scenarios.upload_version(player_id, scenario_id, title, summary, archive)
+        return await self.user_scenarios.upload_version(player_id, scenario_id, title, summary, archive)
 
     def submit_scenario(self, token: str, scenario_id: str) -> dict:
         return self.moderation.submit(self.accounts.resolve_token(token), scenario_id)

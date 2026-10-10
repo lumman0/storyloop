@@ -4,7 +4,7 @@ import json
 from importlib import metadata, util
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 assert util.find_spec("story_harness") is None
 assert "story-harness" not in {item.metadata["Name"] for item in metadata.distributions()}
@@ -70,7 +70,7 @@ def offline_runtime(**dependencies):
 
 
 portal = build_portal(root / "catalog.json", settings,
-                      prologue_generator=lambda *_: "A quiet opening.",
+                      prologue_generator=AsyncMock(return_value='A quiet opening.'),
                       runtime_factory_builder=offline_runtime)
 try:
     with TestClient(

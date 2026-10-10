@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from storyloop_harness import ScenarioPackage
@@ -16,6 +17,7 @@ from storyloop_platform.gameplay.locks import PlayerTurnLocks
 from storyloop_platform.gameplay.service import GameplayService
 from storyloop_platform.gameplay.turns import TurnExecutionService
 from storyloop_platform.generators.prologue_generator import ModelPrologueGenerator
+from storyloop_platform.lifecycle import OperationSupervisor
 from storyloop_platform.memory.jobs import SQLPlayerMemoryJobs
 from storyloop_platform.memory.providers import Mem0PlayerMemory
 from storyloop_platform.memory.service import PlayerMemoryService
@@ -33,7 +35,7 @@ from storyloop_platform.portal.user_scenarios import UserScenarioService
 from storyloop_platform.runtime.campaign import CampaignProgram
 
 
-PrologueGenerator = Callable[[ScenarioPackage, CampaignProgram | None, str, str], str]
+PrologueGenerator = Callable[[ScenarioPackage, CampaignProgram | None, str, str], Awaitable[str]]
 
 
 def build_portal(
@@ -49,6 +51,8 @@ def build_portal(
     resources = PlatformResources(settings)
     closers: list[Callable[[], None]] = []
     closed = False
+    operations = OperationSupervisor()
+    shutdown_task: asyncio.Task[None] | None = None
 
     def close_resources() -> None:
         nonlocal closed
@@ -90,21 +94,22 @@ def build_portal(
         if provider is not None:
             closers.insert(1, provider.close)
         memory_service = PlayerMemoryService(provider, SQLPlayerMemoryJobs(engine),
-                                             resources.player_memory_enabled(), telemetry)
+                                             resources.player_memory_enabled(), telemetry, operations)
         if provider is not None:
             closers[1] = memory_service.close
         else:
             closers.insert(1, memory_service.close)
 
-        def generate_prologue(package: ScenarioPackage, program: CampaignProgram | None,
-                              title: str, summary: str) -> str:
+        async def generate_prologue(package: ScenarioPackage, program: CampaignProgram | None,
+                                    title: str, summary: str) -> str:
             task = "prologue" if "prologue" in settings.routes else "narration"
             model = models.create_model(task)
-            return asyncio.run(ModelPrologueGenerator(model, telemetry).generate(
-                package, program, title, summary))
+            return await ModelPrologueGenerator(model, telemetry).generate(
+                package, program, title, summary)
 
         user_scenarios = UserScenarioService(
-            engine, upload_dir, prologue_generator=prologue_generator or generate_prologue)
+            engine, upload_dir, operations=operations,
+            prologue_generator=prologue_generator or generate_prologue)
         moderation = ScenarioModerationService(engine, user_scenarios, access)
 
         def billing_for_policy(policy: BillingPolicy) -> SQLBillingRepository:
@@ -127,11 +132,33 @@ def build_portal(
             settlements=settlements, billing=billing, billing_for_policy=billing_for_policy,
             memory_service=memory_service, factory=factory, player_locks=player_locks,
             telemetry=telemetry)
+
+        def guarded_close() -> None:
+            operations.close()
+            close_resources()
+
+        async def shutdown_resources(grace_timeout: float, cancel_timeout: float) -> None:
+            nonlocal shutdown_task
+            operations.stop_admission()
+            memory_service.request_stop()
+            if shutdown_task is None:
+                async def drain_and_close() -> None:
+                    await operations.shutdown(grace_timeout=grace_timeout, cancel_timeout=cancel_timeout)
+                    guarded_close()
+                shutdown_task = asyncio.create_task(drain_and_close(), name="portal-shutdown")
+
+                def completed(task: asyncio.Task[None]) -> None:
+                    if not task.cancelled() and (error := task.exception()) is not None:
+                        logging.getLogger(__name__).error("portal shutdown failed", exc_info=error)
+                shutdown_task.add_done_callback(completed)
+            await asyncio.shield(shutdown_task)
+
         return PlayerPortal(
             settings=settings, resources=resources, db_path=selected_db, accounts=accounts,
             access=access, invitations=invitations, user_scenarios=user_scenarios,
             moderation=moderation, billing=billing, memory_service=memory_service,
-            gameplay=gameplay, turns=turns, close_resources=close_resources)
+            gameplay=gameplay, turns=turns, operations=operations,
+            close_resources=guarded_close, shutdown_resources=shutdown_resources)
     except BaseException as error:
         try:
             close_resources()
