@@ -14,7 +14,7 @@ def fake_portal():
     portal = Mock()
     portal.resources = SimpleNamespace(allowed_hosts=lambda: {"127.0.0.1"})
     portal.settings = SimpleNamespace(environment="local")
-    portal.memory_feature_enabled = False
+    portal.memory_service = SimpleNamespace(run_worker=AsyncMock())
     return portal
 
 
@@ -84,6 +84,36 @@ def test_shutdown_cancels_overdue_turn_before_disposing_resources():
             app.state.active_turn_tasks.add(task)
             await asyncio.sleep(0)
         assert task.cancelled() and cancelled.is_set()
+        portal.close.assert_called_once()
+    asyncio.run(run())
+
+
+def test_lifespan_waits_for_memory_service_worker_before_closing():
+    async def run():
+        portal = fake_portal()
+        started, finish = asyncio.Event(), asyncio.Event()
+        async def worker():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await finish.wait()
+                portal.close.assert_not_called()
+                raise
+        portal.memory_service = SimpleNamespace(run_worker=AsyncMock(side_effect=worker))
+        app = create_app(portal)
+        lifespan = app.router.lifespan_context(app)
+        await lifespan.__aenter__()
+        await started.wait()
+        shutdown = asyncio.create_task(lifespan.__aexit__(None, None, None))
+        try:
+            await asyncio.sleep(0)
+            assert not shutdown.done()
+            portal.close.assert_not_called()
+        finally:
+            finish.set()
+            await shutdown
+        portal.memory_service.run_worker.assert_awaited_once()
         portal.close.assert_called_once()
     asyncio.run(run())
 

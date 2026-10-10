@@ -110,8 +110,7 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
                turn_cancel_timeout: float = 5) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        worker = (asyncio.create_task(portal.run_memory_worker())
-                  if getattr(portal, "memory_feature_enabled", False) is True else None)
+        worker = asyncio.create_task(portal.memory_service.run_worker())
         try:
             yield
         finally:
@@ -130,10 +129,9 @@ def create_app(portal: PlayerPortal, *, turn_shutdown_timeout: float = 30,
                     # forced termination of a non-cooperative model/client.
                     logger.critical("turn tasks ignored cancellation; shared resources remain open")
                     raise RuntimeError("turn tasks did not stop before shutdown deadline")
-            if worker is not None:
-                worker.cancel()
-                with suppress(asyncio.CancelledError):
-                    await worker
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
             portal.close()
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)

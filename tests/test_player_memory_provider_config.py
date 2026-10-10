@@ -4,7 +4,7 @@ import os
 import httpx
 
 from storyloop_platform.config import ModelFactory, PlatformSettings, default_settings
-from storyloop_platform.portal.player_memory import Mem0PlayerMemory
+from storyloop_platform.memory.providers import Mem0PlayerMemory
 
 
 def test_mem0_clients_use_profile_providers_despite_global_openrouter_env(
