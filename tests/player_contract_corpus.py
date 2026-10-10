@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import tempfile
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 import zipfile
 
 from fastapi.testclient import TestClient
@@ -225,16 +225,24 @@ def export_corpus(root: Path) -> list[dict]:
                 assert "billing" not in preview_turn
                 headers = reader_headers
 
-                for stream in (False, True):
-                    response(f"failure:input:{stream}", "TurnStreamEvent" if stream else "TurnFailure", "POST",
-                             base + "/turns" + ("/stream" if stream else ""), status=200 if stream else 400,
-                             json=dict(text="x" * 10001, request_id="oversized"))
+                with patch("storyloop_platform.lifecycle.logger") as input_log:
+                    for stream in (False, True):
+                        response(f"failure:input:{stream}", "TurnStreamEvent" if stream else "TurnFailure", "POST",
+                                 base + "/turns" + ("/stream" if stream else ""), status=200 if stream else 400,
+                                 json=dict(text="x" * 10001, request_id="oversized"))
+                    assert input_log.error.call_count == 1
+                    assert isinstance(input_log.error.call_args.kwargs["exc_info"], ValueError)
                 recovery = create("freeform")
                 commit_player_input(portal.gameplay.store, recovery, "portal-recovery:input", "Hello")
-                for stream in (False, True):
-                    response(f"failure:recovery:{stream}", "TurnStreamEvent" if stream else "TurnFailure", "POST",
-                             f"/v1/saves/{recovery}/turns" + ("/stream" if stream else ""), status=200 if stream else 409,
-                             json=dict(text="Hello", request_id="recovery"))
+                # Capture only this deliberate recovery fault and assert its log;
+                # unexpected failures elsewhere still reach ordinary logging.
+                with patch("storyloop_platform.lifecycle.logger") as recovery_log:
+                    for stream in (False, True):
+                        response(f"failure:recovery:{stream}", "TurnStreamEvent" if stream else "TurnFailure", "POST",
+                                 f"/v1/saves/{recovery}/turns" + ("/stream" if stream else ""), status=200 if stream else 409,
+                                 json=dict(text="Hello", request_id="recovery"))
+                    assert recovery_log.error.call_count == 1
+                    assert type(recovery_log.error.call_args.kwargs["exc_info"]).__name__ == "TurnRecoveryRequired"
 
                 class UnavailableModel:
                     async def __call__(self, *args, **kwargs):
@@ -242,11 +250,21 @@ def export_corpus(root: Path) -> list[dict]:
 
                 portal.gameplay.factory.models.model = UnavailableModel()
                 # Fresh saves prevent already cached engines from retaining the healthy model.
-                for stream in (False, True):
-                    failed = create("freeform")
-                    response(f"failure:model:{stream}", "TurnStreamEvent" if stream else "TurnFailure", "POST",
-                             f"/v1/saves/{failed}/turns" + ("/stream" if stream else ""), status=200 if stream else 503,
-                             json=dict(text="Hello", request_id="model-failed"))
+                with patch("storyloop_platform.portal.http_api.logger") as model_log, \
+                        patch("storyloop_platform.lifecycle.logger") as operation_log:
+                    for stream in (False, True):
+                        failed = create("freeform")
+                        response(f"failure:model:{stream}", "TurnStreamEvent" if stream else "TurnFailure", "POST",
+                                 f"/v1/saves/{failed}/turns" + ("/stream" if stream else ""), status=200 if stream else 503,
+                                 json=dict(text="Hello", request_id="model-failed"))
+                    assert model_log.warning.call_args_list == [
+                        call("model unavailable during portal turn: %s", "APIConnectionError"),
+                        call("model unavailable during streamed turn: %s", "APIConnectionError"),
+                    ]
+                    model_log.exception.assert_not_called()
+                    model_log.error.assert_not_called()
+                    assert operation_log.error.call_count == 1
+                    assert isinstance(operation_log.error.call_args.kwargs["exc_info"], APIConnectionError)
                 portal.operations.stop_admission()
                 for stream in (False, True):
                     response(f"failure:stopping:{stream}", "TurnFailure", "POST",

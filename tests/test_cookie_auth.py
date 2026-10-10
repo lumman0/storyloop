@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from fastapi.testclient import TestClient
 
@@ -12,6 +12,7 @@ from storyloop_platform.portal.http_api import create_app
 
 def _client() -> tuple[TestClient, Mock]:
     portal = Mock()
+    portal.shutdown = AsyncMock()
     portal.resources = SimpleNamespace(
         environment="online",
         allowed_hosts=lambda: {"story.example"},
@@ -69,6 +70,7 @@ def test_logout_revokes_and_clears_cookie() -> None:
 
 def test_local_browser_uses_cookie_while_cli_keeps_bearer() -> None:
     portal = Mock()
+    portal.shutdown = AsyncMock()
     portal.resources = SimpleNamespace(allowed_hosts=lambda: {"127.0.0.1"})
     portal.settings = SimpleNamespace(environment="local")
     portal.login.return_value = {"player_id": "player-1", "token": "local-token"}

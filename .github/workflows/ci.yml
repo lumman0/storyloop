@@ -38,21 +38,14 @@ jobs:
       - name: Install locked third-party platform dependencies
         run: |
           uv export --locked --all-extras --no-emit-project --no-emit-package storyloop-harness -o platform-requirements.txt
-          python -m pip install -r platform-requirements.txt
+          python -m pip install --no-deps --require-hashes -r platform-requirements.txt
       - name: Consume pinned harness artifact and build platform independently
         run: |
           python -m pip install --no-deps --no-index --find-links dist/harness "storyloop-harness==${HARNESS_VERSION}"
           uv build --no-sources --wheel . --out-dir dist/platform
           python -m pip install --no-deps --no-index --find-links dist/platform storyloop-platform==0.1.0
           python -m pip check
-      - name: Installed artifact integration outside the checkout
-        run: |
-          mkdir -p "$RUNNER_TEMP/platform-smoke"
-          cp tests/wheel_smoke.py "$RUNNER_TEMP/platform-smoke/smoke.py"
-          cp -R examples/freeform "$RUNNER_TEMP/platform-smoke/scenario"
-          cd "$RUNNER_TEMP/platform-smoke"
-          python -I smoke.py
-      - name: Backend integration and package boundaries
+      - name: Backend integration, package boundaries and isolated locked wheels
         run: python -I -m pytest tests -q --junitxml=test-results.xml
       - uses: actions/upload-artifact@v4
         if: always()

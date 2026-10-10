@@ -1,12 +1,16 @@
 """Install release artifacts outside the checkout and exercise the product boundary."""
 import os
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from packaging.requirements import Requirement
+
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_EXTRAS = ("agents", "portal", "online", "observability", "player-memory")
 
 
 def test_platform_wheels_run_without_checkout_or_old_distribution():
@@ -21,12 +25,32 @@ def test_platform_wheels_run_without_checkout_or_old_distribution():
 
         def run(*command):
             result = subprocess.run(command, cwd=work, env=env, capture_output=True,
-                                    text=True, encoding="utf-8", errors="replace", timeout=300)
+                                    text=True, encoding="utf-8", errors="replace", timeout=600)
             assert result.returncode == 0, result.stdout + result.stderr
             return result.stdout
 
         wheels = work / "wheels"
         wheels.mkdir()
+        requirements = work / "runtime-requirements.txt"
+        # Export from the real locked project, not the isolated source copy.
+        extras = [argument for extra in RUNTIME_EXTRAS for argument in ("--extra", extra)]
+        run("uv", "export", "--project", str(ROOT), "--locked", "--no-default-groups",
+            *extras, "--no-emit-project", "--no-emit-package", "storyloop-harness",
+            "-o", str(requirements))
+        applicable = {}
+        for line in requirements.read_text(encoding="utf-8").splitlines():
+            if not line or line[0].isspace() or line.startswith("#"):
+                continue
+            requirement = Requirement(line.removesuffix("\\").strip())
+            assert requirement.name not in {"storyloop-platform", "storyloop-harness", "pytest"}
+            if requirement.marker is None or requirement.marker.evaluate():
+                pins = list(requirement.specifier)
+                assert len(pins) == 1 and pins[0].operator == "=="
+                applicable[requirement.name] = pins[0].version
+        assert applicable
+        # Download and install hashes with no dependency expansion, like Docker.
+        run(sys.executable, "-m", "pip", "download", "--no-deps", "--require-hashes",
+            "--only-binary=:all:", "--dest", str(wheels), "-r", str(requirements))
         # An explicit local wheel is only for pre-publication verification.
         # CI and release validation always build the immutable metadata Git pin.
         local_wheel = env.get("STORYLOOP_TEST_HARNESS_WHEEL")
@@ -49,9 +73,29 @@ def test_platform_wheels_run_without_checkout_or_old_distribution():
         python = work / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         harness = next(wheels.glob("storyloop_harness-*.whl"))
         platform = next(wheels.glob("storyloop_platform-*.whl"))
-        run("uv", "pip", "install", "--python", str(python), str(harness),
-            str(platform) + "[portal]")
+        run("uv", "pip", "install", "--python", str(python), "--no-deps", "--no-build",
+            "--no-index", "--find-links", str(wheels), "--require-hashes", "-r", str(requirements))
+        run("uv", "pip", "install", "--python", str(python), "--no-deps", "--no-index",
+            str(harness), str(platform))
         run("uv", "pip", "check", "--python", str(python))
+        (work / "expected.json").write_text(json.dumps(applicable), encoding="utf-8")
+        run(str(python), "-I", "-c", """
+import importlib.metadata as metadata
+import importlib.util
+import json
+from pathlib import Path
+import agentscope, fastapi, psycopg, langfuse, mem0
+for name, version in json.loads(Path('expected.json').read_text(encoding='utf-8')).items():
+    assert metadata.version(name) == version, (name, metadata.version(name), version)
+assert importlib.util.find_spec('pytest') is None
+for name in ('storyloop-platform', 'storyloop-harness'):
+    distribution = metadata.distribution(name)
+    assert Path(distribution.locate_file('')).resolve().is_relative_to(Path('venv').resolve())
+    direct_url = json.loads(distribution.read_text('direct_url.json') or '{}')
+    assert not direct_url.get('dir_info', {}).get('editable', False)
+    assert direct_url.get('url', '').endswith('.whl'), direct_url
+print('locked runtime versions, extras and wheel metadata passed')
+""")
         shutil.copytree(ROOT / "examples/freeform", work / "scenario")
         shutil.copy(ROOT / "tests/wheel_smoke.py", work / "smoke.py")
         shutil.copy(ROOT / "alembic.ini", work / "alembic.ini")
