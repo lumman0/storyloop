@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
-import getpass
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,9 +17,9 @@ class LocalPreferences:
         if configured is not None:
             self.directory = Path(configured).expanduser().resolve()
         elif os.name == "nt":
-            self.directory = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "StoryHarness"
+            self.directory = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "StoryLoop"
         else:
-            self.directory = Path.home() / ".config" / "story-harness"
+            self.directory = Path.home() / ".config" / "storyloop"
 
     def load_settings(self) -> dict[str, str]:
         path = self.directory / "settings.json"
@@ -31,9 +31,11 @@ class LocalPreferences:
         return {key: value for key, value in data.items()
                 if key in {"catalog", "config", "db"} and isinstance(value, str)}
 
-    def save_settings(self, catalog: str | Path, config: str | Path, db: str | Path) -> None:
+    def save_settings(self, catalog: str | Path, config: str | Path | None, db: str | Path) -> None:
         payload = {"schema_version": 1, "catalog": str(Path(catalog).resolve()),
-                   "config": str(Path(config).resolve()), "db": str(Path(db).resolve())}
+                   "db": str(Path(db).resolve())}
+        if config is not None:
+            payload["config"] = str(Path(config).resolve())
         self._write(self.directory / "settings.json",
                     json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
 
@@ -47,10 +49,11 @@ class LocalPreferences:
         secrets.setdefault("model_keys", {})[env_name] = value
         self._save_secrets(secrets)
 
-    def activate_model_key(self, env_name: str, *, prompt: bool = False) -> bool:
-        current = os.environ.get(env_name)
+    def activate_model_key(self, env_name: str, *, prompt: bool = False,
+                           persist: bool = True) -> bool:
+        current = os.environ.get(env_name, "").strip()
         if current:
-            if current != self.model_key(env_name):
+            if persist and current != self.model_key(env_name):
                 self.save_model_key(env_name, current)
             return True
         stored = self.model_key(env_name)
@@ -58,10 +61,11 @@ class LocalPreferences:
             os.environ[env_name] = stored
             return True
         if prompt:
-            entered = getpass.getpass("模型 API Key（输入不回显）: ")
+            entered = getpass.getpass(f"{env_name} API Key（输入不回显）: ").strip()
             if entered:
                 os.environ[env_name] = entered
-                self.save_model_key(env_name, entered)
+                if persist:
+                    self.save_model_key(env_name, entered)
                 return True
         return False
 
@@ -90,8 +94,8 @@ class LocalPreferences:
         if not path.exists():
             return {}
         try:
-            import win32crypt
             import pywintypes
+            import win32crypt
         except ImportError:
             return {}
         try:
@@ -109,7 +113,7 @@ class LocalPreferences:
         except ImportError as error:
             raise RuntimeError("Windows credential persistence requires pywin32") from error
         clear = json.dumps(secrets, ensure_ascii=False).encode("utf-8")
-        encrypted = win32crypt.CryptProtectData(clear, "StoryHarness", None, None, None, 0)
+        encrypted = win32crypt.CryptProtectData(clear, "StoryLoop", None, None, None, 0)
         self._write(self.directory / "credentials.dpapi", encrypted)
 
     @staticmethod

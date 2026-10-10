@@ -9,7 +9,7 @@ from typing import Protocol
 
 from httpx import Timeout
 
-from storyloop_platform.adapters.runtime_config import HarnessConfig
+from storyloop_platform.config import ModelFactory
 
 
 PROFILE_EXTRACTION_RULES = (
@@ -30,19 +30,16 @@ class PlayerMemory(Protocol):
 class Mem0PlayerMemory:
     """One embedded Qdrant instance per API process, persisted on the data volume."""
 
-    def __init__(self, config: HarnessConfig, path: Path) -> None:
-        if config.player_memory.driver != "mem0":
+    def __init__(self, factory: ModelFactory, path: Path) -> None:
+        if factory.settings.player_memory.driver != "mem0":
             raise ValueError("Mem0 player memory is not configured")
         path.mkdir(parents=True, exist_ok=True)
         os.environ.setdefault("MEM0_TELEMETRY", "false")
         os.environ.setdefault("MEM0_DIR", str(path))
         from mem0 import Memory
 
-        api_key = config.model_api_key()
-        if not api_key:
-            raise ValueError("player memory requires a model API key")
-        base_url = config.model_base_url()
-        dimensions = config.player_memory.embedding_dims
+        models = factory.memory_config()
+        dimensions = models['embedder']['config']['embedding_dims']
         self._memory = Memory.from_config({
             "vector_store": {
                 "provider": "qdrant",
@@ -55,30 +52,21 @@ class Mem0PlayerMemory:
             },
             # Only extracted preferences persist. Raw extraction messages stay in RAM.
             "history_db_path": ":memory:",
-            "llm": {
-                "provider": "openai",
-                "config": {
-                    "model": config.player_memory.llm_model,
-                    "api_key": api_key,
-                    "openai_base_url": base_url,
-                    "temperature": 0.1,
-                    "max_tokens": 500,
-                },
-            },
-            "embedder": {
-                "provider": "openai",
-                "config": {
-                    "model": config.player_memory.embedding_model,
-                    "api_key": api_key,
-                    "openai_base_url": base_url,
-                    "embedding_dims": dimensions,
-                },
-            },
+            **models,
             "custom_instructions": PROFILE_EXTRACTION_RULES,
         })
-        request_timeout = Timeout(60.0, connect=10.0)
-        for model in (self._memory.llm, self._memory.embedding_model):
-            model.client = model.client.with_options(timeout=request_timeout, max_retries=1)
+        for model, profile in (
+            (self._memory.llm, factory.settings.player_memory.extraction_profile),
+            (self._memory.embedding_model, factory.settings.player_memory.embedding_profile),
+        ):
+            definition = factory.settings.models[profile]
+            timeout = Timeout(definition.timeout_seconds, connect=definition.connect_timeout_seconds)
+            model.client = model.client.with_options(
+                api_key=factory.api_key(definition.provider),
+                base_url=factory.base_url(definition.provider),
+                timeout=timeout,
+                max_retries=definition.max_retries,
+            )
         self._lock = RLock()
 
     def list_memories(self, player_id: str) -> list[dict[str, str]]:

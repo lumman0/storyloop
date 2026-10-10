@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 from openai.types.chat import ChatCompletion
 
-from storyloop_platform.adapters.model_config import NpcModelConfig
+from model_helpers import create_test_model
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_harness.agents.scene_turn import SceneContextProjector, SingleSceneGenerator
 from storyloop_platform.portal.billing import collect_usage
@@ -23,8 +23,8 @@ async def _run_single_call_structured_reply():
     with tempfile.TemporaryDirectory() as directory:
         store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
         package.seed_game(store, "game")
-        model = NpcModelConfig("test-model", "test-key", "https://example.invalid/v1",
-                               task="single_scene", tool_choice_policy="auto_only").create_model()
+        model = create_test_model("test-model", "test-key", "https://example.invalid/v1",
+                               task="single_scene", tool_choice_policy="auto_only")
         model.client.chat.completions.create = AsyncMock(return_value=ChatCompletion.model_validate({
             "id": "test-completion", "created": 0, "model": "test-model",
             "object": "chat.completion",

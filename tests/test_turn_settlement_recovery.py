@@ -8,6 +8,7 @@ import pytest
 
 from storyloop_platform.portal.billing import record_model_usage
 from storyloop_harness.core.contracts import WorldEvent
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from committed_input import commit_player_input
 from test_turn_failure_contract import portal, ROOT
@@ -53,7 +54,7 @@ def test_settlement_recovers_after_restart_without_models_or_repricing(portal, m
     assert session.calls == 1
     db_path = portal.db_path
     portal.close()
-    reopened = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json", db_path)
+    reopened = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"), db_path)
     try:
         def no_models(*args, **kwargs):
             raise AssertionError("settlement recovery must not call a story model")
@@ -149,7 +150,4 @@ def test_platform_always_assembles_single_call_session(portal):
     package = ScenarioPackage.load(ROOT / "examples/freeform")
     package.seed_game(portal.store, "assembly")
     item = SimpleNamespace(package_path=str(ROOT / "examples/freeform"), turns_per_story_tick=1)
-    # An old in-memory configuration cannot select new beta execution.
-    portal.config = replace(portal.config, runtime=replace(portal.config.runtime,
-                                                          turn_engine="multi_agent_beta"))
     assert isinstance(portal._turn_engine(item, package, "assembly"), TurnEngine)

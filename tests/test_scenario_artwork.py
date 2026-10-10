@@ -12,6 +12,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_harness.core.contracts import Observation, WorldEvent
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
@@ -23,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class ScenarioArtworkTests(unittest.TestCase):
     def test_portrait_is_unavailable_until_actor_enters_visible_scene(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": ""},
         ):
             root = Path(temp)
@@ -62,7 +63,7 @@ class ScenarioArtworkTests(unittest.TestCase):
                             "portraits": {"dockhand": "art/dockhand.png"}},
                 "public_profiles": {"dockhand": "在码头工作，熟悉来往船只。"},
             }]}), encoding="utf-8")
-            portal = PlayerPortal(catalog, ROOT / "config/local.json", str(root / "game.sqlite3"))
+            portal = PlayerPortal(catalog, load_settings(ROOT / "config/local.json"), str(root / "game.sqlite3"))
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
                 owner = portal.register("owner", "password-123")["token"]
                 other = portal.register("other", "password-123")["token"]

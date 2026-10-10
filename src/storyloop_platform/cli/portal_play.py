@@ -5,14 +5,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import os
 import sys
 from uuid import uuid4
 
 from storyloop_platform.cli.guidance_view import format_turn_output
-from pathlib import Path
-from storyloop_platform.adapters.runtime_config import HarnessConfig
-from storyloop_platform.cli.config_paths import select_config
+from storyloop_platform.cli.startup import (
+    launch_portal,
+    persist_credentials,
+    prepare_credentials,
+)
 from storyloop_platform.portal.local_config import LocalPreferences
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.runtime.guidance import GuidanceResult
@@ -88,18 +89,18 @@ async def play(portal: PlayerPortal, preferences: LocalPreferences | None = None
                         raise ValueError("存档编号无效")
                     save = saves[index]
                     catalog_id = save["catalog_id"]
-                    operation = portal.resume_save(token, save["game_id"])
+                    resume = save["game_id"]
                 else:
                     index = int(choice) - 1
                     if index < 0 or index >= len(games):
                         raise ValueError("游戏编号无效")
                     catalog_id = games[index]["id"]
-                    operation = portal.create_save(token, catalog_id)
-                if preferences and not portal.config.model_api_key():
-                    preferences.activate_model_key(portal.config.api_key_env, prompt=True)
-                elif not preferences and not portal.config.model_api_key():
-                    os.environ[portal.config.api_key_env] = getpass.getpass("模型 API Key（输入不回显）: ")
-                view = await operation
+                    resume = None
+                names = prepare_credentials(portal.settings, preferences, prompt=True, require=True)
+                if preferences:
+                    persist_credentials(preferences, names)
+                view = await (portal.resume_save(token, resume) if resume is not None
+                              else portal.create_save(token, catalog_id))
             except (ValueError, IndexError, KeyError) as error:
                 print(f"[选择未生效] {error}")
                 continue
@@ -131,23 +132,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", help="scenario catalog; remembered after first launch")
     parser.add_argument("--profile", choices=("local", "online"), default="local")
-    parser.add_argument("--config", help="model config; remembered after first launch")
+    parser.add_argument("--config", help="deployment settings; remembered after successful local launch")
     parser.add_argument("--db", help="SQLite database shared by accounts and games")
     args = parser.parse_args()
     preferences = LocalPreferences() if args.profile == "local" else None
-    saved = preferences.load_settings() if preferences else {}
-    catalog = args.catalog or saved.get("catalog") or os.environ.get("STORY_CATALOG")
-    if not catalog:
-        parser.error("--catalog is required on first launch")
-    default_config = Path(__file__).resolve().parents[1] / "defaults" / f"{args.profile}.json"
-    config = select_config(args.config, saved.get("config"), default_config)
-    if HarnessConfig.load(config).profile != args.profile:
-        parser.error("--profile and config environment disagree")
-    portal = PlayerPortal(catalog, config, args.db or saved.get("db"))
-    if preferences:
-        preferences.save_settings(catalog, config, portal.db_path)
-        if not portal.config.model_api_key():
-            preferences.activate_model_key(portal.config.api_key_env)
+    try:
+        portal = launch_portal(profile=args.profile, config=args.config, catalog=args.catalog,
+                               db=args.db, preferences=preferences, prompt=sys.stdin.isatty(),
+                               portal_factory=PlayerPortal)
+    except FileNotFoundError:
+        parser.error("selected settings or catalog file does not exist")
+    except ValueError as error:
+        parser.error(str(error))
     sys.stdout.reconfigure(encoding="utf-8")
     asyncio.run(play(portal, preferences))
 

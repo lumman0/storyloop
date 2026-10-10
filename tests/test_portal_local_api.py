@@ -18,6 +18,7 @@ from openai import APIConnectionError
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.portal import local_config
 from storyloop_platform.portal.local_config import LocalPreferences
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 
 
@@ -46,11 +47,11 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
 
     def test_model_connection_failure_is_reported_as_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": ""},
         ):
-            portal = PlayerPortal(ROOT / "config" / "games.example.json",
-                                  ROOT / "config" / "local.json", str(Path(temp) / "game.sqlite3"))
+            portal = PlayerPortal(ROOT / "examples" / "catalog.json",
+                                  load_settings(ROOT / "config" / "local.json"), str(Path(temp) / "game.sqlite3"))
             token = portal.register("offline-user", "stream-pass-123")["token"]
 
             async def unavailable(*_args, **_kwargs):
@@ -75,11 +76,11 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
 
     def test_streamed_turn_reports_progress_and_final_view(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": ""},
         ):
-            portal = PlayerPortal(ROOT / "config" / "games.example.json",
-                                  ROOT / "config" / "local.json", str(Path(temp) / "game.sqlite3"))
+            portal = PlayerPortal(ROOT / "examples" / "catalog.json",
+                                  load_settings(ROOT / "config" / "local.json"), str(Path(temp) / "game.sqlite3"))
             token = portal.register("stream-user", "stream-pass-123")["token"]
 
             async def scripted_turn(auth, game_id, text, request_id, progress=None):
@@ -102,39 +103,19 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                              ["stage", "stage", "preview", "complete"])
             self.assertEqual(events[-1]["view"]["body"], "你好！")
 
-    def test_local_secret_file_allows_a_save_without_key_environment_variable(self) -> None:
-        with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "", "LANGFUSE_PUBLIC_KEY": "",
-                         "LANGFUSE_SECRET_KEY": ""},
-        ):
-            root = Path(temp)
-            config = json.loads((ROOT / "config" / "local.json").read_text(encoding="utf-8"))
-            (root / "local.json").write_text(json.dumps(config), encoding="utf-8")
-            (root / "application.local.json").write_text(json.dumps({
-                "schema_version": 1, "models": {"api_key": "file-test-key"},
-            }), encoding="utf-8")
-            portal = PlayerPortal(ROOT / "config" / "games.example.json",
-                                  root / "local.json", str(root / "game.sqlite3"))
-            try:
-                token = portal.register("file-user", "file-pass-123")["token"]
-                view = asyncio.run(portal.create_save(token, "npc-chat"))
-                self.assertEqual(view["catalog_id"], "npc-chat")
-            finally:
-                portal.close()
-
     def test_local_settings_login_and_api_save(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ,
-            {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
              "LANGFUSE_SECRET_KEY": ""},
         ):
             db = Path(temp) / "portal.sqlite3"
-            catalog = ROOT / "config" / "games.example.json"
-            config = ROOT / "config" / "bailian-token-plan.json"
+            catalog = ROOT / "examples" / "catalog.json"
+            config = ROOT / "config" / "local.json"
             preferences = LocalPreferences(Path(temp) / "settings")
             preferences.save_settings(catalog, config, db)
-            preferences.save_model_key("STORY_BAILIAN_API_KEY", "offline-test")
-            portal = PlayerPortal(catalog, config, str(db))
+            preferences.save_model_key("STORY_MODEL_API_KEY", "offline-test")
+            portal = PlayerPortal(catalog, load_settings(config), str(db))
 
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
                 self.assertEqual(client.get("/docs").status_code, 200)
@@ -149,13 +130,13 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                 self.assertNotIn(token, (preferences.directory / "settings.json").read_text())
                 self.assertNotIn("offline-test", (preferences.directory / "settings.json").read_text())
                 if os.name == "nt":
-                    self.assertEqual(restored.model_key("STORY_BAILIAN_API_KEY"), "offline-test")
+                    self.assertEqual(restored.model_key("STORY_MODEL_API_KEY"), "offline-test")
                     self.assertEqual(restored.session(db)["token"], token)
                     encrypted = (preferences.directory / "credentials.dpapi").read_bytes()
                     self.assertNotIn(token.encode(), encrypted)
                     self.assertNotIn(b"offline-test", encrypted)
                 else:
-                    self.assertIsNone(restored.model_key("STORY_BAILIAN_API_KEY"))
+                    self.assertIsNone(restored.model_key("STORY_MODEL_API_KEY"))
                     self.assertIsNone(restored.session(db))
                     self.assertEqual({path.name for path in preferences.directory.iterdir()},
                                      {"settings.json"})

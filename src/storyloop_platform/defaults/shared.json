@@ -1,0 +1,75 @@
+{
+  "providers": {
+    "default": {
+      "base_url": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key_env": "STORY_MODEL_API_KEY",
+      "base_url_env": "STORY_MODEL_BASE_URL"
+    }
+  },
+  "models": {
+    "story": {
+      "kind": "chat",
+      "provider": "default",
+      "model": "deepseek-v4.1-flash",
+      "tool_choice_policy": "auto_only",
+      "structured_output_transport": "tool_call",
+      "rate": {
+        "pricing_version": "2026-10-03-deepseek-v4.1-peak-reference",
+        "input_rmb_per_million": "2",
+        "output_rmb_per_million": "8",
+        "cached_input_rmb_per_million": "0.2",
+        "multiplier": "1"
+      },
+      "extra_body": {
+        "enable_thinking": false
+      },
+      "context_window_tokens": 1000000
+    },
+    "memory_extraction": {
+      "kind": "chat",
+      "provider": "default",
+      "model": "qwen3.8-flash",
+      "timeout_seconds": 60,
+      "connect_timeout_seconds": 10,
+      "max_retries": 1,
+      "tool_choice_policy": "auto_only",
+      "structured_output_transport": "tool_call",
+      "rate": {
+        "pricing_version": "2026-10-03-deepseek-v4.1-peak-reference",
+        "input_rmb_per_million": "0.8",
+        "output_rmb_per_million": "2.7",
+        "cached_input_rmb_per_million": "0.1",
+        "multiplier": "1"
+      },
+      "generation": {
+        "temperature": 0.1,
+        "max_tokens": 500
+      }
+    },
+    "memory_embedding": {
+      "kind": "embedding",
+      "provider": "default",
+      "model": "text-embedding-v4",
+      "timeout_seconds": 60,
+      "connect_timeout_seconds": 10,
+      "max_retries": 1,
+      "dimensions": 1024
+    }
+  },
+  "routes": {
+    "single_turn": "story",
+    "adjudication": "story",
+    "narration": "story",
+    "prologue": "story",
+    "followup_actions": "story"
+  },
+  "runtime": {
+    "max_steps": 8,
+    "max_npc_replies": 3,
+    "context_window_tokens": 65536
+  },
+  "credits": {
+    "welcome_points": 500,
+    "points_per_rmb": 50
+  }
+}

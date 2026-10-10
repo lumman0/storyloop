@@ -19,6 +19,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.portal.user_scenarios import UserScenarioService
 from storyloop_platform.portal import user_scenarios as upload_module
@@ -39,13 +40,13 @@ def archive(files: dict[str, bytes] | None = None) -> bytes:
 
 class UserScenarioUploadTests(unittest.TestCase):
     def portal(self, directory: Path) -> PlayerPortal:
-        return PlayerPortal(ROOT / "config" / "games.example.json",
-                            ROOT / "config" / "local.json", str(directory / "portal.sqlite3"),
+        return PlayerPortal(ROOT / "examples" / "catalog.json",
+                            load_settings(ROOT / "config" / "local.json"), str(directory / "portal.sqlite3"),
                             prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
 
     def test_missing_prologue_is_generated_once_for_each_saved_version(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -75,7 +76,7 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_upload_stays_private_until_author_publishes(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -108,7 +109,7 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_http_upload_requires_authentication_and_accepts_zip(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -140,7 +141,7 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_unsafe_archive_is_rejected_without_creating_draft(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -165,7 +166,7 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_zip_symlink_and_large_unpacked_file_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -205,7 +206,7 @@ class UserScenarioUploadTests(unittest.TestCase):
                 shutil.rmtree(self.materialize(reference), ignore_errors=True)
 
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -225,13 +226,13 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_official_catalog_id_with_usr_prefix_still_plays(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             catalog = Path(temp) / "official.json"
             catalog.write_text(json.dumps({"games": [{"id": "usr_event", "title": "Official",
                 "mode": "freeform", "package": str(EXAMPLE)}]}), encoding="utf-8")
-            portal = PlayerPortal(catalog, ROOT / "config" / "local.json",
+            portal = PlayerPortal(catalog, load_settings(ROOT / "config" / "local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             try:
                 token = portal.register("author", "upload-pass-123")["token"]
@@ -242,7 +243,7 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_concurrent_uploads_obey_author_quota(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ):
             portal = self.portal(Path(temp))
@@ -273,7 +274,7 @@ class UserScenarioUploadTests(unittest.TestCase):
 
     def test_author_can_delete_only_unpublished_draft_and_reuse_quota(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": "", "STORY_UPLOAD_DIR": str(Path(temp) / "uploads")},
         ), patch.object(upload_module, "MAX_SCENARIOS_PER_AUTHOR", 1):
             portal = self.portal(Path(temp))

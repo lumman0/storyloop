@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from committed_input import commit_player_input
 from test_scenario_lifecycle_concurrency import archive
@@ -19,10 +20,10 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture
 def portal(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.setenv("STORY_BAILIAN_API_KEY", "offline-test")
+    monkeypatch.setenv("STORY_MODEL_API_KEY", "offline-test")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
-    instance = PlayerPortal(ROOT / "config/games.example.json", ROOT / "config/local.json",
+    instance = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                             str(tmp_path / "portal.sqlite3"),
                             prologue_generator=lambda *_: "A quiet opening.")
     try:

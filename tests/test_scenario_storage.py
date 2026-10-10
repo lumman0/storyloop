@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from storyloop_platform.portal.catalog import GameCatalog
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 
 
@@ -62,12 +63,12 @@ class ScenarioStorageTests(unittest.TestCase):
 
     def test_portal_lists_games_from_injected_catalog(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"STORY_BAILIAN_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
+            os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": ""},
         ):
             root = Path(__file__).resolve().parents[1]
             catalog = GameCatalog.from_sources(InMemoryCatalogSource(), MovingPackageStore(EXAMPLE))
-            portal = PlayerPortal(None, root / "config" / "local.json",
+            portal = PlayerPortal(None, load_settings(root / "config" / "local.json"),
                                   str(Path(temp) / "game.sqlite3"),
                                   catalog=catalog)
             try:

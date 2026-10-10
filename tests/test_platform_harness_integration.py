@@ -21,7 +21,7 @@ class PricedOfflineModel(OfflineModel):
 
 
 def test_sql_portal_calls_public_engine_and_settles_returned_usage_once(portal, monkeypatch):
-    monkeypatch.setattr(type(portal.config), 'create_model', lambda *a, **k: PricedOfflineModel())
+    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: PricedOfflineModel())
     calls = []
     run = TurnEngine.run_turn
 
@@ -55,7 +55,7 @@ def test_sql_portal_model_failure_keeps_world_and_wallet(portal, monkeypatch, mi
             if missing_usage:
                 record_model_usage('qwen3.8-flash', 'single_turn', None)
             raise RuntimeError('offline model failed')
-    monkeypatch.setattr(type(portal.config), 'create_model', lambda *a, **k: FailedModel())
+    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: FailedModel())
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'npc-chat'))['game_id']
     before, wallet = portal.store.load(game), portal.wallet(token)
@@ -91,7 +91,7 @@ def campaign_portal(portal, tmp_path, monkeypatch):
     catalog.write_text(json.dumps({'games': [{'id': 'campaign', 'title': 'Campaign',
                        'mode': 'campaign', 'package': 'campaign'}]}), encoding='utf-8')
     portal.catalog = GameCatalog.load(catalog)
-    monkeypatch.setattr(type(portal.config), 'create_model', lambda *a, **k: PricedOfflineModel())
+    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: PricedOfflineModel())
     return portal
 
 
@@ -147,7 +147,7 @@ def test_sql_store_preserves_public_commit_version_contract(portal):
 
 def test_product_and_engine_usage_are_merged_once(portal, monkeypatch):
     from storyloop_platform.runtime.guidance import GuidanceAdvisor
-    monkeypatch.setattr(type(portal.config), 'create_model', lambda *a, **k: PricedOfflineModel())
+    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: PricedOfflineModel())
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'npc-chat'))['game_id']
     advise = GuidanceAdvisor.advise

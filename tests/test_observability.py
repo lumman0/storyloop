@@ -14,7 +14,7 @@ from agentscope.credential import OpenAICredential
 from agentscope_fakes import ChatModelBase, ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
-from storyloop_platform.adapters.model_config import CompatibleOpenAIChatModel
+from storyloop_harness.generation import CompatibleOpenAIChatModel
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, configured_telemetry, observed_tool
 from storyloop_harness.world.scenario import ScenarioPackage

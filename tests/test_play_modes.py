@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.runtime.campaign import CampaignProgram
 
@@ -53,8 +54,8 @@ class PlayModeTests(unittest.TestCase):
                 "package": "scenario"}]}), encoding="utf-8")
             db_path = str(root / "game.sqlite3")
 
-            with patch.dict(os.environ, {"STORY_BAILIAN_API_KEY": "offline-test"}):
-                portal = PlayerPortal(catalog, ROOT / "config/local.json", db_path)
+            with patch.dict(os.environ, {"STORY_MODEL_API_KEY": "offline-test"}):
+                portal = PlayerPortal(catalog, load_settings(ROOT / "config/local.json"), db_path)
                 token = portal.register("mode-player", "password-123")["token"]
                 portal._action_options = AsyncMock(return_value=())
                 portal._novel_presenter = lambda *_: ForbiddenNovelPresenter()
@@ -79,7 +80,7 @@ class PlayModeTests(unittest.TestCase):
                                  {"campaign", "freeform"})
                 portal.close()
 
-                reopened = PlayerPortal(catalog, ROOT / "config/local.json", db_path)
+                reopened = PlayerPortal(catalog, load_settings(ROOT / "config/local.json"), db_path)
                 self.assertEqual(asyncio.run(reopened.resume_save(token, open_world["game_id"]))["mode"],
                                  "freeform")
                 reopened.close()

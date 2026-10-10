@@ -12,6 +12,8 @@ RUN python /build/platform/scripts/build_harness.py --out-dir /wheels \
     && pip wheel --wheel-dir /wheels /wheels/storyloop_harness-*.whl "/build/platform[agents,portal,online,observability,player-memory]" \
     && pip install --no-cache-dir --no-index --find-links=/wheels "storyloop-platform[agents,portal,online,observability,player-memory]==0.1.0"
 COPY alembic.ini ./
+# Shared model defaults are installed with the wheel; this deployment override
+# may be replaced by the read-only settings mount in compose.yaml.
 COPY config/online.json ./config/online.json
 
 EXPOSE 8765
