@@ -8,6 +8,7 @@ PUBLIC_MODULES = frozenset({
     'storyloop_harness.telemetry', 'storyloop_harness.usage', 'storyloop_harness.testing',
 })
 PRIVATE_ROOTS = frozenset({'core', 'runtime', 'world', 'agents', 'models', 'adapters'})
+PRIVATE_TESTING_MODULES = frozenset({'memory', 'offline_model', 'projection'})
 
 
 def harness_import_violations(source):
@@ -24,7 +25,8 @@ def harness_import_violations(source):
             module = node.module or ''
             for item in node.names:
                 aliases[item.asname or item.name] = f'{module}.{item.name}'
-                if module == 'storyloop_harness' and item.name in PRIVATE_ROOTS:
+                if ((module == 'storyloop_harness' and item.name in PRIVATE_ROOTS) or
+                        (module == 'storyloop_harness.testing' and item.name in PRIVATE_TESTING_MODULES)):
                     violations.add((node.lineno, f'{module}.{item.name}'))
             if module.startswith('storyloop_harness') and module not in PUBLIC_MODULES:
                 violations.add((node.lineno, module))
@@ -42,18 +44,26 @@ def harness_import_violations(source):
         return (len(parts) > 1 and parts[0] == 'storyloop_harness' and (
             parts[1] in PRIVATE_ROOTS or
             (len(parts) > 2 and parts[1] == 'testing' and
-             parts[2] in {'memory', 'offline_model', 'projection'})))
+             parts[2] in PRIVATE_TESTING_MODULES)))
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
             target = dotted(node)
             if private_target(target):
                 violations.add((node.lineno, target))
-        if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
-            target = node.args[0].value
+        if isinstance(node, ast.Call):
+            called = dotted(node.func)
+            keyword = {'importlib.import_module': 'name', '__import__': 'name',
+                       'unittest.mock.patch': 'target'}.get(called)
+            if keyword is None:
+                continue
+            argument = node.args[0] if node.args else next(
+                (item.value for item in node.keywords if item.arg == keyword), None)
+            if not isinstance(argument, ast.Constant):
+                continue
+            target = argument.value
             if not isinstance(target, str) or not target.startswith('storyloop_harness'):
                 continue
-            called = dotted(node.func)
             if called in {'importlib.import_module', '__import__'} and target not in PUBLIC_MODULES:
                 violations.add((node.lineno, target))
             elif called == 'unittest.mock.patch' and private_target(target):
