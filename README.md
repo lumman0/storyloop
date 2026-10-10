@@ -43,16 +43,18 @@ Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
 .\.venv\Scripts\python.exe scripts/check_environment.py --config config/local.json
 ```
 
-环境检查应指向本仓库的解释器与源码；它检查导入位置和配置存储驱动，不验证数据库或模型连通性。
+环境检查应指向本仓库的解释器与源码；它通过纯配置加载器检查导入归属、Git 提交和完整配置结构，不初始化凭据、模型客户端或数据库。
 
 真实游玩需要模型密钥。下面通过环境变量提供密钥并启动本地 API：
 
 ```powershell
-$env:STORY_BAILIAN_API_KEY = "your-api-key"
-.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog config/games.example.json --config config/local.json --db game.sqlite3
+$env:STORY_MODEL_API_KEY = "your-api-key"
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog examples/catalog.json
 ```
 
-也可将 `config/application.local.example.json` 复制为被 Git 忽略的 `config/application.local.json`，填写 `models.api_key`；`config/local.json` 会相对于自身目录读取此文件，非空的 `STORY_BAILIAN_API_KEY` 优先。当前本地配置指定百炼香港 OpenAI 兼容端点与 `deepseek-v4.1-flash`；如使用其他服务，调整配置中的端点、任务模型与计费设置。Windows 本地 CLI 在缺少密钥时可交互询问并通过 DPAPI 保存。
+本地 CLI 首次启动使用包内默认配置。缺少密钥时可在交互终端输入，Windows 通过 DPAPI 保护记住的凭据。非空的供应商密钥环境变量优先，其次是记住的凭据，最后是交互输入；非交互运行不会询问。非空的 `STORY_MODEL_BASE_URL` 覆盖默认供应商端点。
+
+本地剧本目录选择优先级为 `--catalog`、`STORY_CATALOG`、记住的目录。不传 `--config` 时，成功启动会记住自定义配置路径（或使用包内默认配置）和数据库路径；`--db` 覆盖记住的数据库。显式传入 `--config` 会重新选择，需要同时提供 `--catalog` 或 `STORY_CATALOG`，不会继承记住的配置或数据库路径。线上启动使用 `--profile online`，不读取本地记住的路径、不交互询问密钥，并在创建资源前验证必要的部署环境变量。`--profile` 必须与配置的 `environment` 一致。
 
 另开终端启动前端：
 
@@ -64,7 +66,81 @@ npm run dev
 
 访问 [本地前端](http://127.0.0.1:5173) 注册、创建存档并游玩。Vite 将 `/v1` 代理到 `127.0.0.1:8765`，API 文档位于 [本地 API /docs](http://127.0.0.1:8765/docs)。本地默认使用 SQLite，玩家画像默认关闭。
 
-macOS/Linux 用 `python3.12 -m venv .venv` 创建环境，将 Python 路径替换为 `.venv/bin/python`；环境变量使用 `export STORY_BAILIAN_API_KEY="your-api-key"`，清除导入覆盖使用 `unset PYTHONPATH`。其余 CLI 参数和 npm 命令相同。
+macOS/Linux 用 `python3.12 -m venv .venv` 创建环境，将 Python 路径替换为 `.venv/bin/python`；环境变量使用 `export STORY_MODEL_API_KEY="your-api-key"`，清除导入覆盖使用 `unset PYTHONPATH`。其余 CLI 参数和 npm 命令相同。
+
+## 配置与模型路由
+
+`default_settings("local")` 和 `default_settings("online")` 加载包内共享模型配置及对应部署配置；`load_settings(path)` 应用外部 JSON 覆盖，省略 `environment` 表示本地。`config/local.json` 与 `config/online.json` 只包含存储、HTTP 和玩家记忆的少量部署差异，不复制模型目录。`examples/catalog.json` 的 `freeform` 和 `scheduled` 剧本包路径相对于该目录文件所在目录。
+
+供应商定义端点和凭据环境变量引用；模型配置引用供应商，定义模型名称、生成参数、上下文窗口、超时重试、接口适配选项和价格快照；任务路由（`single_turn`、`adjudication`、`narration`、`prologue`、`followup_actions`）选择聊天模型配置。玩家记忆分别选择提炼与向量模型配置。`credits` 定义赠送积分和每人民币对应积分，模型的 `rate` 定义供应商价格、缓存输入价格、倍率与价格版本。内置价格和能力是示例快照，未经实时验证，不构成当前价格或能力保证。
+
+完整的模型覆盖示例如下，保存为 `config/custom.local.json`。它使用与默认配置相同的示例供应商和模型；换用其他服务时，应调整端点、模型、能力参数和价格：
+
+```json
+{
+  "environment": "local",
+  "providers": {
+    "default": {
+      "base_url": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key_env": "STORY_MODEL_API_KEY",
+      "base_url_env": "STORY_MODEL_BASE_URL"
+    }
+  },
+  "models": {
+    "story": {
+      "kind": "chat",
+      "provider": "default",
+      "model": "deepseek-v4.1-flash",
+      "generation": {"temperature": 0.7},
+      "extra_body": {"enable_thinking": false},
+      "tool_choice_policy": "auto_only",
+      "structured_output_transport": "tool_call",
+      "context_window_tokens": 1000000,
+      "rate": {
+        "pricing_version": "sample-2026-10-03",
+        "input_rmb_per_million": "2",
+        "output_rmb_per_million": "8",
+        "cached_input_rmb_per_million": "0.2",
+        "multiplier": "1"
+      }
+    }
+  },
+  "routes": {
+    "single_turn": "story",
+    "adjudication": "story",
+    "narration": "story",
+    "prologue": "story",
+    "followup_actions": "story"
+  }
+}
+```
+
+验证并启动：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_environment.py --config config/custom.local.json
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog examples/catalog.json --config config/custom.local.json
+```
+
+`providers`、`models`、`routes` 整张映射替换，需包含所需的全部条目和路由。固定配置段（`runtime`、`http`、`player_memory`、`credits`）合并一层；存储驱动相同时合并，改变驱动时替换。外部配置中的相对 SQLite 路径基于配置文件目录解析，除非显式指定 `storage.path_base: "cwd"`；包内默认路径基于当前工作目录。密钥只放在引用的环境变量中，不写入配置 JSON。
+
+新存档从 `single_turn` 取得默认温度（未设置时为 1.0）。存档相关的场景、叙述、裁定和后续建议生成使用该存档保存的温度覆盖，包括更新设置后；没有传入存档覆盖时使用各模型配置自己的温度。独立开场生成使用自己的模型配置。
+
+显式检查模型访问：
+
+```powershell
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.model_check --profile local --config config/custom.local.json --task single_turn --task followup_actions
+```
+
+此命令会实际请求供应商，可能产生费用。省略 `--task` 会检查全部已配置路由；`--help` 可离线运行。模型检查无需数据库或玩家记忆资源，包括使用 `--profile online` 时。
+
+## 部署示例
+
+`deploy/ecs` 中的 Compose 文件构建并安装 API 包，使用包内线上默认配置。将 `.env.example` 复制为 `.env` 并妥善保密，将 `config/online.json` 复制到 `STORY_SETTINGS_FILE` 指定的主机绝对路径（例如 `/srv/storyloop-settings/online.json`）。Compose 将该文件只读挂载到 `/app/config/online.json`，API 使用 `--profile online --config /app/config/online.json` 选择它。未指定 `STORY_SETTINGS_FILE` 时，Compose 挂载仓库中的 `config/online.json`。
+
+在 `.env` 设置供应商密钥和端点、URL 安全的 PostgreSQL 密码、持久化数据和私人剧本目录、公开允许主机和浏览器来源；然后从仓库根目录执行 `docker compose --env-file deploy/ecs/.env -f deploy/ecs/compose.yaml up --build -d`。私人目录为 `/app/private/catalog.json`，上传和记忆路径分别为 `/app/uploads`、`/app/memory`；Compose 提供 `DATABASE_URL`、`STORY_UPLOAD_DIR` 和 `STORY_MEMORY_DIR`。收集玩家偏好需设置 `STORY_PLAYER_MEMORY_ENABLED=1` 并获得玩家同意；即使关闭收集，已配置的 Mem0 仍需模型配置和凭据，以读取或删除已有偏好。
+
+默认故事、记忆提炼和向量模型共享默认供应商。自定义配置可使用不同供应商和环境变量引用，需把每个引用变量加入 API 服务的 Compose `environment` 和 `.env`。替换线上模型映射时应保留两个记忆模型配置，或显式选择 `player_memory.driver: "none"` 并把 `extraction_profile`、`embedding_profile` 置为 `null`。Langfuse 和内容追踪仍按需开启。
 
 ## 开发与验证
 
@@ -73,7 +149,7 @@ macOS/Linux 用 `python3.12 -m venv .venv` 创建环境，将 Python 路径替�
 ```powershell
 .\.venv\Scripts\python.exe -m pip install uv==0.11.25 dist/harness/storyloop_harness-0.2.0-py3-none-any.whl -e ".[agents,portal,observability,player-memory,online,test]"
 $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-$env:STORY_BAILIAN_API_KEY = "offline-test"
+$env:STORY_MODEL_API_KEY = "offline-test"
 $env:LANGFUSE_PUBLIC_KEY = ""
 $env:LANGFUSE_SECRET_KEY = ""
 .\.venv\Scripts\python.exe -m pytest tests -q
@@ -88,8 +164,8 @@ npm run build
 ```text
 src/storyloop_platform/  API、SQL、配置、模型适配、计费和 CLI
 web/                    React / Vite 前端
-config/                 运行配置与剧本目录示例
-examples/               合成剧本包
+config/                 少量部署配置覆盖
+examples/               剧本目录与合成剧本包
 tests/                  后端与独立安装回归
 deploy/ecs/             Docker Compose 部署资源
 ```

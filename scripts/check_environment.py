@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,15 +44,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"git_sha: {sha}")
 
     try:
-        payload = json.loads(config.read_text(encoding="utf-8"))
-        driver = payload["storage"]["driver"]
-        if driver not in ("sqlite", "postgresql"):
-            raise ValueError("unsupported driver")
-    except (OSError, ValueError, KeyError, TypeError):
+        from storyloop_platform.config import load_settings
+
+        settings = load_settings(config)
+    except (OSError, ValueError, TypeError):
         # Config values and exception text can contain keys or database passwords.
-        print("error: cannot read storage driver from config", file=sys.stderr)
+        print("error: cannot load settings", file=sys.stderr)
         return 1
-    print(f"storage_driver: {driver}")
+    print(f"storage_driver: {settings.storage.driver}")
     return 0
 
 

@@ -10,6 +10,7 @@ dist/
 .env.*
 !deploy/ecs/.env.example
 config/application.local.json
+config/*.local.json
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo

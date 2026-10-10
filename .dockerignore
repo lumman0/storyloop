@@ -18,5 +18,6 @@ deploy/ecs/.env
 deploy/ecs/private
 deploy/ecs/data
 config/application.local.*
+config/*.local.json
 docs
 tests

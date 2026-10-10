@@ -43,16 +43,18 @@ Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
 .\.venv\Scripts\python.exe scripts/check_environment.py --config config/local.json
 ```
 
-The environment check should point to this checkout's interpreter and source. It checks import locations and the configured storage driver, without testing database or model connectivity.
+The environment check should point to this checkout's interpreter and source. It checks import ownership, Git revision, and the complete settings schema using the pure loader. It does not initialize credentials, model clients, or databases.
 
 Live play requires a model key. Set it in the environment and start the local API:
 
 ```powershell
-$env:STORY_BAILIAN_API_KEY = "your-api-key"
-.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog config/games.example.json --config config/local.json --db game.sqlite3
+$env:STORY_MODEL_API_KEY = "your-api-key"
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog examples/catalog.json
 ```
 
-Alternatively, copy `config/application.local.example.json` to the Git-ignored `config/application.local.json` and fill in `models.api_key`. `config/local.json` resolves this file relative to its own directory; a nonempty `STORY_BAILIAN_API_KEY` takes precedence. The current local configuration selects Bailian's Hong Kong OpenAI-compatible endpoint and `deepseek-v4.1-flash`; adjust the endpoint, task models, and billing settings for another service. On Windows, the local CLI can prompt for a missing key and save it with DPAPI protection.
+The local CLI uses packaged defaults on the first launch. Missing keys can be entered at an interactive prompt; Windows protects remembered credentials with DPAPI. A nonempty provider key environment variable takes priority over remembered credentials, then the prompt. Noninteractive runs cannot prompt. `STORY_MODEL_BASE_URL` overrides the default provider endpoint when nonempty.
+
+Local launch selection is `--catalog`, then `STORY_CATALOG`, then the remembered catalog. Without `--config`, successful local launches remember the custom settings path (or packaged defaults) and database path; `--db` overrides the remembered database. An explicit `--config` starts a fresh selection and requires `--catalog` or `STORY_CATALOG`; it does not inherit remembered settings or database paths. Online launches use `--profile online`, have no remembered local paths or key prompt, and validate required deployment environment values before creating resources. `--profile` must match the settings `environment`.
 
 Start the frontend in another terminal:
 
@@ -64,7 +66,81 @@ npm run dev
 
 Open the [local frontend](http://127.0.0.1:5173) to register, create a save, and play. Vite proxies `/v1` to `127.0.0.1:8765`; API documentation is available at [local API /docs](http://127.0.0.1:8765/docs). Local mode uses SQLite and disables player profiles by default.
 
-On macOS/Linux, create the environment with `python3.12 -m venv .venv` and replace Python paths with `.venv/bin/python`. Use `export STORY_BAILIAN_API_KEY="your-api-key"` for the key and `unset PYTHONPATH` to clear import overrides. Other CLI arguments and npm commands are the same.
+On macOS/Linux, create the environment with `python3.12 -m venv .venv` and replace Python paths with `.venv/bin/python`. Use `export STORY_MODEL_API_KEY="your-api-key"` for the key and `unset PYTHONPATH` to clear import overrides. Other CLI arguments and npm commands are the same.
+
+## Settings and model routing
+
+`default_settings("local")` and `default_settings("online")` load shared packaged model defaults plus a deployment profile. `load_settings(path)` applies an external JSON override; omitted `environment` means local. `config/local.json` and `config/online.json` are small storage, HTTP, and player memory overrides, rather than duplicated model catalogs. `examples/catalog.json` references scenario packages `freeform` and `scheduled` relative to the catalog directory.
+
+Providers define endpoints and credential environment references. Model profiles reference a provider and own the model name, generation options, context window, timeout/retry policy, compatibility options, and tariff snapshot. Task routes (`single_turn`, `adjudication`, `narration`, `prologue`, `followup_actions`) select chat profiles. Player memory independently selects extraction and embedding profiles. `credits` defines welcome points and points per RMB; each model's `rate` defines provider tariffs, cached input prices, multiplier, and pricing version. The included prices and capabilities are sample snapshots, not live verified tariffs or capability guarantees.
+
+For a complete model override, save the following as `config/custom.local.json`. It uses the same sample provider/model as the defaults; replace the endpoint, model, capabilities, and rates with values appropriate for your service:
+
+```json
+{
+  "environment": "local",
+  "providers": {
+    "default": {
+      "base_url": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key_env": "STORY_MODEL_API_KEY",
+      "base_url_env": "STORY_MODEL_BASE_URL"
+    }
+  },
+  "models": {
+    "story": {
+      "kind": "chat",
+      "provider": "default",
+      "model": "deepseek-v4.1-flash",
+      "generation": {"temperature": 0.7},
+      "extra_body": {"enable_thinking": false},
+      "tool_choice_policy": "auto_only",
+      "structured_output_transport": "tool_call",
+      "context_window_tokens": 1000000,
+      "rate": {
+        "pricing_version": "sample-2026-10-03",
+        "input_rmb_per_million": "2",
+        "output_rmb_per_million": "8",
+        "cached_input_rmb_per_million": "0.2",
+        "multiplier": "1"
+      }
+    }
+  },
+  "routes": {
+    "single_turn": "story",
+    "adjudication": "story",
+    "narration": "story",
+    "prologue": "story",
+    "followup_actions": "story"
+  }
+}
+```
+
+Validate and launch it with:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_environment.py --config config/custom.local.json
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.portal_api --catalog examples/catalog.json --config config/custom.local.json
+```
+
+`providers`, `models`, and `routes` replace their entire maps; include every entry and route you need. Fixed sections (`runtime`, `http`, `player_memory`, `credits`) merge one level. Storage merges when its driver is unchanged and replaces when the driver changes. External relative SQLite paths resolve from the settings file's directory unless `storage.path_base` is `cwd`; packaged defaults use the working directory. Credentials belong in the referenced environment variables, never settings JSON.
+
+New saves take their default temperature from `single_turn` (1.0 when unset). Save related scene, narration, adjudication, and followup generation use the saved temperature override, including after a settings update; each profile's temperature applies when no save override is passed. Standalone prologue generation uses its own profile.
+
+To check configured model access explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe -m storyloop_platform.cli.model_check --profile local --config config/custom.local.json --task single_turn --task followup_actions
+```
+
+This command makes real provider requests and may incur charges. Omit `--task` to check all configured routes. `--help` is offline; the checker does not require database or player memory resources, including with `--profile online`.
+
+## Deployment example
+
+The Compose files in `deploy/ecs` build an installed API package and use the packaged online defaults. Copy `.env.example` to `.env`, keep it private, and copy `config/online.json` to the absolute host path in `STORY_SETTINGS_FILE` (for example `/srv/storyloop-settings/online.json`). Compose mounts that file read only at `/app/config/online.json`; the API selects it with `--profile online --config /app/config/online.json`. If `STORY_SETTINGS_FILE` is omitted, Compose mounts the repository's `config/online.json`.
+
+Set the provider key/endpoint, URL-safe PostgreSQL password, persistent data/private scenario directories, public allowed hosts, and browser origins in `.env`, then run `docker compose --env-file deploy/ecs/.env -f deploy/ecs/compose.yaml up --build -d` from the repository root. The private catalog is `/app/private/catalog.json`; upload and memory paths are `/app/uploads` and `/app/memory`. Compose supplies `DATABASE_URL`, `STORY_UPLOAD_DIR`, and `STORY_MEMORY_DIR`. Collection of player preferences requires `STORY_PLAYER_MEMORY_ENABLED=1` and player consent; configured Mem0 still needs its profiles/credentials for existing preference read/delete access when collection is disabled.
+
+The default story, memory extraction, and embedding profiles share the default provider. Custom profiles can use separate providers and environment references; add each referenced variable to the API service's Compose `environment` block and `.env`. Keep both memory profiles when replacing online model maps, or explicitly select `player_memory.driver: "none"` and clear `extraction_profile`/`embedding_profile` to `null`. Optional Langfuse settings and content tracing remain opt in.
 
 ## Development and verification
 
@@ -73,7 +149,7 @@ Install the test integrations and the uv version used by CI, then run the backen
 ```powershell
 .\.venv\Scripts\python.exe -m pip install uv==0.11.25 dist/harness/storyloop_harness-0.2.0-py3-none-any.whl -e ".[agents,portal,observability,player-memory,online,test]"
 $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-$env:STORY_BAILIAN_API_KEY = "offline-test"
+$env:STORY_MODEL_API_KEY = "offline-test"
 $env:LANGFUSE_PUBLIC_KEY = ""
 $env:LANGFUSE_SECRET_KEY = ""
 .\.venv\Scripts\python.exe -m pytest tests -q
@@ -88,8 +164,8 @@ For browser regressions, also run `npx playwright install chromium` and `npm run
 ```text
 src/storyloop_platform/  API, SQL, configuration, model adapters, billing, CLI
 web/                    React / Vite frontend
-config/                 Runtime configuration and catalog examples
-examples/               Synthetic scenario packages
+config/                 Small deployment settings overrides
+examples/               Catalog and synthetic scenario packages
 tests/                  Backend and independent installation regressions
 deploy/ecs/             Docker Compose deployment resources
 ```

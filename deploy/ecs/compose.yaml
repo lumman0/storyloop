@@ -30,8 +30,8 @@ services:
     logging: *json-logging
     environment:
       DATABASE_URL: postgresql+psycopg://story:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/story
-      STORY_BAILIAN_API_KEY: ${STORY_BAILIAN_API_KEY:?Set a pay-as-you-go Model Studio API key in .env}
-      STORY_BAILIAN_BASE_URL: ${STORY_BAILIAN_BASE_URL:-}
+      STORY_MODEL_API_KEY: ${STORY_MODEL_API_KEY:?Set the provider API key in .env}
+      STORY_MODEL_BASE_URL: ${STORY_MODEL_BASE_URL:-}
       STORY_ALLOWED_HOSTS: ${STORY_ALLOWED_HOSTS:?Set the public IP or domain in .env}
       STORY_ALLOWED_ORIGINS: ${STORY_ALLOWED_ORIGINS:?Set the browser origin in .env}
       STORY_CATALOG: /app/private/catalog.json
@@ -44,6 +44,7 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       STORY_TRACE_CONTENT: ${STORY_TRACE_CONTENT:-0}
     volumes:
+      - ${STORY_SETTINGS_FILE:-../../config/online.json}:/app/config/online.json:ro
       - ${STORY_PRIVATE_DIR:?Set STORY_PRIVATE_DIR to the private scenario directory}:/app/private:ro
       - ${STORY_DATA_DIR:?Set STORY_DATA_DIR to a persistent data directory}/uploads:/app/uploads
       - ${STORY_DATA_DIR:?Set STORY_DATA_DIR to a persistent data directory}/memory:/app/memory

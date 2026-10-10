@@ -1,8 +1,8 @@
 """Platform ownership and distribution boundaries."""
 import ast
 import importlib
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +10,9 @@ import pytest
 @pytest.mark.parametrize("new,symbol", [
     ("portal.service", "PlayerPortal"),
     ("adapters.sql_store", "SQLGameStore"),
-    ("adapters.runtime_config", "HarnessConfig"),
+    ("config.schema", "PlatformSettings"),
+    ("config.models", "ModelFactory"),
+    ("config.resources", "PlatformResources"),
 ])
 def test_canonical_platform_objects_are_owned_by_platform(new, symbol):
     canonical = importlib.import_module(f"storyloop_platform.{new}")
@@ -22,8 +24,6 @@ def test_platform_has_no_dependency_on_old_compatibility_package():
     sources = list(root.rglob("*.py"))
     assert sources, f"No platform sources found in {root}"
     for source in sources:
-        # Historical path data is allowed for upgrading remembered settings;
-        # importing the removed namespace still violates the package boundary.
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
             modules = ([node.module or ""] if isinstance(node, ast.ImportFrom)
                        else [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
