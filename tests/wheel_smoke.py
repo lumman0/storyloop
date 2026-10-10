@@ -14,7 +14,8 @@ from storyloop_harness.testing import OfflineModel
 from storyloop_platform.config import ModelFactory, default_settings, load_settings
 from storyloop_platform.portal.billing import record_model_usage
 from storyloop_platform.portal.http_api import create_app
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
+from storyloop_platform.gameplay.factory import RuntimeFactory
 
 root = Path.cwd().resolve()
 for retired in ("react_play", "live_play", "campaign_play", "demo_check", "interaction_demo", "bailian_smoke"):
@@ -55,27 +56,36 @@ class PricedOfflineModel(OfflineModel):
         return result
 
 
-def offline_model(self, task, *, temperature=None):
-    assert self.settings.model_for(task).model == "offline"
-    return PricedOfflineModel()
+class OfflineModels:
+    def require_credentials(self):
+        pass
+    def create_model(self, task, *, temperature=None):
+        assert settings.model_for(task).model == "offline"
+        return PricedOfflineModel()
 
 
-portal = PlayerPortal(root / "catalog.json", settings,
-                      prologue_generator=lambda *_: "A quiet opening.")
+def offline_runtime(**dependencies):
+    dependencies["models"] = OfflineModels()
+    return RuntimeFactory(**dependencies)
+
+
+portal = build_portal(root / "catalog.json", settings,
+                      prologue_generator=lambda *_: "A quiet opening.",
+                      runtime_factory_builder=offline_runtime)
 try:
-    with patch.object(ModelFactory, "create_model", offline_model), TestClient(
+    with TestClient(
         create_app(portal), base_url="http://127.0.0.1"
     ) as client:
         token = portal.register("reader", "password-123")["token"]
         game = asyncio.run(portal.create_save(token, "offline"))["game_id"]
-        before = portal.store.load(game).version
+        before = portal.gameplay.store.load(game).version
         result = client.post(f"/v1/saves/{game}/turns",
                              headers={"Authorization": f"Bearer {token}"},
                              json={"text": "Hello", "request_id": "wheel-turn"})
         assert result.status_code == 200, result.text
         assert result.json()["body"].strip()
-        assert portal.store.load(game).version > before
-        assert portal.store.event_exists(game, "portal-wheel-turn:input")
+        assert portal.gameplay.store.load(game).version > before
+        assert portal.gameplay.store.event_exists(game, "portal-wheel-turn:input")
         assert result.json()["billing"]["charged_points"] == "0.101"
         assert portal.wallet(token)["balance_points"] == "499.899"
         ledger = portal.credit_ledger(token)

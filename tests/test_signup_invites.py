@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from storyloop_platform.adapters.sql_database import open_database, sqlite_url, upgrade_database
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
 
@@ -20,7 +20,7 @@ class SignupInviteTests(unittest.TestCase):
             "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(ROOT / "examples" / "catalog.json",
+            portal = build_portal(ROOT / "examples" / "catalog.json",
                                   load_settings(ROOT / "config" / "local.json"), str(Path(temp) / "game.sqlite3"))
             try:
                 portal.settings = portal.settings.model_copy(update={"environment": "online"})

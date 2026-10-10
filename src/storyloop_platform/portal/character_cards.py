@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from storyloop_platform.adapters.store import GameStore
+from storyloop_harness import GameStore
 
 
 def shared_actor_memories(store: GameStore, game_id: str, actor_id: str,

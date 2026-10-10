@@ -7,7 +7,7 @@ from pathlib import Path
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_harness.core.contracts import Observation, Snapshot, WorldEvent
 from storyloop_platform.runtime.status_update import settle_status
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.gameplay.presentation import turn_view
 from storyloop_platform.runtime.guidance import GuidanceResult
 from storyloop_harness.world.status_fields import parse_status_fields, project_status_fields, status_effects
 
@@ -60,7 +60,7 @@ class StatusFieldTests(unittest.TestCase):
             {"id": "secret", "label": "隐藏状态", "path": ["relationships", "a", "met"],
              "visible": False},
         ], self.state)
-        view = PlayerPortal._view("game", "scenario", "freeform", "", Snapshot("game", 0, 0, self.state),
+        view = turn_view("game", "scenario", "freeform", "", Snapshot("game", 0, 0, self.state),
                                   GuidanceResult((), "test"), status_fields=fields)
         self.assertEqual([item["id"] for item in view["status_fields"]], ["mood", "location"])
 

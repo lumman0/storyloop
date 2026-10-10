@@ -16,7 +16,8 @@ from storyloop_harness.agents.scene_turn import SourceNarrativeTurn
 from storyloop_platform.generators.story_opening import GeneratedStoryOpening, StoryOpeningGenerator
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
+from runtime_fakes import StructuredOfflineModel, offline_runtime_builder
 from storyloop_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
 from storyloop_harness.world.story_blueprint import StoryBlueprint
 
@@ -163,8 +164,8 @@ class SourceDrivenStoryTests(unittest.TestCase):
             config_path.write_text(json.dumps(config_data), encoding="utf-8")
             requests = []
 
-            async def fake_turn(_self, _game_id, context):
-                requests.append(context.request)
+            def fake_turn(request):
+                requests.append(request)
                 return SourceNarrativeTurn.model_validate({
                     "prose": "你走向码头工，先问候了一声。她把绳索放好，说：“我叫阿岚，船还没进港。”",
                     "replies": [{"actor_id": "dockhand", "speech": "我叫阿岚，船还没进港。"}],
@@ -175,15 +176,14 @@ class SourceDrivenStoryTests(unittest.TestCase):
                     "options": [{"label": "问船期", "input": "我问阿岚船什么时候到。"},
                                 {"label": "看告示", "input": "我去看告示板。"},
                                 {"label": "继续闲聊", "input": "我和阿岚聊聊港口生活。"}],
-                }).for_storage()
+                }).model_dump()
 
             with patch.dict(os.environ, {"STORY_MODEL_API_KEY": "offline-test"}), \
                     patch("storyloop_platform.generators.story_opening.StoryOpeningGenerator.generate",
-                          side_effect=AssertionError("opening must not call a model")), \
-                    patch("storyloop_harness.agents.scene_turn.SingleSceneGenerator.generate",
-                          fake_turn):
-                portal = PlayerPortal(catalog, load_settings(config_path),
-                                      str(directory / "game.sqlite3"))
+                          side_effect=AssertionError("opening must not call a model")):
+                portal = build_portal(catalog, load_settings(config_path),
+                                      str(directory / "game.sqlite3"),
+                                      runtime_factory_builder=offline_runtime_builder(model=StructuredOfflineModel(fake_turn)))
                 token = portal.register("source-player", "password-123")["token"]
                 first = asyncio.run(portal.create_save(token, "harbor", "campaign",
                                                        {"player": "random", "tone": "slow"}))
@@ -218,8 +218,8 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 self.assertIn("远处的船还没有靠岸", str(requests[0]["recent_visible_beats"]))
                 self.assertEqual(requests[0]["npc_contexts"][0]["name"], "阿岚")
                 self.assertTrue(any("船还没进港" in entry.content for entry in
-                                    portal.store.agent_context_entries(save_id, "dockhand")))
-                self.assertTrue(portal.store.load(save_id).data["story_progress"]["completed"]["arrival"])
+                                    portal.gameplay.store.agent_context_entries(save_id, "dockhand")))
+                self.assertTrue(portal.gameplay.store.load(save_id).data["story_progress"]["completed"]["arrival"])
                 second = asyncio.run(portal.turn(token, save_id, "船来了么？", "turn-2"))
                 self.assertEqual(second["day"], 1)
                 self.assertTrue(second["complete"])

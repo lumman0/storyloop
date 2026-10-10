@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 from storyloop_platform.portal.user_scenarios import UserScenarioService
 from storyloop_platform.portal import user_scenarios as upload_module
 
@@ -40,7 +41,7 @@ def archive(files: dict[str, bytes] | None = None) -> bytes:
 
 class UserScenarioUploadTests(unittest.TestCase):
     def portal(self, directory: Path) -> PlayerPortal:
-        return PlayerPortal(ROOT / "examples" / "catalog.json",
+        return build_portal(ROOT / "examples" / "catalog.json",
                             load_settings(ROOT / "config" / "local.json"), str(directory / "portal.sqlite3"),
                             prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
 
@@ -212,9 +213,9 @@ class UserScenarioUploadTests(unittest.TestCase):
             portal = self.portal(Path(temp))
             try:
                 store = RecordingStore(Path(temp) / "packages")
-                portal.user_scenarios = UserScenarioService(portal.engine, Path(temp) / "uploads",
-                                                            package_store=store,
-                                                            prologue_generator=lambda *_: "固定开场。")
+                portal.user_scenarios.package_store = store
+                portal.user_scenarios.cleanup.package_store = store
+                portal.user_scenarios.prologue_generator = lambda *_: "固定开场。"
                 token = portal.register("author", "upload-pass-123")["token"]
                 item = portal.upload_scenario(token, "Custom", "", archive())
                 self.assertEqual(len(store.published), 1)
@@ -232,7 +233,7 @@ class UserScenarioUploadTests(unittest.TestCase):
             catalog = Path(temp) / "official.json"
             catalog.write_text(json.dumps({"games": [{"id": "usr_event", "title": "Official",
                 "mode": "freeform", "package": str(EXAMPLE)}]}), encoding="utf-8")
-            portal = PlayerPortal(catalog, load_settings(ROOT / "config" / "local.json"),
+            portal = build_portal(catalog, load_settings(ROOT / "config" / "local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             try:
                 token = portal.register("author", "upload-pass-123")["token"]

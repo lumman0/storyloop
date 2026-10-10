@@ -27,6 +27,8 @@ React / Vite → FastAPI platform → StoryLoop Harness
 
 The platform owns authentication, content lifecycle, model adapters, persistence, billing, and deployment; harness owns the reusable narrative execution contract. The dependency range is `storyloop-harness>=0.2,<0.3`, with source revision `cb2be84dad44cbfc6e18d16eebc071c2234f7b22` pinned in `pyproject.toml`. `scripts/build_harness.py` builds a wheel from that revision, and the installation below names that artifact explicitly.
 
+`bootstrap.build_portal` composes production resources around one SQL Engine and owns their cleanup. `PlayerPortal` authenticates requests and delegates save lifecycle and queries to `GameplayService`, and execution and recovery to `TurnExecutionService`. Both services share content access, player operation locks, and a `GameplayRuntime`; tests inject offline runtime/model implementations through `runtime_factory_builder`.
+
 The shared scene model sees multiple character contexts, so perspective projection and behavioral constraints do not provide hard information isolation between characters. Long-session context selects recent and relevant experiences from committed history while retaining original events; the current worldbook retrieves JSON entries. One ordinary scene generation does not imply that openings, suggestions, or every other feature use only one model call.
 
 The project is under active incubation. APIs, configuration, and storage formats may change without backward compatibility guarantees. The only current turn engine is `single_call`; saves containing obsolete `npc_reply` pending work are rejected and should be recreated.

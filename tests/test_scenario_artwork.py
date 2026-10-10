@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 from storyloop_harness.core.contracts import Observation, WorldEvent
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 
@@ -63,7 +63,7 @@ class ScenarioArtworkTests(unittest.TestCase):
                             "portraits": {"dockhand": "art/dockhand.png"}},
                 "public_profiles": {"dockhand": "在码头工作，熟悉来往船只。"},
             }]}), encoding="utf-8")
-            portal = PlayerPortal(catalog, load_settings(ROOT / "config/local.json"), str(root / "game.sqlite3"))
+            portal = build_portal(catalog, load_settings(ROOT / "config/local.json"), str(root / "game.sqlite3"))
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
                 owner = portal.register("owner", "password-123")["token"]
                 other = portal.register("other", "password-123")["token"]
@@ -79,19 +79,19 @@ class ScenarioArtworkTests(unittest.TestCase):
                 portrait = f"/v1/saves/{game_id}/cast/dockhand/portrait"
                 self.assertEqual(client.get(portrait,
                     headers={"Authorization": f"Bearer {owner}"}).status_code, 404)
-                asyncio.run(CampaignSession(portal.store, program).submit(game_id, "/continue", "enter"))
+                asyncio.run(CampaignSession(portal.gameplay.store, program).submit(game_id, "/continue", "enter"))
                 self.assertEqual([actor["name"] for actor in portal.cast(owner, game_id)], ["码头工"])
                 self.assertEqual(client.get(portrait,
                     headers={"Authorization": f"Bearer {owner}"}).content, b"portrait-image")
                 self.assertEqual(client.get(portrait,
                     headers={"Authorization": f"Bearer {other}"}).status_code, 404)
-                before = portal.store.load(game_id)
-                portal.store.commit(game_id, before.version,
+                before = portal.gameplay.store.load(game_id)
+                portal.gameplay.store.commit(game_id, before.version,
                     WorldEvent("private-news", "noticed", None, None, before.tick, ()),
                     (Observation("private-heard", "private-news", "dockhand", "rumor",
                                  "只有码头工知道的秘密", before.tick),), ())
-                before = portal.store.load(game_id)
-                portal.store.commit(game_id, before.version,
+                before = portal.gameplay.store.load(game_id)
+                portal.gameplay.store.commit(game_id, before.version,
                     WorldEvent("shared-meeting", "met", None, None, before.tick, ()),
                     (Observation("actor-meeting", "shared-meeting", "dockhand", "shared_experience",
                                  "玩家向你打了招呼", before.tick),

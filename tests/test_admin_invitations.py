@@ -10,14 +10,14 @@ from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_admin_can_issue_track_and_revoke_registration_invites(tmp_path: Path) -> None:
-    portal = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
+    portal = build_portal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                           str(tmp_path / "portal.sqlite3"))
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
         admin = portal.register("administrator", "password-123")

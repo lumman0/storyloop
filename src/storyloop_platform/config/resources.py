@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlalchemy import Engine
 
-    from storyloop_platform.adapters.store import GameStore
+    from storyloop_harness import GameStore
     from storyloop_platform.portal.billing import BillingPolicy
 from .schema import PlatformSettings
 

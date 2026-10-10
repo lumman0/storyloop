@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from storyloop_platform.adapters.store import GameStore
+from storyloop_harness import GameStore
 from storyloop_harness.advanced import Observation, Snapshot, WorldEvent
 from storyloop_harness.advanced import StatusField, value_at as _value_at, status_effects
 

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from storyloop_platform.config import load_settings, ModelFactory, PlatformResources
 from storyloop_platform.portal.http_api import create_app
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 from storyloop_platform.memory.providers import Mem0PlayerMemory
 from storyloop_platform.memory.jobs import SQLPlayerMemoryJobs
 from storyloop_platform.memory.service import PlayerMemoryService
@@ -35,11 +35,12 @@ class FakePlayerMemory:
 
 
 def test_profile_is_opt_in_batched_and_scoped_to_player(tmp_path: Path) -> None:
-    portal = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
+    portal = build_portal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                           str(tmp_path / "game.sqlite3"))
     fake = FakePlayerMemory()
-    jobs = SQLPlayerMemoryJobs(portal.engine)
-    portal.memory_service = PlayerMemoryService(fake, jobs, True, portal.telemetry)
+    jobs = portal.memory_service.jobs
+    portal.memory_service.provider = fake
+    portal.memory_service.enabled = True
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
         first = client.post("/v1/accounts", json={"username": "first-player",
                                                   "password": "password-123"}).json()

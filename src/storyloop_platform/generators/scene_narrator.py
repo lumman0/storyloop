@@ -8,7 +8,8 @@ from storyloop_harness.generation import Msg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
-from storyloop_platform.adapters.telemetry import LangfuseTelemetry, Telemetry
+from storyloop_platform.adapters.telemetry import LangfuseTelemetry
+from storyloop_harness.telemetry import Telemetry
 from storyloop_harness.generation import ThinkingSafeOpenAIChatFormatter
 from storyloop_platform.runtime.campaign import CampaignProgram
 from storyloop_harness.advanced import SceneContext

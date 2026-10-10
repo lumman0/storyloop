@@ -27,6 +27,8 @@ React / Vite → FastAPI 平台 → StoryLoop Harness
 
 平台负责鉴权、内容生命周期、模型适配、持久化、计费和部署；harness 负责可复用的叙事运行契约。当前依赖范围为 `storyloop-harness>=0.2,<0.3`，`pyproject.toml` 固定源码提交 `cb2be84dad44cbfc6e18d16eebc071c2234f7b22`。`scripts/build_harness.py` 从该提交构建 wheel；下方安装命令显式使用这个产物。
 
+`bootstrap.build_portal` 围绕同一个 SQL Engine 组装生产资源并负责关闭。`PlayerPortal` 完成请求鉴权后，把存档生命周期与查询交给 `GameplayService`，把回合执行与恢复交给 `TurnExecutionService`。两个服务共享内容访问、玩家操作锁与 `GameplayRuntime`；测试通过 `runtime_factory_builder` 注入离线运行时或模型实现。
+
 共享场景模型会看到多个角色的上下文，视角投影和行为约束不构成角色之间的硬信息隔离。长局上下文从已提交历史中选择近期与相关经历，原始事件保留；当前世界书使用 JSON 条目检索。普通回合的一次场景生成也不代表开场、行动建议或其他功能都只调用一次模型。
 
 项目仍在孵化，API、配置和存储格式可直接调整，不承诺向后兼容。当前唯一回合引擎为 `single_call`；包含旧 `npc_reply` 待办的存档会被拒绝，应重新创建存档。

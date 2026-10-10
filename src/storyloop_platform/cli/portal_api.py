@@ -8,7 +8,7 @@ import sys
 from storyloop_platform.cli.startup import launch_portal
 from storyloop_platform.portal.http_api import serve
 from storyloop_platform.portal.local_config import LocalPreferences
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
     try:
         portal = launch_portal(profile=args.profile, config=args.config, catalog=args.catalog,
                                db=args.db, preferences=preferences, prompt=sys.stdin.isatty(),
-                               portal_factory=PlayerPortal)
+                               portal_factory=build_portal)
     except FileNotFoundError:
         parser.error("selected settings or catalog file does not exist")
     except ValueError as error:

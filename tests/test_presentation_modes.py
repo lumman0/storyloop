@@ -9,7 +9,7 @@ from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_harness.agents.action_advisor import ActionOptionAdvisor
 from storyloop_platform.generators.novel_narrator import NovelTurnNarrator, repeated_imagery
 from storyloop_harness.core.contracts import Snapshot
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.runtime.novel_presentation import present_freeform_novel
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 from storyloop_platform.runtime.novel_presentation import recover_last_freeform_novel
 from storyloop_harness.runtime.presentation import SceneContext, StorySegment
@@ -235,13 +235,10 @@ class PresentationModeTests(unittest.TestCase):
             package = ScenarioPackage.load(EXAMPLE)
             package.seed_game(store, "game")
             presenter = FakeNovelPresenter()
-            portal = PlayerPortal.__new__(PlayerPortal)
-            portal.store = store
-            portal._novel_presenter = lambda _package, _game_id: presenter
             beats = (StorySegment("dialogue", "早上好", "dockhand", "码头工"),)
 
-            first = asyncio.run(portal._freeform_novel(package, "game", "你好", "turn-1", beats))
-            replay = asyncio.run(portal._freeform_novel(package, "game", "你好", "turn-1", beats))
+            first = asyncio.run(present_freeform_novel(store, package, presenter, "game", "你好", "turn-1", beats))
+            replay = asyncio.run(present_freeform_novel(store, package, presenter, "game", "你好", "turn-1", beats))
 
             self.assertEqual(first, replay)
             self.assertEqual(len(presenter.calls), 1)
