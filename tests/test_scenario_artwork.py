@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
 from storyloop_platform.bootstrap import build_portal
-from storyloop_harness.core.contracts import Observation, WorldEvent
+from storyloop_harness.advanced import Observation, WorldEvent
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 
 

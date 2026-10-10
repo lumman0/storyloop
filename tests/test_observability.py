@@ -11,16 +11,15 @@ from unittest.mock import AsyncMock, patch
 
 from agentscope.model import OpenAIChatModel
 from agentscope.credential import OpenAICredential
-from agentscope_fakes import ChatModelBase, ChatResponse
+from agentscope_fakes import ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
 from storyloop_harness.generation import CompatibleOpenAIChatModel
 from storyloop_platform.adapters.store import SQLiteGameStore
 from storyloop_platform.adapters.telemetry import LangfuseTelemetry, configured_telemetry, observed_tool
-from storyloop_harness.world.scenario import ScenarioPackage
-from storyloop_harness.agents.scene_turn import SceneContextProjector
-from storyloop_harness.runtime.single_call import SingleCallGameSession
-from test_single_call import FakeGenerator, a_turn
+from storyloop_harness import ScenarioPackage
+from storyloop_harness import TurnEngine, TurnInput
+from runtime_fakes import StructuredOfflineModel
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -81,9 +80,11 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             package.seed_game(store, "game")
             client = SessionClient()
-            session = SingleCallGameSession(
-                store, package, FakeGenerator(a_turn()), SceneContextProjector(store, package),
-                max_steps=2, telemetry=LangfuseTelemetry(client),
+            session = TurnEngine(
+                store, package, StructuredOfflineModel(lambda _: {
+                    'prose': '你听见码头工放下缆绳。', 'participants': ['dockhand'],
+                    'replies': [{'actor_id': 'dockhand', 'speech': '今天有船靠岸。'}],
+                }), max_steps=2, telemetry=LangfuseTelemetry(client),
             )
             fake_langfuse = SimpleNamespace(propagate_attributes=propagate_attributes)
             with patch.dict(sys.modules, {"langfuse": fake_langfuse}):
@@ -94,7 +95,7 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
                     ("港口-1", "查看周围", "turn-3"),
                 ):
                     start = len(sessions_seen)
-                    await session.run_turn(game_id, text, turn_id)
+                    await session.run_turn(TurnInput(game_id, text, turn_id, package.version))
                     observations_per_turn.append(sessions_seen[start:])
 
         root_sessions = [session_id for name, session_id in sessions_seen if name == "single-call-turn"]
@@ -124,12 +125,15 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             store = SQLiteGameStore(str(Path(directory) / "game.sqlite3"))
             package.seed_game(store, "game")
             client = FakeLangfuse()
-            generator = FakeGenerator(a_turn())
-            session = SingleCallGameSession(store, package, generator,
-                SceneContextProjector(store, package), telemetry=LangfuseTelemetry(client))
-            result = await session.run_turn("game", "hello", "one")
+            model = StructuredOfflineModel(lambda _: {
+                'prose': '你听见码头工放下缆绳。', 'participants': ['dockhand'],
+                'replies': [{'actor_id': 'dockhand', 'speech': '今天有船靠岸。'}],
+            })
+            session = TurnEngine(store, package, model, telemetry=LangfuseTelemetry(client))
+            result = await session.run_turn(TurnInput("game", "hello", "one", package.version))
             names = [value["name"] for kind, value in client.calls if kind == "start"]
             self.assertIn("single-call-turn", names)
+            self.assertIn("single-scene-generation", names)
             self.assertIn("work:single_npc_reply", names)
             self.assertEqual(result.processed_work_ids, ("one:input:reply:dockhand",))
             self.assertEqual([work.work_id for work in store.pending_work("game")],
@@ -137,16 +141,17 @@ class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
             scores = {value["name"]: value["value"]
                       for kind, value in client.calls if kind == "score"}
             self.assertEqual(scores, {
+                "story.single_scene_model_calls": 1.0,
                 "story.turn_model_calls": 1.0,
                 "story.work_processed": float(len(result.processed_work_ids)),
                 "story.work_remaining": float(len(store.pending_work("game"))),
             })
             before = store.load("game")
-            async def fail(*args):
+            def fail(request):
                 raise ValueError("scene unavailable")
-            generator.generate = fail
+            model.response_for_request = fail
             with self.assertRaisesRegex(ValueError, "scene unavailable"):
-                await session.run_turn("game", "again", "two")
+                await session.run_turn(TurnInput("game", "again", "two", package.version))
             self.assertEqual(store.load("game"), before)
             self.assertTrue(any(kind == "exit" and value is ValueError for kind, value in client.calls))
 

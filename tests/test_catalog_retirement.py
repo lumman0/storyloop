@@ -6,7 +6,7 @@ from pathlib import Path
 from storyloop_platform.portal.catalog import GameCatalog
 from storyloop_platform.config import load_settings
 from storyloop_platform.bootstrap import build_portal
-from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness import ScenarioPackage
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from storyloop_platform.portal.billing import record_model_usage
-from storyloop_harness.core.contracts import WorldEvent
+from storyloop_harness.advanced import WorldEvent
 from storyloop_platform.config import load_settings
 from storyloop_platform.bootstrap import build_portal
 from runtime_fakes import OfflineExecutor, offline_runtime_builder, turn_outcome
@@ -159,7 +159,7 @@ def test_prepared_turn_cannot_change_input_and_can_settle_after_billing_disabled
 
 def test_platform_always_assembles_single_call_session(portal):
     from storyloop_harness import TurnEngine
-    from storyloop_harness.world.scenario import ScenarioPackage
+    from storyloop_harness import ScenarioPackage
 
     package = ScenarioPackage.load(ROOT / "examples/freeform")
     package.seed_game(portal.gameplay.store, "assembly")

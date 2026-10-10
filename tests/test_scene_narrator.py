@@ -1,26 +1,25 @@
 import asyncio
 import json
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 from storyloop_platform.generators.scene_narrator import CampaignSceneNarrator
-from storyloop_harness.core.contracts import Snapshot
+from storyloop_harness.advanced import Snapshot
 from storyloop_platform.runtime.campaign import CampaignProgram, SceneContext
-from storyloop_harness.runtime.presentation import StorySegment
-from storyloop_harness.world.scenario import ScenarioPackage
-from storyloop_harness.world.worldbook import Worldbook, WorldbookEntry
+from storyloop_harness.advanced import StorySegment
+from storyloop_harness import ScenarioPackage
+from scenario_fixtures import synthetic_package
 
 
 class SceneNarratorTests(unittest.TestCase):
     def test_opening_uses_public_setting_and_visible_choices_without_secrets(self):
         package = ScenarioPackage.load(Path(__file__).resolve().parents[1] / "examples" / "freeform")
-        book = Worldbook("sample", "1", [
-            WorldbookEntry("house", "公开的雪夜别墅", "public", frozenset()),
-            WorldbookEntry("secret", "隐藏的角色真相", "secret", frozenset()),
-        ])
-        package = replace(package, worldbook=book, opening="公开的节目开场")
+        package = synthetic_package(manifest_changes={'opening': '公开的节目开场', 'actors': []},
+            worldbook={'package_id': package.package_id, 'version': package.version, 'entries': [
+                {'id': 'house', 'text': '公开的雪夜别墅', 'visibility': 'public'},
+                {'id': 'secret', 'text': '隐藏的角色真相', 'visibility': 'secret'},
+            ]})
         program = CampaignProgram.from_dict({
             "id": "sample", "ticks_per_day": 2, "final_tick": 2,
             "steps": [

@@ -17,7 +17,6 @@ import zipfile
 from fastapi.testclient import TestClient
 from httpx2 import Request
 from openai import APIConnectionError
-from storyloop_harness.agents.scene_turn import SourceNarrativeTurn
 from storyloop_harness.testing import OfflineModel
 from storyloop_harness.usage import collect_usage, record_model_usage
 from storyloop_platform.bootstrap import build_portal
@@ -33,8 +32,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class PricedOfflineModel(OfflineModel):
     async def __call__(self, *args, **kwargs):
-        if kwargs.get("structured_model") is SourceNarrativeTurn:
-            result = SimpleNamespace(metadata=SourceNarrativeTurn.model_validate({
+        messages = args[0]
+        content = messages[-1]['content']
+        if isinstance(content, list):
+            content = ''.join(part['text'] for part in content if part.get('type') == 'text')
+        request = json.loads(content)
+        if 'source_story_milestones' in request:
+            result = SimpleNamespace(metadata={
                 "prose": "The visitor reaches the harbor. A worker pauses by the dock and waves. "
                          "After a quiet conversation, the visitor says goodbye and walks toward the market.",
                 "replies": [{"actor_id": "dockhand", "speech": "Welcome to the harbor."}],
@@ -43,7 +47,7 @@ class PricedOfflineModel(OfflineModel):
                     {"label": "Look around", "input": "I look around the harbor."},
                     {"label": "Read notice", "input": "I read the notice."},
                     {"label": "Say goodbye", "input": "I say goodbye."}],
-            }).model_dump())
+            })
         else:
             with collect_usage():
                 result = await super().__call__(*args, **kwargs)

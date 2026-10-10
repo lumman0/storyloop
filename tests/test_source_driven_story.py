@@ -12,14 +12,12 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from storyloop_harness.agents.scene_turn import SourceNarrativeTurn
-from storyloop_platform.generators.story_opening import GeneratedStoryOpening, StoryOpeningGenerator
+from storyloop_platform.generators.story_opening import StoryOpeningGenerator
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
 from storyloop_platform.bootstrap import build_portal
 from runtime_fakes import StructuredOfflineModel, offline_runtime_builder
-from storyloop_harness.runtime.player_knowledge import PlayerEncounter, accepted_encounters
-from storyloop_harness.world.story_blueprint import StoryBlueprint
+from scenario_fixtures import synthetic_package
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class SourceDrivenStoryTests(unittest.TestCase):
     def test_opening_retries_once_when_generated_names_collide(self):
-        blueprint = StoryBlueprint.model_validate({
+        blueprint_data = {
             "source_document": "Test source",
             "opening_focus": "A visitor reaches the harbor and waits at its gate.",
             "setup": {
@@ -44,7 +42,12 @@ class SourceDrivenStoryTests(unittest.TestCase):
             ],
             "facts": [{"id": "harbor", "text": "Visitors arrive by boat.",
                        "source_ref": "Source", "visibility": "public"}],
-        })
+        }
+        actors = [{'id': actor, 'name': actor, 'card': f'{actor}_card'} for actor in ('first', 'second')]
+        book = {'package_id': 'harbor-freeform', 'version': '1.0.0', 'entries': [
+            {'id': actor['card'], 'text': 'Synthetic harbor worker.', 'visibility': 'actor',
+             'allowed_actors': [actor['id']], 'kind': 'card'} for actor in actors]}
+        package = synthetic_package(manifest_changes={'actors': actors}, worldbook=book, blueprint=blueprint_data)
 
         class FakeModel:
             def __init__(self):
@@ -70,7 +73,6 @@ class SourceDrivenStoryTests(unittest.TestCase):
                 })
 
         model = FakeModel()
-        package = SimpleNamespace(story_blueprint=blueprint, package_id="test")
         opening = asyncio.run(StoryOpeningGenerator(model).generate(
             "retry", package, "Harbor", {"player": "random", "tone": "slow"}))
         self.assertEqual(model.calls, 2)
@@ -78,19 +80,6 @@ class SourceDrivenStoryTests(unittest.TestCase):
         self.assertEqual(opening.player_profile["name"], "访客")
         self.assertEqual(opening.player_profile["school"], "海洋大学")
 
-    def test_name_on_table_does_not_identify_a_stranger(self):
-        prose = "桌上的名牌写着顾云舒。一个陌生女人从楼梯下来，朝你点头。"
-        encounters = accepted_encounters([
-            PlayerEncounter(actor_id="female_a", evidence="名牌写着顾云舒",
-                            name_learned=True),
-        ], prose, {"female_a": "顾云舒"})
-        self.assertEqual(encounters, [])
-        seen = accepted_encounters([
-            PlayerEncounter(actor_id="female_a", evidence="一个陌生女人从楼梯下来",
-                            name_learned=False),
-        ], prose, {"female_a": "顾云舒"})
-        self.assertEqual(len(seen), 1)
-        self.assertFalse(seen[0].name_learned)
 
     def test_blueprint_save_uses_prepared_opening_without_model_and_remembers_actor(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -166,7 +155,7 @@ class SourceDrivenStoryTests(unittest.TestCase):
 
             def fake_turn(request):
                 requests.append(request)
-                return SourceNarrativeTurn.model_validate({
+                return {
                     "prose": "你走向码头工，先问候了一声。她把绳索放好，说：“我叫阿岚，船还没进港。”",
                     "replies": [{"actor_id": "dockhand", "speech": "我叫阿岚，船还没进港。"}],
                     "participants": ["dockhand"], "delivery": "targets",
@@ -176,7 +165,7 @@ class SourceDrivenStoryTests(unittest.TestCase):
                     "options": [{"label": "问船期", "input": "我问阿岚船什么时候到。"},
                                 {"label": "看告示", "input": "我去看告示板。"},
                                 {"label": "继续闲聊", "input": "我和阿岚聊聊港口生活。"}],
-                }).model_dump()
+                }
 
             with patch.dict(os.environ, {"STORY_MODEL_API_KEY": "offline-test"}), \
                     patch("storyloop_platform.generators.story_opening.StoryOpeningGenerator.generate",

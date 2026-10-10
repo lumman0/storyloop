@@ -12,7 +12,7 @@ from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
 from storyloop_platform.bootstrap import build_portal
 from runtime_fakes import OfflineRuntimeFactory
-from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness import ScenarioPackage, TurnEngine
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,13 +58,14 @@ class SaveGenerationSettingsTests(unittest.TestCase):
 
                 item = portal.gameplay.game_access.listing_for(owner["player_id"], "npc-chat")
                 package = ScenarioPackage.load(item.package_path)
-                with patch.object(portal.gameplay.factory.models, "create_model", return_value=object()) as factory:
+                with patch.object(portal.gameplay.factory.models, "create_model", return_value=object()) as factory, \
+                        patch("storyloop_platform.gameplay.factory.TurnEngine", wraps=TurnEngine) as engine_factory:
                     first_session = portal.gameplay.factory.engine(item, package, "game-1")
                     self.assertEqual(factory.call_args.kwargs["temperature"], 0.8)
-                    self.assertEqual(first_session.session.projector.context_window_tokens, 65536)
+                    self.assertEqual(engine_factory.call_args.kwargs["context_window_tokens"], 65536)
                     client.put("/v1/saves/game-1/settings", headers=own,
                         json={"temperature": 1.2, "context_window_tokens": 32768})
                     second_session = portal.gameplay.factory.engine(item, package, "game-1")
                     self.assertIsNot(first_session, second_session)
                     self.assertEqual(factory.call_args.kwargs["temperature"], 1.2)
-                    self.assertEqual(second_session.session.projector.context_window_tokens, 32768)
+                    self.assertEqual(engine_factory.call_args.kwargs["context_window_tokens"], 32768)
