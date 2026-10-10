@@ -16,7 +16,7 @@ from storyloop_platform.portal.billing import record_model_usage
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.portal.service import PlayerPortal
 
-root = Path.cwd()
+root = Path.cwd().resolve()
 for retired in ("react_play", "live_play", "campaign_play", "demo_check", "interaction_demo", "bailian_smoke"):
     assert util.find_spec("storyloop_platform.cli." + retired) is None
 assert "storyloop-harness<0.3,>=0.2" in metadata.requires("storyloop-platform")
