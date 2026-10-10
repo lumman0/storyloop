@@ -1,4 +1,5 @@
 import type { Route } from "@playwright/test";
+import type { View } from "../src/lib/contracts";
 
 export async function commonApi(route: Route): Promise<boolean> {
   const path = new URL(route.request().url()).pathname;
@@ -13,7 +14,8 @@ export async function commonApi(route: Route): Promise<boolean> {
   return false;
 }
 
-export const view = {
+export const view: View = {
   game_id: "game", catalog_id: "test", mode: "freeform", opening: "故事开始。", body: "",
+  presentation_mode: "interactive", segments: [], interaction: null, time_of_day: null, status_fields: [],
   suggestions: [], action_options: [], tick: 0, state_version: 0, day: null, complete: false, turn_id: null,
 };

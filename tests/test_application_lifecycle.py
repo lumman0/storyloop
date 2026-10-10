@@ -63,11 +63,13 @@ def test_async_commands_and_bootstrap_own_same_supervisor(app_portal):
 def test_http_admits_owned_operation_and_shutdown_rejects_late_work(app_portal, method, http_method, path, body):
     async def run():
         token = app_portal.register("reader", "password-123")["token"]
+        result = (await app_portal.create_save(token, "npc-chat")
+                  if method in {"create_save", "resume_save", "create_review_preview", "turn"} else {"ok": True})
         entered, release = asyncio.Event(), asyncio.Event()
         async def work(*args, **kwargs):
             entered.set()
             await release.wait()
-            return {"ok": True}
+            return result
         setattr(app_portal, method, work)
         app = create_app(app_portal)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:

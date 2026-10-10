@@ -1,18 +1,13 @@
+import type { TurnFailure } from "./contracts";
+
 type TurnStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type StoredPendingTurn = { id: string; text: string; retryable?: false; error?: string };
 
-export type TurnFailure = {
-  commit_state?: "not_started" | "committed" | "unknown";
-  request_id?: string | null;
-  code?: string;
-  retryable?: boolean;
-};
-
 export function discardUnstartedTurn(
   gameId: string,
   requestId: string,
-  failure: TurnFailure | undefined,
+  failure: Partial<Pick<TurnFailure, "commit_state" | "request_id">> | undefined,
   storage: TurnStorage = sessionStorage,
 ): boolean {
   if (failure?.commit_state !== "not_started" || failure.request_id !== requestId) return false;

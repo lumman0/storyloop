@@ -159,11 +159,16 @@ $env:LANGFUSE_SECRET_KEY = ""
 .\.venv\Scripts\python.exe -m pytest tests -q
 cd web
 npm ci
+npm run contracts:check
 npm test
 npm run build
+cd ..
+.\.venv\Scripts\python.exe tests/player_contract_corpus.py
 ```
 
-For browser regressions, also run `npx playwright install chromium` and `npm run test:e2e`; these use a mock API. CI checks the backend with Python 3.12 on Windows/Linux and the frontend and browser flows with Node.js 24 on Linux. The `offline-test` value is not a live model credential.
+Player wire contracts are owned by `src/storyloop_platform/api/contracts.py`. From `web`, run `npm run contracts:generate` after changing them, then commit the generated JSON Schema, TypeScript types, and standalone validators under `web/src/lib/generated`. `contracts:check` regenerates from the Python source and fails on drift without writing files; set `CONTRACT_PYTHON` to select another Python executable. The explicit cross-language command above collects actual FastAPI responses using a temporary SQL store and offline models, then validates them with the production Node parsers. Ordinary backend pytest does not require Node.
+
+For browser regressions, from `web` run `npx playwright install chromium` and `npm run test:e2e`; these use a mock API. CI checks the backend with Python 3.12 on Windows/Linux and the frontend and browser flows with Node.js 24 on Linux. The `offline-test` value is not a live model credential.
 
 ```text
 src/storyloop_platform/  API, SQL, configuration, model adapters, billing, CLI

@@ -87,8 +87,13 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                 self.assertEqual((auth, game_id, text, request_id),
                                  (token, "sample", "你好", "request-1"))
                 await progress({"type": "stage", "stage": "thinking"})
-                await progress({"type": "preview", "segments": [{"kind": "dialogue", "text": "你好！"}]})
-                return {"body": "你好！", "segments": [{"kind": "dialogue", "text": "你好！"}]}
+                await progress({"type": "preview", "body": "你好！", "segments": [{"kind": "dialogue", "text": "你好！"}]})
+                return {"game_id": game_id, "catalog_id": "npc-chat", "mode": "freeform",
+                        "presentation_mode": "interactive", "opening": "", "body": "你好！",
+                        "segments": [{"kind": "dialogue", "text": "你好！"}], "interaction": None,
+                        "suggestions": [], "action_options": [], "status_fields": [], "tick": 1,
+                        "state_version": 1, "day": None, "time_of_day": None,
+                        "complete": False, "turn_id": "portal-request-1"}
 
             portal.turn = scripted_turn
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:

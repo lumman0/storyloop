@@ -65,11 +65,21 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Frontend dependencies
+        if: runner.os == 'Linux'
+        working-directory: web
+        run: npm ci
+      - name: Generated player contracts match Python
+        if: runner.os == 'Linux'
+        working-directory: web
+        run: npm run contracts:check
+      - name: Cross-language player contracts
+        if: runner.os == 'Linux'
+        run: python tests/player_contract_corpus.py
       - name: Frontend tests and build
         if: runner.os == 'Linux'
         working-directory: web
         run: |
-          npm ci
           npm test
           npm run build
       - name: Browser interactions

@@ -12,9 +12,10 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Respon
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 
+from storyloop_platform.api.contracts import History, TurnFailure, View, stream_event_adapter
 from storyloop_platform.lifecycle import ServiceStopping, GRACE_TIMEOUT, CANCEL_TIMEOUT
 from storyloop_platform.portal.service import PlayerPortal
 from storyloop_platform.portal.access import AccessDenied
@@ -123,10 +124,24 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
 
     app = FastAPI(title="Story Harness Player Portal", version="0.1.0", lifespan=lifespan)
 
+    def failure_content(failure: dict) -> dict:
+        return TurnFailure.model_validate(failure).model_dump(mode="json", exclude_unset=True)
+
+    def invalid_contract_failure(request_id: str | None) -> dict:
+        return failure_content(turn_failure(
+            RuntimeError("invalid response"), request_id, code="INVALID_TURN_RESPONSE",
+            message="未能确认这条行动的完整结果。请使用原请求重试；若持续失败，请联系管理员。"))
+
+    def event_frame(event: dict) -> str:
+        validated = stream_event_adapter.validate_python(event)
+        payload = stream_event_adapter.dump_python(validated, mode="json", exclude_unset=True)
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
     def stopping_failure(request_id: str | None) -> dict:
         message = "服务正在重启，这条行动尚未开始，请稍后再提交。"
-        return {"code": "SERVICE_STOPPING", "message": message, "detail": message,
-                "retryable": False, "commit_state": "not_started", "request_id": request_id}
+        return failure_content({"code": "SERVICE_STOPPING", "message": message, "detail": message,
+                "retryable": False, "commit_state": "not_started", "request_id": request_id})
+
     @app.exception_handler(ServiceStopping)
     async def service_stopping(_request: Request, _error: ServiceStopping) -> JSONResponse:
         return JSONResponse(status_code=503, content=stopping_failure(None))
@@ -379,7 +394,7 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
-    @app.post("/v1/manage/submissions/{submission_id}/preview")
+    @app.post("/v1/manage/submissions/{submission_id}/preview", response_model=View, response_model_exclude_unset=True)
     async def review_preview(submission_id: str, auth: str = Depends(token)) -> dict:
         try:
             return await operations.run(
@@ -497,14 +512,14 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
         except (ValueError, PermissionError) as error:
             raise _http_error(error) from error
 
-    @app.get("/v1/saves/{game_id}/history")
+    @app.get("/v1/saves/{game_id}/history", response_model=History, response_model_exclude_unset=True)
     def history(game_id: str, auth: str = Depends(token)) -> dict:
         try:
             return portal.history(auth, game_id)
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
-    @app.post("/v1/saves", status_code=201)
+    @app.post("/v1/saves", status_code=201, response_model=View, response_model_exclude_unset=True)
     async def create_save(body: SaveBody, auth: str = Depends(token)) -> dict:
         try:
             return await operations.run(
@@ -513,7 +528,7 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
-    @app.post("/v1/saves/{game_id}/resume")
+    @app.post("/v1/saves/{game_id}/resume", response_model=View, response_model_exclude_unset=True)
     async def resume(game_id: str, auth: str = Depends(token)) -> dict:
         try:
             return await operations.run(
@@ -538,26 +553,31 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
         except (ValueError, KeyError, PermissionError) as error:
             raise _http_error(error) from error
 
-    @app.post("/v1/saves/{game_id}/turns")
+    @app.post("/v1/saves/{game_id}/turns", response_model=View, response_model_exclude_unset=True)
     async def turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> dict:
         if not operations.accepting:
             return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
         try:
-            return await operations.run(
+            view = await operations.run(
                 lambda: portal.turn(auth, game_id, body.text, body.request_id), name="turn")
+            return View.model_validate(view).model_dump(mode="json", exclude_unset=True)
+        except ValidationError:
+            logger.error("invalid completed turn response")
+            failure = invalid_contract_failure(body.request_id)
+            return JSONResponse(status_code=500, content=failure_content({"detail": failure["message"], **failure}))
         except ServiceStopping:
             return JSONResponse(status_code=503, content=stopping_failure(body.request_id))
         except (ValueError, KeyError, PermissionError) as error:
             failure = turn_failure(error, body.request_id)
             return JSONResponse(status_code=_http_error(error).status_code,
-                                content={"detail": failure["message"], **failure})
+                                content=failure_content({"detail": failure["message"], **failure}))
         except TRANSIENT_MODEL_ERRORS as error:
             logger.warning("model unavailable during portal turn: %s", type(error).__name__)
             mapped = _model_http_error(error)
             failure = turn_failure(error, body.request_id, message=str(mapped.detail),
                                    code="MODEL_UNAVAILABLE")
             return JSONResponse(status_code=mapped.status_code,
-                                content={"detail": failure["message"], **failure})
+                                content=failure_content({"detail": failure["message"], **failure}))
 
     @app.post("/v1/saves/{game_id}/turns/stream")
     async def stream_turn(game_id: str, body: TurnBody, auth: str = Depends(token)) -> StreamingResponse:
@@ -568,7 +588,7 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
             # Headers and iteration are separate scheduling points. Recheck so
             # a response created just before shutdown cannot launch late work.
             if not operations.accepting:
-                yield f'data: {json.dumps({"type": "error", **stopping_failure(body.request_id)}, ensure_ascii=False)}\n\n'
+                yield event_frame({"type": "error", **stopping_failure(body.request_id)})
                 return
             queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
@@ -596,9 +616,10 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
             try:
                 operations.start(run_turn, name="stream-turn")
             except ServiceStopping:
-                yield f'data: {json.dumps({"type": "error", **stopping_failure(body.request_id)}, ensure_ascii=False)}\n\n'
+                yield event_frame({"type": "error", **stopping_failure(body.request_id)})
                 return
-            yield 'data: {"type":"stage","stage":"received"}\n\n'
+            yield event_frame({"type": "stage", "stage": "received"})
+            invalid = False
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_SECONDS)
@@ -607,7 +628,17 @@ def create_app(portal: PlayerPortal, *, operation_shutdown_timeout: float = GRAC
                     continue
                 if event is None:
                     break
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                if invalid:
+                    continue
+                try:
+                    frame = event_frame(event)
+                except ValidationError:
+                    # Progress callbacks may be swallowed by the runtime. Validate at
+                    # dequeue, then drain supervised work without publishing a complete.
+                    logger.error("invalid streamed turn response")
+                    invalid = True
+                    frame = event_frame({"type": "error", **invalid_contract_failure(body.request_id)})
+                yield frame
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache", "X-Accel-Buffering": "no",

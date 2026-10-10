@@ -159,11 +159,16 @@ $env:LANGFUSE_SECRET_KEY = ""
 .\.venv\Scripts\python.exe -m pytest tests -q
 cd web
 npm ci
+npm run contracts:check
 npm test
 npm run build
+cd ..
+.\.venv\Scripts\python.exe tests/player_contract_corpus.py
 ```
 
-浏览器回归另运行 `npx playwright install chromium` 与 `npm run test:e2e`，使用模拟 API。CI 在 Windows/Linux 使用 Python 3.12 验证后端，并在 Linux 使用 Node.js 24 验证前端与浏览器。测试中的 `offline-test` 不是可用于真实游玩的密钥。
+玩家接口契约由 `src/storyloop_platform/api/contracts.py` 定义。修改后在 `web` 运行 `npm run contracts:generate`，提交 `web/src/lib/generated` 中生成的 JSON Schema、TypeScript 类型与独立验证器。`contracts:check` 从 Python 源码重新生成并检查差异，不写入文件；可用 `CONTRACT_PYTHON` 指定 Python 可执行文件。上面的独立跨语言命令用临时 SQL 存储和离线模型收集真实 FastAPI 响应，再通过生产 Node 解析器验证；普通后端 pytest 无需 Node。
+
+浏览器回归另在 `web` 运行 `npx playwright install chromium` 与 `npm run test:e2e`，使用模拟 API。CI 在 Windows/Linux 使用 Python 3.12 验证后端，并在 Linux 使用 Node.js 24 验证前端与浏览器。测试中的 `offline-test` 不是可用于真实游玩的密钥。
 
 ```text
 src/storyloop_platform/  API、SQL、配置、模型适配、计费和 CLI

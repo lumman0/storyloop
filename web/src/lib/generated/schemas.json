@@ -1,0 +1,1382 @@
+{
+  "History": {
+    "$defs": {
+      "ActionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "input"
+        ],
+        "title": "ActionOption",
+        "type": "object"
+      },
+      "HistoryTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "response": {
+            "$ref": "#/$defs/View"
+          }
+        },
+        "required": [
+          "request_id",
+          "input",
+          "response"
+        ],
+        "title": "HistoryTurn",
+        "type": "object"
+      },
+      "Interaction": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "choice",
+              "message",
+              "continue"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "default": null,
+            "title": "Label",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/$defs/InteractionOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "prompt",
+          "options"
+        ],
+        "title": "Interaction",
+        "type": "object"
+      },
+      "InteractionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "requires_text": {
+            "title": "Requires Text",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "enabled",
+          "requires_text"
+        ],
+        "title": "InteractionOption",
+        "type": "object"
+      },
+      "StatusField": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "default": null,
+            "title": "Max",
+            "type": "integer"
+          },
+          "min": {
+            "default": null,
+            "title": "Min",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "value"
+        ],
+        "title": "StatusField",
+        "type": "object"
+      },
+      "StorySegment": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "narration",
+              "scene",
+              "dialogue",
+              "message",
+              "prompt",
+              "time"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "speaker_id": {
+            "default": null,
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "speaker_name": {
+            "default": null,
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "StorySegment",
+        "type": "object"
+      },
+      "TurnBilling": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_milli_points": {
+            "title": "Balance Milli Points",
+            "type": "integer"
+          },
+          "balance_points": {
+            "title": "Balance Points",
+            "type": "string"
+          },
+          "charged_milli_points": {
+            "title": "Charged Milli Points",
+            "type": "integer"
+          },
+          "charged_points": {
+            "title": "Charged Points",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_calls": {
+            "title": "Model Calls",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "usage_cost_milli_points": {
+            "title": "Usage Cost Milli Points",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "charged_milli_points",
+          "charged_points",
+          "usage_cost_milli_points",
+          "balance_milli_points",
+          "balance_points",
+          "input_tokens",
+          "output_tokens",
+          "model_calls"
+        ],
+        "title": "TurnBilling",
+        "type": "object"
+      },
+      "View": {
+        "additionalProperties": false,
+        "properties": {
+          "action_options": {
+            "items": {
+              "$ref": "#/$defs/ActionOption"
+            },
+            "title": "Action Options",
+            "type": "array"
+          },
+          "billing": {
+            "$ref": "#/$defs/TurnBilling",
+            "default": null
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "catalog_id": {
+            "title": "Catalog Id",
+            "type": "string"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "game_id": {
+            "title": "Game Id",
+            "type": "string"
+          },
+          "interaction": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Interaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "enum": [
+              "campaign",
+              "freeform"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "opening": {
+            "title": "Opening",
+            "type": "string"
+          },
+          "presentation_mode": {
+            "enum": [
+              "interactive",
+              "novel"
+            ],
+            "title": "Presentation Mode",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/$defs/StorySegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "state_version": {
+            "title": "State Version",
+            "type": "integer"
+          },
+          "status_fields": {
+            "items": {
+              "$ref": "#/$defs/StatusField"
+            },
+            "title": "Status Fields",
+            "type": "array"
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "tick": {
+            "title": "Tick",
+            "type": "integer"
+          },
+          "time_of_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Of Day"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          }
+        },
+        "required": [
+          "game_id",
+          "catalog_id",
+          "mode",
+          "presentation_mode",
+          "opening",
+          "body",
+          "segments",
+          "suggestions",
+          "action_options",
+          "status_fields",
+          "interaction",
+          "tick",
+          "state_version",
+          "day",
+          "time_of_day",
+          "complete",
+          "turn_id"
+        ],
+        "title": "View",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "game_id": {
+        "title": "Game Id",
+        "type": "string"
+      },
+      "intro": {
+        "$ref": "#/$defs/View"
+      },
+      "turns": {
+        "items": {
+          "$ref": "#/$defs/HistoryTurn"
+        },
+        "title": "Turns",
+        "type": "array"
+      }
+    },
+    "required": [
+      "game_id",
+      "intro",
+      "turns"
+    ],
+    "title": "History",
+    "type": "object"
+  },
+  "TurnFailure": {
+    "additionalProperties": false,
+    "properties": {
+      "code": {
+        "title": "Code",
+        "type": "string"
+      },
+      "commit_state": {
+        "enum": [
+          "not_started",
+          "committed",
+          "unknown"
+        ],
+        "title": "Commit State",
+        "type": "string"
+      },
+      "detail": {
+        "default": null,
+        "title": "Detail",
+        "type": "string"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      },
+      "request_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Request Id"
+      },
+      "retryable": {
+        "title": "Retryable",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "code",
+      "message",
+      "retryable",
+      "commit_state",
+      "request_id"
+    ],
+    "title": "TurnFailure",
+    "type": "object"
+  },
+  "TurnStreamEvent": {
+    "$defs": {
+      "ActionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "input"
+        ],
+        "title": "ActionOption",
+        "type": "object"
+      },
+      "CompleteEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "complete",
+            "title": "Type",
+            "type": "string"
+          },
+          "view": {
+            "$ref": "#/$defs/View"
+          }
+        },
+        "required": [
+          "type",
+          "view"
+        ],
+        "title": "CompleteEvent",
+        "type": "object"
+      },
+      "ErrorEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "commit_state": {
+            "enum": [
+              "not_started",
+              "committed",
+              "unknown"
+            ],
+            "title": "Commit State",
+            "type": "string"
+          },
+          "detail": {
+            "default": null,
+            "title": "Detail",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "commit_state",
+          "request_id",
+          "type"
+        ],
+        "title": "ErrorEvent",
+        "type": "object"
+      },
+      "Interaction": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "choice",
+              "message",
+              "continue"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "default": null,
+            "title": "Label",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/$defs/InteractionOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "prompt",
+          "options"
+        ],
+        "title": "Interaction",
+        "type": "object"
+      },
+      "InteractionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "requires_text": {
+            "title": "Requires Text",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "enabled",
+          "requires_text"
+        ],
+        "title": "InteractionOption",
+        "type": "object"
+      },
+      "PreviewEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/$defs/StorySegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "type": {
+            "const": "preview",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "body",
+          "segments"
+        ],
+        "title": "PreviewEvent",
+        "type": "object"
+      },
+      "SegmentEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "segment": {
+            "$ref": "#/$defs/StorySegment"
+          },
+          "type": {
+            "const": "segment",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "segment"
+        ],
+        "title": "SegmentEvent",
+        "type": "object"
+      },
+      "StageEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "type": {
+            "const": "stage",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "stage"
+        ],
+        "title": "StageEvent",
+        "type": "object"
+      },
+      "StatusField": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "default": null,
+            "title": "Max",
+            "type": "integer"
+          },
+          "min": {
+            "default": null,
+            "title": "Min",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "value"
+        ],
+        "title": "StatusField",
+        "type": "object"
+      },
+      "StorySegment": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "narration",
+              "scene",
+              "dialogue",
+              "message",
+              "prompt",
+              "time"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "speaker_id": {
+            "default": null,
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "speaker_name": {
+            "default": null,
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "StorySegment",
+        "type": "object"
+      },
+      "TurnBilling": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_milli_points": {
+            "title": "Balance Milli Points",
+            "type": "integer"
+          },
+          "balance_points": {
+            "title": "Balance Points",
+            "type": "string"
+          },
+          "charged_milli_points": {
+            "title": "Charged Milli Points",
+            "type": "integer"
+          },
+          "charged_points": {
+            "title": "Charged Points",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_calls": {
+            "title": "Model Calls",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "usage_cost_milli_points": {
+            "title": "Usage Cost Milli Points",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "charged_milli_points",
+          "charged_points",
+          "usage_cost_milli_points",
+          "balance_milli_points",
+          "balance_points",
+          "input_tokens",
+          "output_tokens",
+          "model_calls"
+        ],
+        "title": "TurnBilling",
+        "type": "object"
+      },
+      "View": {
+        "additionalProperties": false,
+        "properties": {
+          "action_options": {
+            "items": {
+              "$ref": "#/$defs/ActionOption"
+            },
+            "title": "Action Options",
+            "type": "array"
+          },
+          "billing": {
+            "$ref": "#/$defs/TurnBilling",
+            "default": null
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "catalog_id": {
+            "title": "Catalog Id",
+            "type": "string"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "game_id": {
+            "title": "Game Id",
+            "type": "string"
+          },
+          "interaction": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Interaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "enum": [
+              "campaign",
+              "freeform"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "opening": {
+            "title": "Opening",
+            "type": "string"
+          },
+          "presentation_mode": {
+            "enum": [
+              "interactive",
+              "novel"
+            ],
+            "title": "Presentation Mode",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/$defs/StorySegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "state_version": {
+            "title": "State Version",
+            "type": "integer"
+          },
+          "status_fields": {
+            "items": {
+              "$ref": "#/$defs/StatusField"
+            },
+            "title": "Status Fields",
+            "type": "array"
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "tick": {
+            "title": "Tick",
+            "type": "integer"
+          },
+          "time_of_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Of Day"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          }
+        },
+        "required": [
+          "game_id",
+          "catalog_id",
+          "mode",
+          "presentation_mode",
+          "opening",
+          "body",
+          "segments",
+          "suggestions",
+          "action_options",
+          "status_fields",
+          "interaction",
+          "tick",
+          "state_version",
+          "day",
+          "time_of_day",
+          "complete",
+          "turn_id"
+        ],
+        "title": "View",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "complete": "#/$defs/CompleteEvent",
+        "error": "#/$defs/ErrorEvent",
+        "preview": "#/$defs/PreviewEvent",
+        "segment": "#/$defs/SegmentEvent",
+        "stage": "#/$defs/StageEvent"
+      },
+      "propertyName": "type"
+    },
+    "oneOf": [
+      {
+        "$ref": "#/$defs/StageEvent"
+      },
+      {
+        "$ref": "#/$defs/SegmentEvent"
+      },
+      {
+        "$ref": "#/$defs/PreviewEvent"
+      },
+      {
+        "$ref": "#/$defs/CompleteEvent"
+      },
+      {
+        "$ref": "#/$defs/ErrorEvent"
+      }
+    ]
+  },
+  "View": {
+    "$defs": {
+      "ActionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "input"
+        ],
+        "title": "ActionOption",
+        "type": "object"
+      },
+      "Interaction": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "choice",
+              "message",
+              "continue"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "default": null,
+            "title": "Label",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/$defs/InteractionOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "prompt",
+          "options"
+        ],
+        "title": "Interaction",
+        "type": "object"
+      },
+      "InteractionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "requires_text": {
+            "title": "Requires Text",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "enabled",
+          "requires_text"
+        ],
+        "title": "InteractionOption",
+        "type": "object"
+      },
+      "StatusField": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "default": null,
+            "title": "Max",
+            "type": "integer"
+          },
+          "min": {
+            "default": null,
+            "title": "Min",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "value"
+        ],
+        "title": "StatusField",
+        "type": "object"
+      },
+      "StorySegment": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "narration",
+              "scene",
+              "dialogue",
+              "message",
+              "prompt",
+              "time"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "speaker_id": {
+            "default": null,
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "speaker_name": {
+            "default": null,
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "StorySegment",
+        "type": "object"
+      },
+      "TurnBilling": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_milli_points": {
+            "title": "Balance Milli Points",
+            "type": "integer"
+          },
+          "balance_points": {
+            "title": "Balance Points",
+            "type": "string"
+          },
+          "charged_milli_points": {
+            "title": "Charged Milli Points",
+            "type": "integer"
+          },
+          "charged_points": {
+            "title": "Charged Points",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_calls": {
+            "title": "Model Calls",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "usage_cost_milli_points": {
+            "title": "Usage Cost Milli Points",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "charged_milli_points",
+          "charged_points",
+          "usage_cost_milli_points",
+          "balance_milli_points",
+          "balance_points",
+          "input_tokens",
+          "output_tokens",
+          "model_calls"
+        ],
+        "title": "TurnBilling",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "action_options": {
+        "items": {
+          "$ref": "#/$defs/ActionOption"
+        },
+        "title": "Action Options",
+        "type": "array"
+      },
+      "billing": {
+        "$ref": "#/$defs/TurnBilling",
+        "default": null
+      },
+      "body": {
+        "title": "Body",
+        "type": "string"
+      },
+      "catalog_id": {
+        "title": "Catalog Id",
+        "type": "string"
+      },
+      "complete": {
+        "title": "Complete",
+        "type": "boolean"
+      },
+      "day": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Day"
+      },
+      "game_id": {
+        "title": "Game Id",
+        "type": "string"
+      },
+      "interaction": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Interaction"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "mode": {
+        "enum": [
+          "campaign",
+          "freeform"
+        ],
+        "title": "Mode",
+        "type": "string"
+      },
+      "opening": {
+        "title": "Opening",
+        "type": "string"
+      },
+      "presentation_mode": {
+        "enum": [
+          "interactive",
+          "novel"
+        ],
+        "title": "Presentation Mode",
+        "type": "string"
+      },
+      "segments": {
+        "items": {
+          "$ref": "#/$defs/StorySegment"
+        },
+        "title": "Segments",
+        "type": "array"
+      },
+      "state_version": {
+        "title": "State Version",
+        "type": "integer"
+      },
+      "status_fields": {
+        "items": {
+          "$ref": "#/$defs/StatusField"
+        },
+        "title": "Status Fields",
+        "type": "array"
+      },
+      "suggestions": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Suggestions",
+        "type": "array"
+      },
+      "tick": {
+        "title": "Tick",
+        "type": "integer"
+      },
+      "time_of_day": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Time Of Day"
+      },
+      "turn_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Turn Id"
+      }
+    },
+    "required": [
+      "game_id",
+      "catalog_id",
+      "mode",
+      "presentation_mode",
+      "opening",
+      "body",
+      "segments",
+      "suggestions",
+      "action_options",
+      "status_fields",
+      "interaction",
+      "tick",
+      "state_version",
+      "day",
+      "time_of_day",
+      "complete",
+      "turn_id"
+    ],
+    "title": "View",
+    "type": "object"
+  }
+}
