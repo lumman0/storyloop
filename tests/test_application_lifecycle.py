@@ -278,6 +278,81 @@ def test_lifespan_reports_unexpected_memory_worker_failure(app_portal, caplog):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("bookkeeping", ["claim", "complete", "fail", None])
+def test_cancelled_memory_batch_preserves_bookkeeping_failure_and_close_guard(app_portal, bookkeeping):
+    from storyloop_platform.memory.jobs import MemoryBatch
+    from test_player_memory_service import FakeMemory, FakeJobs
+
+    async def run():
+        portal = app_portal
+        provider, jobs = FakeMemory(), FakeJobs()
+        service = portal.memory_service
+        service.provider, service.jobs, service.enabled = provider, jobs, True
+        batch = MemoryBatch("player", (("game", "request", "preference"),))
+        jobs.batches.append(batch)
+        entered, release = threading.Event(), threading.Event()
+        error = RuntimeError(f"unexpected memory {bookkeeping} failure")
+        disposed = Mock()
+        event.listen(portal.accounts.engine, "engine_disposed", disposed)
+
+        def block():
+            entered.set()
+            assert release.wait(5)
+            assert not provider.closed and not disposed.called
+
+        def remember(*args):
+            block()
+            if bookkeeping in ("fail", None):
+                raise RuntimeError("expected provider extraction failure")
+
+        def fail_bookkeeping(*args):
+            if bookkeeping == "claim":
+                block()
+            assert not provider.closed and not disposed.called
+            raise error
+
+        provider.remember = remember
+        if bookkeeping is not None:
+            setattr(jobs, bookkeeping, fail_bookkeeping)
+        worker = portal.operations.start(service.run_worker, name="memory-worker", service=True)
+        shutdown = None
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            shutdown = asyncio.create_task(portal.shutdown(grace_timeout=0, cancel_timeout=1))
+
+            async def wait_for_cancellation():
+                while not worker.cancelling():
+                    await asyncio.sleep(0)
+                # Let the worker receive cancellation while its real thread is busy.
+                await asyncio.sleep(0)
+
+            await asyncio.wait_for(wait_for_cancellation(), 1)
+            assert not worker.done() and not shutdown.done()
+            with pytest.raises(RuntimeError, match="active"):
+                portal.close()
+            assert not provider.closed and not disposed.called
+            release.set()
+            if bookkeeping is None:
+                await shutdown
+                assert worker.cancelled()
+                assert jobs.failed == [batch]
+                assert provider.closed and disposed.call_count == 1
+            else:
+                with pytest.raises(ExceptionGroup, match="service") as failed:
+                    await shutdown
+                assert failed.value.exceptions == (error,)
+                for close in (portal.close, service.close):
+                    with pytest.raises(ExceptionGroup, match="service"):
+                        close()
+                with pytest.raises(ExceptionGroup, match="service"):
+                    await portal.shutdown()
+                assert not provider.closed and not disposed.called
+        finally:
+            release.set()
+            await asyncio.gather(worker, *([shutdown] if shutdown is not None else []), return_exceptions=True)
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("version", [False, True])
 @pytest.mark.parametrize("cancel", [False, True])
 def test_upload_prologue_shutdown_keeps_resources_open_and_cleans_stage(app_portal, monkeypatch, version, cancel):

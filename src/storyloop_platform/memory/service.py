@@ -103,6 +103,9 @@ class PlayerMemoryService:
                     batch = await finish_on_cancel(task)
                 except asyncio.CancelledError:
                     self.request_stop()
+                    # The protected batch has settled. Surface unexpected service
+                    # failure to its owner before propagating normal cancellation.
+                    task.result()
                     raise
                 if batch is None and not self._stop_requested:
                     try:
