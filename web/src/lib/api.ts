@@ -1,4 +1,8 @@
-import type { TurnFailure } from "./pendingTurn";
+import { parseView, parseHistory } from "./contracts";
+import type { View, TurnStreamEvent } from "./contracts";
+import { ApiError, responseError, readTurnStream } from "./playerResponses";
+export { ApiError } from "./playerResponses";
+export type { View, History, StorySegment, Interaction, TurnBilling, TurnFailure, TurnStreamEvent } from "./contracts";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -119,54 +123,6 @@ export type SaveSettings = {
   default_context_window_tokens: number;
   max_context_window_tokens: number;
 };
-export type StorySegment = {
-  kind: "narration" | "scene" | "dialogue" | "message" | "prompt" | "time";
-  text: string;
-  speaker_id?: string;
-  speaker_name?: string;
-};
-export type Interaction = {
-  id: string;
-  kind: "choice" | "message" | "continue";
-  prompt: string;
-  label?: string;
-  options: {
-    id: string;
-    label: string;
-    enabled: boolean;
-    requires_text: boolean;
-  }[];
-};
-export type View = {
-  game_id: string;
-  catalog_id: string;
-  mode: string;
-  presentation_mode?: "interactive" | "novel";
-  opening: string;
-  body: string;
-  segments?: StorySegment[];
-  interaction?: Interaction | null;
-  suggestions: string[];
-  action_options?: { label: string; input: string }[];
-  tick: number;
-  state_version: number;
-  day: number | null;
-  time_of_day?: string | null;
-  status_fields?: { id: string; label: string; value: string | number | boolean; min?: number; max?: number }[];
-  complete: boolean;
-  turn_id: string | null;
-  billing?: TurnBilling;
-};
-export type TurnBilling = {
-  charged_milli_points: number;
-  charged_points: string;
-  usage_cost_milli_points: number;
-  balance_milli_points: number;
-  balance_points: string;
-  input_tokens: number;
-  output_tokens: number;
-  model_calls: number;
-};
 export type CreditWallet = {
   balance_milli_points: number;
   balance_points: string;
@@ -192,11 +148,6 @@ export type CreditEntry = {
   }[];
   created_order: number;
 };
-export type History = {
-  game_id: string;
-  intro: View;
-  turns: { request_id: string; input: string | null; response: View }[];
-};
 export type Session = { player_id: string; roles: string[]; capabilities: string[] };
 export type PlayerMemoryStatus = {
   available: boolean;
@@ -207,28 +158,11 @@ export type PlayerMemoryStatus = {
   min_interval_hours: number;
   charged_points: number;
 };
-export type TurnStreamEvent =
-  | { type: "stage"; stage: string }
-  | { type: "segment"; segment: StorySegment }
-  | { type: "preview"; body: string; segments: StorySegment[] }
-  | { type: "complete"; view: View }
-  | ({ type: "error"; message: string } & TurnFailure);
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly failure?: TurnFailure,
-  ) {
-    super(message);
-  }
-}
-
-async function request<T>(
+async function requestPayload(
   path: string,
   method = "GET",
   body?: unknown,
-): Promise<T> {
+): Promise<unknown> {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     credentials: "same-origin",
@@ -245,13 +179,18 @@ async function request<T>(
   }
   if (!response.ok) {
     if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
-    const detail =
-      payload && typeof payload === "object" && "detail" in payload
-        ? String(payload.detail)
-        : "请求未能完成，请稍后重试。";
-    throw new ApiError(detail, response.status, payload as TurnFailure | undefined);
+    throw responseError(response.status, payload);
   }
-  return payload as T;
+  return payload;
+}
+
+async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  return await requestPayload(path, method, body) as T;
+}
+
+async function requestContract<T>(path: string, parse: (payload: unknown) => T,
+  method = "GET", body?: unknown): Promise<T> {
+  return parse(await requestPayload(path, method, body));
 }
 
 async function uploadScenario(
@@ -316,44 +255,8 @@ async function streamTurn(
       body: JSON.stringify({ text, request_id: requestId }),
     },
   );
-  if (!response.ok) {
-    if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
-    const payload = await response.json().catch(() => null);
-    throw new ApiError(
-      payload && typeof payload.detail === "string"
-        ? payload.detail
-        : "请求未能完成，请稍后重试。",
-      response.status,
-      payload ?? undefined,
-    );
-  }
-  if (!response.body) throw new ApiError("浏览器无法读取实时响应。", 0);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let completed: View | null = null;
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const data = frame.split("\n").filter((line) => line.startsWith("data: "))
-        .map((line) => line.slice(6)).join("\n");
-      if (data) {
-        const event = JSON.parse(data) as TurnStreamEvent;
-        if (event.type === "error") throw new ApiError(event.message, 400, event);
-        onEvent(event);
-        if (event.type === "complete") completed = event.view;
-      }
-      boundary = buffer.indexOf("\n\n");
-    }
-    if (done) break;
-  }
-  if (!completed) throw new ApiError("连接中断，尚未收到完整结果。可重试这条行动。", 0);
-  return completed;
+  if (response.status === 401) window.dispatchEvent(new Event("story:session-expired"));
+  return readTurnStream(response, onEvent);
 }
 
 export const api = {
@@ -385,7 +288,7 @@ export const api = {
   reviewDetail: (id: string) =>
     request<ReviewDetail>(`/v1/manage/submissions/${encodeURIComponent(id)}`),
   reviewPreview: (id: string) =>
-    request<View>(`/v1/manage/submissions/${encodeURIComponent(id)}/preview`, "POST"),
+    requestContract(`/v1/manage/submissions/${encodeURIComponent(id)}/preview`, parseView, "POST"),
   reviewDecide: (id: string, decision: "approved" | "rejected", reason: string) =>
     request<ReviewSubmission>(`/v1/manage/submissions/${encodeURIComponent(id)}/decision`,
       "POST", { decision, reason }),
@@ -414,16 +317,16 @@ export const api = {
   creditLedger: () => request<{ entries: CreditEntry[] }>("/v1/billing/ledger"),
   createSave: (catalogId: string, playMode?: "campaign" | "freeform",
     storySetup?: Record<string, string>) =>
-    request<View>("/v1/saves", "POST", {
+    requestContract("/v1/saves", parseView, "POST", {
       catalog_id: catalogId, play_mode: playMode, story_setup: storySetup,
     }),
   resume: (gameId: string) =>
-    request<View>(
-      `/v1/saves/${encodeURIComponent(gameId)}/resume`,
+    requestContract(
+      `/v1/saves/${encodeURIComponent(gameId)}/resume`, parseView,
       "POST",
     ),
   history: (gameId: string) =>
-    request<History>(`/v1/saves/${encodeURIComponent(gameId)}/history`),
+    requestContract(`/v1/saves/${encodeURIComponent(gameId)}/history`, parseHistory),
   playerCard: (gameId: string) =>
     request<PlayerCard>(`/v1/saves/${encodeURIComponent(gameId)}/player-card`),
   cast: (gameId: string) =>
@@ -436,8 +339,8 @@ export const api = {
     request<SaveSettings>(`/v1/saves/${encodeURIComponent(gameId)}/settings`,
       "PUT", { temperature, context_window_tokens: contextWindowTokens }),
   turn: (gameId: string, text: string, requestId: string) =>
-    request<View>(
-      `/v1/saves/${encodeURIComponent(gameId)}/turns`,
+    requestContract(
+      `/v1/saves/${encodeURIComponent(gameId)}/turns`, parseView,
       "POST",
       { text, request_id: requestId },
     ),

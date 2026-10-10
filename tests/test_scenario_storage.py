@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from storyloop_platform.portal.catalog import GameCatalog
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "freeform"
@@ -68,7 +68,7 @@ class ScenarioStorageTests(unittest.TestCase):
         ):
             root = Path(__file__).resolve().parents[1]
             catalog = GameCatalog.from_sources(InMemoryCatalogSource(), MovingPackageStore(EXAMPLE))
-            portal = PlayerPortal(None, load_settings(root / "config" / "local.json"),
+            portal = build_portal(None, load_settings(root / "config" / "local.json"),
                                   str(Path(temp) / "game.sqlite3"),
                                   catalog=catalog)
             try:

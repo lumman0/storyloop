@@ -21,7 +21,7 @@ class PricedOfflineModel(OfflineModel):
 
 
 def test_sql_portal_calls_public_engine_and_settles_returned_usage_once(portal, monkeypatch):
-    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: PricedOfflineModel())
+    portal.gameplay.factory.offline_models.model = PricedOfflineModel()
     calls = []
     run = TurnEngine.run_turn
 
@@ -35,12 +35,12 @@ def test_sql_portal_calls_public_engine_and_settles_returned_usage_once(portal, 
     monkeypatch.setattr(TurnEngine, 'run_turn', observed)
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'npc-chat'))['game_id']
-    before = portal.store.load(game)
+    before = portal.gameplay.store.load(game)
     response = asyncio.run(portal.turn(token, game, 'Hello', 'public-turn'))
     assert len(calls) == 1
     assert response['body'].strip()
-    assert portal.store.load(game).version > before.version
-    assert portal.store.event_exists(game, 'portal-public-turn:input')
+    assert portal.gameplay.store.load(game).version > before.version
+    assert portal.gameplay.store.event_exists(game, 'portal-public-turn:input')
     assert response['billing']['input_tokens'] == 1234
     assert response['billing']['output_tokens'] == 567
     assert asyncio.run(portal.turn(token, game, 'Hello', 'public-turn')) == response
@@ -55,13 +55,13 @@ def test_sql_portal_model_failure_keeps_world_and_wallet(portal, monkeypatch, mi
             if missing_usage:
                 record_model_usage('qwen3.8-flash', 'single_turn', None)
             raise RuntimeError('offline model failed')
-    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: FailedModel())
+    portal.gameplay.factory.offline_models.model = FailedModel()
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'npc-chat'))['game_id']
-    before, wallet = portal.store.load(game), portal.wallet(token)
+    before, wallet = portal.gameplay.store.load(game), portal.wallet(token)
     with pytest.raises(RuntimeError, match='usage|failed'):
         asyncio.run(portal.turn(token, game, 'Hello', 'failed-turn'))
-    assert portal.store.load(game) == before
+    assert portal.gameplay.store.load(game) == before
     assert portal.wallet(token) == wallet
 
 
@@ -90,8 +90,8 @@ def campaign_portal(portal, tmp_path, monkeypatch):
     catalog = tmp_path / 'catalog.json'
     catalog.write_text(json.dumps({'games': [{'id': 'campaign', 'title': 'Campaign',
                        'mode': 'campaign', 'package': 'campaign'}]}), encoding='utf-8')
-    portal.catalog = GameCatalog.load(catalog)
-    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: PricedOfflineModel())
+    portal.gameplay.game_access.catalog = GameCatalog.load(catalog)
+    portal.gameplay.factory.offline_models.model = PricedOfflineModel()
     return portal
 
 
@@ -104,7 +104,7 @@ def test_campaign_bills_engine_or_product_presentation_usage(campaign_portal, mo
             record_model_usage('qwen3.8-flash', 'narration',
                                SimpleNamespace(input_tokens=222, output_tokens=33))
             return 'The harbor settles into the afternoon.'
-    monkeypatch.setattr(portal, '_novel_presenter', lambda *a: Presenter())
+    portal.gameplay.factory.presenter = Presenter()
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'campaign'))['game_id']
     result = asyncio.run(portal.turn(token, game, player_text, 'campaign-turn'))
@@ -118,7 +118,7 @@ def test_campaign_missing_product_usage_stays_unbilled(campaign_portal, monkeypa
     class Presenter:
         async def present(self, context):
             record_model_usage('qwen3.8-flash', 'narration', None)
-    monkeypatch.setattr(portal, '_novel_presenter', lambda *a: Presenter())
+    portal.gameplay.factory.presenter = Presenter()
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'campaign'))['game_id']
     wallet = portal.wallet(token)
@@ -133,7 +133,7 @@ def test_sql_store_preserves_public_commit_version_contract(portal):
     from storyloop_harness import GameStore, ScenarioPackage
     from storyloop_harness.advanced import WorldEvent
     from test_turn_failure_contract import ROOT
-    store: GameStore = portal.store
+    store: GameStore = portal.gameplay.store
     package = ScenarioPackage.load(ROOT / 'examples/freeform')
     package.seed_game(store, 'versions')
     before = store.load('versions')
@@ -147,7 +147,7 @@ def test_sql_store_preserves_public_commit_version_contract(portal):
 
 def test_product_and_engine_usage_are_merged_once(portal, monkeypatch):
     from storyloop_platform.runtime.guidance import GuidanceAdvisor
-    monkeypatch.setattr(type(portal.model_factory), 'create_model', lambda *a, **k: PricedOfflineModel())
+    portal.gameplay.factory.offline_models.model = PricedOfflineModel()
     token = portal.register('reader', 'password-123')['token']
     game = asyncio.run(portal.create_save(token, 'npc-chat'))['game_id']
     advise = GuidanceAdvisor.advise

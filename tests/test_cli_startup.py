@@ -29,7 +29,7 @@ def launch(request, tmp_path, monkeypatch):
         return SimpleNamespace(settings=settings, model_factory=ModelFactory(settings),
                                db_path=db or settings.storage.path)
 
-    monkeypatch.setattr(command, "PlayerPortal", create)
+    monkeypatch.setattr(command, "build_portal", create)
     if request.param == "portal_api":
         monkeypatch.setattr(command, "serve", lambda *args: None)
     else:
@@ -102,7 +102,7 @@ def test_failed_startup_preserves_settings_and_secret_files(launch, monkeypatch,
         launch.config.write_text('{"environment":"online"}')
     else:
         expected = RuntimeError
-        monkeypatch.setattr(launch.command, "PlayerPortal", lambda *args: (_ for _ in ()).throw(RuntimeError("failed")))
+        monkeypatch.setattr(launch.command, "build_portal", lambda *args: (_ for _ in ()).throw(RuntimeError("failed")))
     with pytest.raises(expected):
         launch.run(*args)
     assert path.read_bytes() == original
@@ -132,7 +132,7 @@ def test_explicit_configuration_is_loaded_once(launch, monkeypatch):
 
 def test_preference_write_failure_closes_constructed_portal(launch, monkeypatch):
     closed = []
-    monkeypatch.setattr(launch.command, "PlayerPortal", lambda *args: SimpleNamespace(
+    monkeypatch.setattr(launch.command, "build_portal", lambda *args: SimpleNamespace(
         db_path=str(launch.root / "db"), close=lambda: closed.append(True)))
     monkeypatch.setattr(launch.preferences, "save_settings", lambda *args: (_ for _ in ()).throw(OSError("full")))
     with pytest.raises(OSError):
@@ -162,7 +162,7 @@ def test_provider_credentials_are_restored_before_construction(launch, monkeypat
     def create(catalog, settings, db):
         assert os.environ["OTHER_KEY"] == os.environ["STORY_MODEL_API_KEY"] == "offline-key"
         return SimpleNamespace(db_path=settings.storage.path)
-    monkeypatch.setattr(launch.command, "PlayerPortal", create)
+    monkeypatch.setattr(launch.command, "build_portal", create)
     launch.run("--config", launch.config, "--catalog", launch.catalog)
     assert sorted(activated) == ["OTHER_KEY", "STORY_MODEL_API_KEY"]
 

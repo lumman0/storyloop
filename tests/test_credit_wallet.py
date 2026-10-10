@@ -10,7 +10,9 @@ from sqlalchemy import text
 from storyloop_platform.adapters.sql_database import open_database, sqlite_url, upgrade_database
 from storyloop_platform.portal.billing import BillingPolicy, ModelUsage, record_model_usage
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
+from runtime_fakes import OfflineExecutor, OfflineRuntimeFactory, turn_outcome
+from storyloop_harness import ScenarioPackage
 from storyloop_platform.portal.sql_billing import SQLBillingRepository
 from storyloop_platform.portal.sql_repository import SQLPlayerRepository
 
@@ -22,27 +24,26 @@ class CreditWalletTests(unittest.TestCase):
             "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(root / "examples" / "catalog.json",
+            portal = build_portal(root / "examples" / "catalog.json",
                                   load_settings(root / "config" / "local.json"),
-                                  str(Path(temp) / "portal.sqlite3"))
+                                  str(Path(temp) / "portal.sqlite3"), runtime_factory_builder=OfflineRuntimeFactory)
             try:
                 token = portal.register("reconnect-user", "password-123")["token"]
                 game_id = asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
                 entered = asyncio.Event()
                 release = asyncio.Event()
 
-                class SlowSession:
+                class SlowSession(OfflineExecutor):
                     def proposed_options(self, *args):
                         return ()
 
-                    async def run_turn(self, turn, progress=None):
+                    async def run_turn(self, turn, *, progress=None, max_tick=None):
                         game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                         entered.set()
                         await release.wait()
-                        return SimpleNamespace(narration="完成", segments=(),
-                                               snapshot=portal.store.load(game_id))
+                        return turn_outcome(portal.gameplay.store.load(game_id), "完成")
 
-                portal._turn_engine = lambda item, package, game_id: SlowSession()
+                portal.gameplay.factory.executor_builder = lambda item, package, game_id, **kwargs: SlowSession(portal.gameplay.store, package)
 
                 async def reconnect():
                     turn = asyncio.create_task(portal.turn(token, game_id, "你好", "reconnect-1"))
@@ -65,26 +66,26 @@ class CreditWalletTests(unittest.TestCase):
             "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(root / "examples" / "catalog.json",
+            portal = build_portal(root / "examples" / "catalog.json",
                                   load_settings(root / "config" / "local.json"),
-                                  str(Path(temp) / "portal.sqlite3"))
+                                  str(Path(temp) / "portal.sqlite3"), runtime_factory_builder=OfflineRuntimeFactory)
             try:
                 account = portal.register("parallel-user", "password-123")
                 token = account["token"]
                 game_ids = [asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
                             for _ in range(2)]
-                with portal.engine.begin() as db:
+                with portal.accounts.engine.begin() as db:
                     db.execute(text("UPDATE credit_wallets SET balance_milli_points=100 "
                                     "WHERE player_id=:player_id"),
                                {"player_id": account["player_id"]})
 
-                class FakeSession:
+                class FakeSession(OfflineExecutor):
                     calls = 0
 
                     def proposed_options(self, *args):
                         return ()
 
-                    async def run_turn(self, turn, progress=None):
+                    async def run_turn(self, turn, *, progress=None, max_tick=None):
                         game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                         self.calls += 1
                         await asyncio.sleep(0.02)
@@ -92,11 +93,11 @@ class CreditWalletTests(unittest.TestCase):
                             input_tokens=1000, output_tokens=500,
                             metadata=SimpleNamespace(prompt_tokens_details={"cached_tokens": 200}),
                         ))
-                        return SimpleNamespace(narration="你好", segments=(),
-                                               snapshot=portal.store.load(game_id))
+                        return turn_outcome(portal.gameplay.store.load(game_id), "你好")
 
-                session = FakeSession()
-                portal._turn_engine = lambda item, package, game_id: session
+                item = portal.gameplay.game_access.listing_for(account["player_id"], "npc-chat")
+                session = FakeSession(portal.gameplay.store, ScenarioPackage.load(item.package_path))
+                portal.gameplay.factory.executor_builder = lambda item, package, game_id: session
 
                 async def submit_both():
                     return await asyncio.gather(
@@ -152,20 +153,20 @@ class CreditWalletTests(unittest.TestCase):
             "STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
             "LANGFUSE_SECRET_KEY": "",
         }):
-            portal = PlayerPortal(root / "examples" / "catalog.json",
+            portal = build_portal(root / "examples" / "catalog.json",
                                   load_settings(root / "config" / "local.json"),
-                                  str(Path(temp) / "portal.sqlite3"))
+                                  str(Path(temp) / "portal.sqlite3"), runtime_factory_builder=OfflineRuntimeFactory)
             try:
                 token = portal.register("meter-user", "password-123")["token"]
                 game_id = asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
 
-                class FakeSession:
+                class FakeSession(OfflineExecutor):
                     calls = 0
 
                     def proposed_options(self, *args):
                         return ()
 
-                    async def run_turn(self, turn, progress=None):
+                    async def run_turn(self, turn, *, progress=None, max_tick=None):
                         game_id, text, turn_id = turn.game_id, turn.player_text, turn.turn_id
                         self.calls += 1
                         if text == "失败":
@@ -174,11 +175,11 @@ class CreditWalletTests(unittest.TestCase):
                             input_tokens=1000, output_tokens=500,
                             metadata=SimpleNamespace(prompt_tokens_details={"cached_tokens": 200}),
                         ))
-                        return SimpleNamespace(narration="你好", segments=(),
-                                               snapshot=portal.store.load(game_id))
+                        return turn_outcome(portal.gameplay.store.load(game_id), "你好")
 
-                session = FakeSession()
-                portal._turn_engine = lambda item, package, game_id: session
+                item = portal.gameplay.game_access.listing_for(portal.accounts.resolve_token(token), "npc-chat")
+                session = FakeSession(portal.gameplay.store, ScenarioPackage.load(item.package_path))
+                portal.gameplay.factory.executor_builder = lambda item, package, game_id: session
                 first = asyncio.run(portal.turn(token, game_id, "你好", "one"))
                 self.assertEqual(first["billing"]["charged_points"], "0.101")
                 self.assertEqual(portal.wallet(token)["balance_points"], "499.899")

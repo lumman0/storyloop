@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agentscope.model import OpenAIChatModel
 
-    from storyloop_platform.adapters.telemetry import Telemetry
+    from storyloop_harness.telemetry import Telemetry
 from .schema import ChatModelSettings, EmbeddingModelSettings, PlatformSettings
 
 

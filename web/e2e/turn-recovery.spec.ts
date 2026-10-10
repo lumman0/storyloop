@@ -89,3 +89,33 @@ test("manual recovery remains blocked after refresh with the original request pr
     id: requestId, text: "我走向码头", retryable: false, error: "这条行动需要人工恢复，请联系管理员。",
   });
 });
+
+for (const outcome of ["unknown event", "malformed complete", "invalid JSON", "malformed HTTP failure"]) {
+  test(`${outcome} retains input and request ID across refresh and retry`, async ({ page }) => {
+    const calls: { request_id: string; text: string }[] = [];
+    await playerApi(page, view, async (route) => {
+      const input = route.request().postDataJSON();
+      calls.push(input);
+      if (outcome === "malformed HTTP failure") {
+        return route.fulfill({ status: 400, json: { detail: "Incomplete failure metadata",
+          commit_state: "not_started", request_id: input.request_id } });
+      }
+      const data = outcome === "unknown event" ? JSON.stringify({ type: "future", commit_state: "not_started", request_id: input.request_id })
+        : outcome === "malformed complete" ? JSON.stringify({ type: "complete", view: { body: "Malformed content" } }) : "{invalid";
+      await route.fulfill({ contentType: "text/event-stream", body: `data: ${data}\n\n` });
+    });
+    await page.goto("/play/game");
+    await page.getByLabel("写下你的行动或想说的话").fill("我走向码头");
+    await page.getByLabel("写下你的行动或想说的话").press("Enter");
+    await expect(page.getByRole("button", { name: "重试这条行动" })).toBeVisible();
+    await expect(page.getByLabel("写下你的行动或想说的话")).toHaveCount(0);
+    await expect(page.getByText("Malformed content", { exact: true })).toHaveCount(0);
+    await page.reload();
+    await page.getByRole("button", { name: "重试这条行动" }).click();
+    await expect.poll(() => calls.length).toBe(2);
+    expect(calls[1]).toEqual(calls[0]);
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("storyloop.pending.game")!))).toEqual({
+      id: calls[0].request_id, text: "我走向码头",
+    });
+  });
+}

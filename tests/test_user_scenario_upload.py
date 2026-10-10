@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import asyncio
-import concurrent.futures
 import json
 import os
 import shutil
@@ -14,13 +13,14 @@ import threading
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
 from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 from storyloop_platform.portal.user_scenarios import UserScenarioService
 from storyloop_platform.portal import user_scenarios as upload_module
 
@@ -40,9 +40,9 @@ def archive(files: dict[str, bytes] | None = None) -> bytes:
 
 class UserScenarioUploadTests(unittest.TestCase):
     def portal(self, directory: Path) -> PlayerPortal:
-        return PlayerPortal(ROOT / "examples" / "catalog.json",
+        return build_portal(ROOT / "examples" / "catalog.json",
                             load_settings(ROOT / "config" / "local.json"), str(directory / "portal.sqlite3"),
-                            prologue_generator=lambda *_: "固定开场。\n\n现在可以开始故事。")
+                            prologue_generator=AsyncMock(return_value='固定开场。\n\n现在可以开始故事。'))
 
     def test_missing_prologue_is_generated_once_for_each_saved_version(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
@@ -52,14 +52,14 @@ class UserScenarioUploadTests(unittest.TestCase):
             portal = self.portal(Path(temp))
             calls: list[str] = []
 
-            def generate(package, program, title, summary):
+            async def generate(package, program, title, summary):
                 calls.append(package.version)
                 return f"第{len(calls)}版序章。\n\n从这里开始。"
 
             portal.user_scenarios.prologue_generator = generate
             try:
                 token = portal.register("author", "upload-pass-123")["token"]
-                first = portal.upload_scenario(token, "故事", "背景", archive())
+                first = asyncio.run(portal.upload_scenario(token, "故事", "背景", archive()))
                 first_package = portal.user_scenarios.package_store.materialize(
                     f"{first['id']}/{first['version_id']}")
                 self.assertEqual(json.loads((first_package / "manifest.json").read_text(
@@ -69,7 +69,7 @@ class UserScenarioUploadTests(unittest.TestCase):
                 self.assertEqual(view["opening"], "第1版序章。\n\n从这里开始。")
                 asyncio.run(portal.resume_save(token, view["game_id"]))
                 self.assertEqual(len(calls), 1)
-                portal.upload_scenario_version(token, first["id"], "故事", "背景", archive())
+                asyncio.run(portal.upload_scenario_version(token, first["id"], "故事", "背景", archive()))
                 self.assertEqual(len(calls), 2)
             finally:
                 portal.close()
@@ -83,7 +83,7 @@ class UserScenarioUploadTests(unittest.TestCase):
             try:
                 author = portal.register("author", "upload-pass-123")["token"]
                 other = portal.register("reader", "upload-pass-123")["token"]
-                item = portal.upload_scenario(author, "我的世界", "仅供试玩", archive())
+                item = asyncio.run(portal.upload_scenario(author, "我的世界", "仅供试玩", archive()))
                 self.assertEqual(item["status"], "draft")
                 self.assertNotIn(item["id"], [game["id"] for game in portal.games(author)])
                 with self.assertRaises(PermissionError):
@@ -152,14 +152,14 @@ class UserScenarioUploadTests(unittest.TestCase):
                                   {"manifest.json": b"{}"}):
                     with self.subTest(malicious=malicious):
                         with self.assertRaises(ValueError):
-                            portal.upload_scenario(token, "Bad", "", archive(malicious))
+                            asyncio.run(portal.upload_scenario(token, "Bad", "", archive(malicious)))
                 valid = {file.name: file.read_bytes() for file in EXAMPLE.glob("*.json")}
                 for unsafe_name in ("C:outside.json", "CON.json", "name\n.json"):
                     with self.subTest(unsafe_name=unsafe_name):
                         with self.assertRaisesRegex(ValueError, "unsafe"):
-                            portal.upload_scenario(token, "Bad", "", archive({
+                            asyncio.run(portal.upload_scenario(token, "Bad", "", archive({
                                 **valid, unsafe_name: b"{}",
-                            }))
+                            })))
                 self.assertEqual(portal.my_scenarios(token), [])
             finally:
                 portal.close()
@@ -179,11 +179,11 @@ class UserScenarioUploadTests(unittest.TestCase):
                     link.external_attr = (stat.S_IFLNK | 0o777) << 16
                     bundle.writestr(link, "target")
                 with self.assertRaises(ValueError):
-                    portal.upload_scenario(token, "Bad", "", output.getvalue())
+                    asyncio.run(portal.upload_scenario(token, "Bad", "", output.getvalue()))
                 with self.assertRaisesRegex(ValueError, "limit"):
-                    portal.upload_scenario(token, "Bad", "", archive({
+                    asyncio.run(portal.upload_scenario(token, "Bad", "", archive({
                         "manifest.json": b"x" * (2 * 1024 * 1024 + 1),
-                    }))
+                    })))
             finally:
                 portal.close()
 
@@ -212,11 +212,11 @@ class UserScenarioUploadTests(unittest.TestCase):
             portal = self.portal(Path(temp))
             try:
                 store = RecordingStore(Path(temp) / "packages")
-                portal.user_scenarios = UserScenarioService(portal.engine, Path(temp) / "uploads",
-                                                            package_store=store,
-                                                            prologue_generator=lambda *_: "固定开场。")
+                portal.user_scenarios.package_store = store
+                portal.user_scenarios.cleanup.package_store = store
+                portal.user_scenarios.prologue_generator = AsyncMock(return_value='固定开场。')
                 token = portal.register("author", "upload-pass-123")["token"]
-                item = portal.upload_scenario(token, "Custom", "", archive())
+                item = asyncio.run(portal.upload_scenario(token, "Custom", "", archive()))
                 self.assertEqual(len(store.published), 1)
                 portal.publish_scenario(token, item["id"])
                 self.assertTrue(store.materialize(store.published[0]).is_dir())
@@ -232,7 +232,7 @@ class UserScenarioUploadTests(unittest.TestCase):
             catalog = Path(temp) / "official.json"
             catalog.write_text(json.dumps({"games": [{"id": "usr_event", "title": "Official",
                 "mode": "freeform", "package": str(EXAMPLE)}]}), encoding="utf-8")
-            portal = PlayerPortal(catalog, load_settings(ROOT / "config" / "local.json"),
+            portal = build_portal(catalog, load_settings(ROOT / "config" / "local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             try:
                 token = portal.register("author", "upload-pass-123")["token"]
@@ -258,15 +258,13 @@ class UserScenarioUploadTests(unittest.TestCase):
 
                 with patch.object(upload_module, "MAX_SCENARIOS_PER_AUTHOR", 1), \
                      patch.object(upload_module, "_extract_package", side_effect=synchronized_extract):
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                        futures = [pool.submit(portal.upload_scenario, token, "Concurrent", "", archive())
-                                   for _ in range(2)]
-                        outcomes = []
-                        for future in futures:
-                            try:
-                                outcomes.append(future.result(timeout=10)["status"])
-                            except ValueError:
-                                outcomes.append("quota")
+                    async def concurrent_uploads():
+                        results = await asyncio.gather(*(
+                            portal.upload_scenario(token, "Concurrent", "", archive())
+                            for _ in range(2)), return_exceptions=True)
+                        return ["quota" if isinstance(result, ValueError) else result["status"]
+                                for result in results]
+                    outcomes = asyncio.run(concurrent_uploads())
                 self.assertEqual(sorted(outcomes), ["draft", "quota"])
                 self.assertEqual(len(portal.my_scenarios(token)), 1)
             finally:
@@ -281,15 +279,15 @@ class UserScenarioUploadTests(unittest.TestCase):
             try:
                 author = portal.register("author", "upload-pass-123")["token"]
                 other = portal.register("other", "upload-pass-123")["token"]
-                draft = portal.upload_scenario(author, "First", "", archive())
+                draft = asyncio.run(portal.upload_scenario(author, "First", "", archive()))
                 with self.assertRaises(PermissionError):
                     portal.delete_scenario_draft(other, draft["id"])
                 with self.assertRaisesRegex(ValueError, "limit"):
-                    portal.upload_scenario(author, "Second", "", archive())
+                    asyncio.run(portal.upload_scenario(author, "Second", "", archive()))
                 portal.delete_scenario_draft(author, draft["id"])
                 self.assertEqual(portal.my_scenarios(author), [])
                 self.assertFalse((Path(temp) / "uploads" / draft["id"]).exists())
-                self.assertEqual(portal.upload_scenario(author, "Second", "", archive())["status"],
+                self.assertEqual(asyncio.run(portal.upload_scenario(author, "Second", "", archive()))["status"],
                                  "draft")
             finally:
                 portal.close()

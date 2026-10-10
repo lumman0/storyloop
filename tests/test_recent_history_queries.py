@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import event, text
 
 from storyloop_platform.adapters.store import SQLiteGameStore
-from storyloop_harness.core.contracts import Observation, WorldEvent
-from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_harness.advanced import Observation, WorldEvent
+from storyloop_harness import ScenarioPackage
 
 
 @pytest.fixture

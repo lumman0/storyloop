@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from storyloop_platform.adapters.store import GameStore
+from storyloop_harness import GameStore
 from storyloop_harness.advanced import WorldEvent
 from storyloop_harness.advanced import SceneContext, StorySegment, segment_for_observation
 from storyloop_harness.advanced import StoryClock

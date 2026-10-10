@@ -5,8 +5,8 @@ from pathlib import Path
 
 from storyloop_platform.portal.catalog import GameCatalog
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
-from storyloop_harness.world.scenario import ScenarioPackage
+from storyloop_platform.bootstrap import build_portal
+from storyloop_harness import ScenarioPackage
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,12 +35,12 @@ class CatalogRetirementTests(unittest.TestCase):
                 {"id": "old", "title": "旧游戏", "mode": "freeform",
                  "package": package, "retired": True},
             ]}), encoding="utf-8")
-            portal = PlayerPortal(path, load_settings(ROOT / "config/local.json"),
+            portal = build_portal(path, load_settings(ROOT / "config/local.json"),
                                   str(Path(temp) / "portal.sqlite3"))
             player_id = portal.accounts.register("old-save-owner", "password-123")
             token = portal.accounts.issue_token(player_id)
-            listing = portal.catalog.get("old")
-            ScenarioPackage.load(listing.package_path).seed_game(portal.store, "old-save")
+            listing = portal.gameplay.game_access.catalog.get("old")
+            ScenarioPackage.load(listing.package_path).seed_game(portal.gameplay.store, "old-save")
             portal.accounts.create_save(player_id, "old", "old-save", listing.package_id,
                                         listing.package_version, listing.fingerprint)
 

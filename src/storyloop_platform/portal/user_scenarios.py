@@ -9,11 +9,12 @@ import stat
 import time
 import zipfile
 from pathlib import Path
-from typing import Callable
+from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
 from sqlalchemy import Engine, text
 
+from storyloop_platform.lifecycle import OperationSupervisor
 from storyloop_platform.portal.catalog import GameCatalog, GameListing, _package_fingerprint
 from storyloop_platform.portal.scenario_storage import LocalPublishedPackageStore, PublishedPackageStore
 from storyloop_platform.portal.scenario_lifecycle import lock_scenario
@@ -81,18 +82,20 @@ def _extract_package(archive: bytes, directory: Path) -> None:
 
 class UserScenarioService:
     def __init__(self, engine: Engine, directory: str | Path,
+                 *, operations: OperationSupervisor,
                  package_store: PublishedPackageStore | None = None,
-                 prologue_generator: Callable[[ScenarioPackage, CampaignProgram | None, str, str], str]
+                 prologue_generator: Callable[[ScenarioPackage, CampaignProgram | None, str, str], Awaitable[str]]
                  | None = None) -> None:
+        self.operations = operations
         self.engine = engine
         self.directory = Path(directory).resolve()
         self.package_store = package_store or LocalPublishedPackageStore(self.directory)
         self.cleanup = PackageCleanup(engine, self.package_store)
         self.prologue_generator = prologue_generator
 
-    def _prepare_prologue(self, staged: Path, package: ScenarioPackage,
-                          program: CampaignProgram | None, title: str,
-                          summary: str) -> ScenarioPackage:
+    async def _prepare_prologue(self, staged: Path, package: ScenarioPackage,
+                                program: CampaignProgram | None, title: str,
+                                summary: str) -> ScenarioPackage:
         if package.story_blueprint is not None:
             validate_prepared_opening(package, require_prologue=False)
         if package.authored_prologue:
@@ -101,11 +104,26 @@ class UserScenarioService:
             return package
         if self.prologue_generator is None:
             raise ValueError("scenario prologue generator is unavailable")
-        prose = self.prologue_generator(package, program, title, summary).strip()
-        prepared = save_prologue(staged, prose)
+        prose = (await self.prologue_generator(package, program, title, summary)).strip()
+        prepared = await self.operations.run_blocking(
+            lambda: save_prologue(staged, prose), name="upload-prologue-save")
         if prepared.story_blueprint is not None:
             validate_prepared_opening(prepared)
         return prepared
+
+    @staticmethod
+    def _stage(archive: bytes, staged: Path) -> tuple[ScenarioPackage, str, CampaignProgram | None]:
+        staged.mkdir(parents=True, exist_ok=False)
+        _extract_package(archive, staged)
+        package = ScenarioPackage.load(staged)
+        mode = ("campaign" if package.story_blueprint is not None
+                or (staged / "campaign.json").exists() else "freeform")
+        program = None
+        if mode == "campaign" and package.story_blueprint is None:
+            program = CampaignProgram.load(staged / "campaign.json")
+            if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
+                raise ValueError("campaign does not match scenario")
+        return package, mode, program
 
     @staticmethod
     def _public_row(row) -> dict:
@@ -116,7 +134,7 @@ class UserScenarioService:
                 "submission_id": row["submission_id"], "review_reason": row["review_reason"],
                 "public_state": row["public_state"]}
 
-    def upload(self, owner_id: str, title: str, summary: str, archive: bytes) -> dict:
+    async def upload(self, owner_id: str, title: str, summary: str, archive: bytes) -> dict:
         title = title.strip() if isinstance(title, str) else ""
         summary = summary.strip() if isinstance(summary, str) else ""
         if not title or len(title) > 80 or len(summary) > 300:
@@ -129,55 +147,54 @@ class UserScenarioService:
         version_id = uuid4().hex
         reference = f"{scenario_id}/{version_id}"
         staged = self.directory / ".staging" / version_id
-        staged.mkdir(parents=True, exist_ok=False)
-        package_written = False
+
+        def commit(package: ScenarioPackage, mode: str) -> dict:
+            package_written = False
+            try:
+                fingerprint = _package_fingerprint(staged, mode)
+                self.package_store.publish(reference, staged)
+                package_written = True
+                now = int(time.time())
+                with self.engine.begin() as db:
+                    # Lock this author's account row before counting uploads. The no-op update
+                    # serializes writers on both PostgreSQL and SQLite.
+                    locked = db.execute(text("""UPDATE player_accounts SET player_id=player_id
+                        WHERE player_id=:owner"""), {"owner": owner_id})
+                    if locked.rowcount != 1:
+                        raise PermissionError("author account not found")
+                    count = db.execute(text("SELECT COUNT(*) FROM user_scenarios WHERE owner_id=:owner"),
+                                       {"owner": owner_id}).scalar_one()
+                    if count >= MAX_SCENARIOS_PER_AUTHOR:
+                        raise ValueError("author scenario limit reached")
+                    db.execute(text("""INSERT INTO user_scenarios
+                        (scenario_id,owner_id,title,summary,mode,visibility,created_at)
+                        VALUES (:id,:owner,:title,:summary,:mode,'private',:created)"""),
+                        {"id": scenario_id, "owner": owner_id, "title": title, "summary": summary,
+                         "mode": mode, "created": now})
+                    db.execute(text("""INSERT INTO user_scenario_versions
+                        (version_id,scenario_id,package_id,package_version,package_hash,package_ref,created_at)
+                        VALUES (:version,:id,:package_id,:package_version,:hash,:ref,:created)"""),
+                        {"version": version_id, "id": scenario_id, "package_id": package.package_id,
+                         "package_version": package.version, "hash": fingerprint,
+                         "ref": reference, "created": now})
+                return {"id": scenario_id, "title": title, "summary": summary, "mode": mode,
+                        "status": "draft", "package_version": package.version, "created_at": now,
+                        "version_id": version_id, "review_status": None, "submission_id": None,
+                        "review_reason": None, "public_state": None}
+            except BaseException:
+                if package_written:
+                    self.package_store.remove(reference)
+                raise
+
         try:
-            _extract_package(archive, staged)
-            package = ScenarioPackage.load(staged)
-            mode = ("campaign" if package.story_blueprint is not None
-                    or (staged / "campaign.json").exists() else "freeform")
-            program = None
-            if mode == "campaign" and package.story_blueprint is None:
-                program = CampaignProgram.load(staged / "campaign.json")
-                if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
-                    raise ValueError("campaign does not match scenario")
-            package = self._prepare_prologue(staged, package, program, title, summary)
-            fingerprint = _package_fingerprint(staged, mode)
-            self.package_store.publish(reference, staged)
-            package_written = True
-            now = int(time.time())
-            with self.engine.begin() as db:
-                # Lock this author's account row before counting uploads. The no-op update
-                # serializes writers on both PostgreSQL and SQLite.
-                locked = db.execute(text("""UPDATE player_accounts SET player_id=player_id
-                    WHERE player_id=:owner"""), {"owner": owner_id})
-                if locked.rowcount != 1:
-                    raise PermissionError("author account not found")
-                count = db.execute(text("SELECT COUNT(*) FROM user_scenarios WHERE owner_id=:owner"),
-                                   {"owner": owner_id}).scalar_one()
-                if count >= MAX_SCENARIOS_PER_AUTHOR:
-                    raise ValueError("author scenario limit reached")
-                db.execute(text("""INSERT INTO user_scenarios
-                    (scenario_id,owner_id,title,summary,mode,visibility,created_at)
-                    VALUES (:id,:owner,:title,:summary,:mode,'private',:created)"""),
-                    {"id": scenario_id, "owner": owner_id, "title": title, "summary": summary,
-                     "mode": mode, "created": now})
-                db.execute(text("""INSERT INTO user_scenario_versions
-                    (version_id,scenario_id,package_id,package_version,package_hash,package_ref,created_at)
-                    VALUES (:version,:id,:package_id,:package_version,:hash,:ref,:created)"""),
-                    {"version": version_id, "id": scenario_id, "package_id": package.package_id,
-                     "package_version": package.version, "hash": fingerprint,
-                     "ref": reference, "created": now})
-            return {"id": scenario_id, "title": title, "summary": summary, "mode": mode,
-                    "status": "draft", "package_version": package.version, "created_at": now,
-                    "version_id": version_id, "review_status": None, "submission_id": None,
-                    "review_reason": None, "public_state": None}
-        except Exception:
-            if package_written:
-                self.package_store.remove(reference)
-            raise
+            package, mode, program = await self.operations.run_blocking(
+                lambda: self._stage(archive, staged), name="upload-stage")
+            package = await self._prepare_prologue(staged, package, program, title, summary)
+            result = await self.operations.run_blocking(lambda: commit(package, mode), name="upload-commit")
         finally:
-            shutil.rmtree(staged, ignore_errors=True)
+            await self.operations.run_blocking(
+                lambda: shutil.rmtree(staged, ignore_errors=True), name="upload-cleanup")
+        return result
 
     def list_mine(self, owner_id: str) -> list[dict]:
         with self.engine.connect() as db:
@@ -217,8 +234,8 @@ class UserScenarioService:
                     "version_id": version["version_id"], "review_status": None,
                     "submission_id": None, "review_reason": None, "public_state": None}
 
-    def upload_version(self, owner_id: str, scenario_id: str, title: str,
-                       summary: str, archive: bytes) -> dict:
+    async def upload_version(self, owner_id: str, scenario_id: str, title: str,
+                             summary: str, archive: bytes) -> dict:
         title = title.strip() if isinstance(title, str) else ""
         summary = summary.strip() if isinstance(summary, str) else ""
         if not title or len(title) > 80 or len(summary) > 300:
@@ -226,18 +243,34 @@ class UserScenarioService:
         version_id = uuid4().hex
         reference = f"{scenario_id}/{version_id}"
         staged = self.directory / ".staging" / version_id
-        staged.mkdir(parents=True, exist_ok=False)
-        package_written = False
+
+        def commit(package: ScenarioPackage, mode: str) -> None:
+            package_written = False
+            try:
+                fingerprint = _package_fingerprint(staged, mode)
+                self.package_store.publish(reference, staged)
+                package_written = True
+                with self.engine.begin() as db:
+                    scenario = lock_scenario(db, scenario_id)
+                    if scenario["owner_id"] != owner_id:
+                        raise PermissionError("scenario belongs to another author")
+                    db.execute(text("""UPDATE user_scenarios SET title=:title,summary=:summary
+                        WHERE scenario_id=:id AND owner_id=:owner"""),
+                        {"title": title, "summary": summary, "id": scenario_id, "owner": owner_id})
+                    db.execute(text("""INSERT INTO user_scenario_versions
+                        (version_id,scenario_id,package_id,package_version,package_hash,package_ref,created_at)
+                        VALUES (:version,:id,:package_id,:package_version,:hash,:ref,:created)"""),
+                        {"version": version_id, "id": scenario_id, "package_id": package.package_id,
+                         "package_version": package.version, "hash": fingerprint,
+                         "ref": reference, "created": time.time_ns()})
+            except BaseException:
+                if package_written:
+                    self.package_store.remove(reference)
+                raise
+
         try:
-            _extract_package(archive, staged)
-            package = ScenarioPackage.load(staged)
-            mode = ("campaign" if package.story_blueprint is not None
-                    or (staged / "campaign.json").exists() else "freeform")
-            program = None
-            if mode == "campaign" and package.story_blueprint is None:
-                program = CampaignProgram.load(staged / "campaign.json")
-                if (program.program_id, program.ticks_per_day) != (package.package_id, package.ticks_per_day):
-                    raise ValueError("campaign does not match scenario")
+            package, mode, program = await self.operations.run_blocking(
+                lambda: self._stage(archive, staged), name="upload-stage")
             with self.engine.connect() as db:
                 row = db.execute(text("""SELECT s.owner_id,s.mode,v.package_id
                     FROM user_scenarios s JOIN user_scenario_versions v
@@ -249,32 +282,15 @@ class UserScenarioService:
                 raise PermissionError("scenario belongs to another author")
             if row["mode"] != mode or row["package_id"] != package.package_id:
                 raise ValueError("new version must keep scenario mode and package ID")
-            package = self._prepare_prologue(staged, package, program, title, summary)
-            fingerprint = _package_fingerprint(staged, mode)
-            self.package_store.publish(reference, staged)
-            package_written = True
-            with self.engine.begin() as db:
-                scenario = lock_scenario(db, scenario_id)
-                if scenario["owner_id"] != owner_id:
-                    raise PermissionError("scenario belongs to another author")
-                db.execute(text("""UPDATE user_scenarios SET title=:title,summary=:summary
-                    WHERE scenario_id=:id AND owner_id=:owner"""),
-                    {"title": title, "summary": summary, "id": scenario_id, "owner": owner_id})
-                db.execute(text("""INSERT INTO user_scenario_versions
-                    (version_id,scenario_id,package_id,package_version,package_hash,package_ref,created_at)
-                    VALUES (:version,:id,:package_id,:package_version,:hash,:ref,:created)"""),
-                    {"version": version_id, "id": scenario_id, "package_id": package.package_id,
-                     "package_version": package.version, "hash": fingerprint,
-                     "ref": reference, "created": time.time_ns()})
-        except Exception:
-            if package_written:
-                self.package_store.remove(reference)
-            raise
+            package = await self._prepare_prologue(staged, package, program, title, summary)
+            await self.operations.run_blocking(lambda: commit(package, mode), name="upload-commit")
         finally:
-            shutil.rmtree(staged, ignore_errors=True)
-        # The metadata transaction committed. A response lookup failure must not
-        # compensate by deleting a package that is now referenced by the database.
-        return next(item for item in self.list_mine(owner_id) if item["id"] == scenario_id)
+            await self.operations.run_blocking(
+                lambda: shutil.rmtree(staged, ignore_errors=True), name="upload-cleanup")
+        # A committed package must survive failure to build the response.
+        return await self.operations.run_blocking(
+            lambda: next(item for item in self.list_mine(owner_id) if item["id"] == scenario_id),
+            name="upload-response")
 
     def delete_draft(self, owner_id: str, scenario_id: str) -> dict:
         with self.engine.begin() as db:

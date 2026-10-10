@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
+from runtime_fakes import OfflineRuntimeFactory
 from committed_input import commit_player_input
 from test_scenario_lifecycle_concurrency import archive
 
@@ -23,9 +25,10 @@ def portal(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_MODEL_API_KEY", "offline-test")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
-    instance = PlayerPortal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
+    instance = build_portal(ROOT / "examples/catalog.json", load_settings(ROOT / "config/local.json"),
                             str(tmp_path / "portal.sqlite3"),
-                            prologue_generator=lambda *_: "A quiet opening.")
+                            prologue_generator=AsyncMock(return_value='A quiet opening.'),
+                            runtime_factory_builder=OfflineRuntimeFactory)
     try:
         yield instance
     finally:
@@ -36,7 +39,7 @@ def portal(tmp_path, monkeypatch):
 def test_invalid_input_is_explicitly_not_started(portal, stream):
     token = portal.register("reader", "password-123")["token"]
     game_id = asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
-    version = portal.store.load(game_id).version
+    version = portal.gameplay.store.load(game_id).version
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
         response = client.post(f"/v1/saves/{game_id}/turns" + ("/stream" if stream else ""),
                                headers={"Authorization": f"Bearer {token}"},
@@ -47,7 +50,7 @@ def test_invalid_input_is_explicitly_not_started(portal, stream):
         assert payload.get("commit_state") == "not_started"
         assert payload["retryable"] is False
         assert payload["request_id"] == "oversized"
-        assert portal.store.load(game_id).version == version
+        assert portal.gameplay.store.load(game_id).version == version
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -73,7 +76,7 @@ def test_blocked_public_save_does_not_hide_other_saves_or_mask_authentication(po
     reader = portal.register("reader", "password-123")
     admin = portal.register("administrator", "password-123")
     portal.access.bootstrap_admin("administrator")
-    draft = portal.upload_scenario(author["token"], "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(author["token"], "Story", "", archive()))
     submission = portal.submit_scenario(author["token"], draft["id"])
     portal.review_decide(admin["token"], submission["submission_id"], "approved")
     blocked = asyncio.run(portal.create_save(reader["token"], draft["id"]))["game_id"]
@@ -91,7 +94,7 @@ def test_blocked_public_save_does_not_hide_other_saves_or_mask_authentication(po
 
 def test_missing_uploaded_package_only_disables_its_save(portal):
     author = portal.register("author", "password-123")
-    draft = portal.upload_scenario(author["token"], "Story", "", archive())
+    draft = asyncio.run(portal.upload_scenario(author["token"], "Story", "", archive()))
     portal.publish_scenario(author["token"], draft["id"])
     broken = asyncio.run(portal.create_save(author["token"], draft["id"]))["game_id"]
     normal = asyncio.run(portal.create_save(author["token"], "npc-chat"))["game_id"]
@@ -110,7 +113,7 @@ def test_missing_uploaded_package_only_disables_its_save(portal):
 def test_missing_metering_requests_manual_recovery_without_unlocking_input(portal, stream):
     token = portal.register("reader", "password-123")["token"]
     game_id = asyncio.run(portal.create_save(token, "npc-chat"))["game_id"]
-    commit_player_input(portal.store, game_id, "portal-legacy:input", "hello")
+    commit_player_input(portal.gameplay.store, game_id, "portal-legacy:input", "hello")
     with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
         response = client.post(f"/v1/saves/{game_id}/turns" + ("/stream" if stream else ""),
                                headers={"Authorization": f"Bearer {token}"},

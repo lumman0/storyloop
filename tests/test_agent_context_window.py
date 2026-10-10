@@ -2,9 +2,9 @@
 import json
 
 from storyloop_harness.advanced import Observation, WorldEvent, estimate_tokens
-from storyloop_harness.agents.scene_turn import SceneContextProjector
+from storyloop_harness.testing import project_scene_request
 from storyloop_platform.adapters.store import SQLiteGameStore
-from test_scene_responder_context import source_package
+from scenario_fixtures import source_package
 
 
 def test_character_history_budget_and_visibility_survive_sql_restart(tmp_path):
@@ -21,8 +21,8 @@ def test_character_history_budget_and_visibility_survive_sql_restart(tmp_path):
             (Observation(event_id + ':seen', event_id, 'guide', 'private_message',
                          f'Guide secret {index}: ' + 'quiet harbor recollection ' * 50, before.tick),), ())
     def project(database, game):
-        return SceneContextProjector(database, package, context_window_tokens=7200).project(
-            database.load(game), 'Guide, what do you remember?').request
+        return project_scene_request(database, package, game, 'Guide, what do you remember?',
+                                     context_window_tokens=7200)
     first = project(store, 'save-a')
     assert estimate_tokens(json.dumps(first, ensure_ascii=False)) <= 4800
     own = next(item for item in first['npc_contexts'] if item['id'] == 'guide')

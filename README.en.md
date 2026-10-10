@@ -25,7 +25,11 @@ React / Vite → FastAPI platform → StoryLoop Harness
                  SQL saves and accounting
 ```
 
-The platform owns authentication, content lifecycle, model adapters, persistence, billing, and deployment; harness owns the reusable narrative execution contract. The dependency range is `storyloop-harness>=0.2,<0.3`, with source revision `cb2be84dad44cbfc6e18d16eebc071c2234f7b22` pinned in `pyproject.toml`. `scripts/build_harness.py` builds a wheel from that revision, and the installation below names that artifact explicitly.
+The platform owns authentication, content lifecycle, model adapters, persistence, billing, and deployment; harness owns the reusable narrative execution contract. The dependency range is `storyloop-harness>=0.2,<0.3`, with source revision `94b0c749dad7811dc765431f20f77eb50dc6f049` pinned in `pyproject.toml` and `uv.lock`. `scripts/build_harness.py` builds a wheel from that revision, and the installation below names that artifact explicitly.
+
+`bootstrap.build_portal` composes production resources around one SQL Engine and owns their cleanup. `PlayerPortal` authenticates requests and delegates save lifecycle and queries to `GameplayService`, and execution and recovery to `TurnExecutionService`. Both services share content access, player operation locks, and a `GameplayRuntime`; tests inject offline runtime/model implementations through `runtime_factory_builder`.
+
+HTTP and CLI share `portal.operations` to own long operations; disconnecting a request does not cancel an admitted turn. Upload and prologue commands are async, with file and memory threads tracked until their actual completion. `await portal.shutdown()` stops admission and requests memory worker stop, waits 30 seconds, then cancels and waits another 5 seconds. Work surviving both deadlines causes a visible failure with resources left open for the process manager to handle. Synchronous `portal.close()` requires completed operations. These deadlines exclude the server's own request drain and synchronous resource disposal.
 
 The shared scene model sees multiple character contexts, so perspective projection and behavioral constraints do not provide hard information isolation between characters. Long-session context selects recent and relevant experiences from committed history while retaining original events; the current worldbook retrieves JSON entries. One ordinary scene generation does not imply that openings, suggestions, or every other feature use only one model call.
 
@@ -136,6 +140,8 @@ This command makes real provider requests and may incur charges. Omit `--task` t
 
 ## Deployment example
 
+The API Docker build uses uv 0.11.25, matching CI, to export the `agents,portal,online,observability,player-memory` runtime graph from `uv.lock`. It downloads hash checked dependencies and installs them and both project wheels with dependency resolution disabled. The final stage copies the installed environment; Git, source, the wheelhouse and test dependencies stay in the build stage. The runtime lock does not constrain the PEP 517 build environments' `setuptools>=77`; image tags and OS packages also remain unpinned, so builds are not claimed to be byte identical.
+
 The Compose files in `deploy/ecs` build an installed API package and use the packaged online defaults. Copy `.env.example` to `.env`, keep it private, and copy `config/online.json` to the absolute host path in `STORY_SETTINGS_FILE` (for example `/srv/storyloop-settings/online.json`). Compose mounts that file read only at `/app/config/online.json`; the API selects it with `--profile online --config /app/config/online.json`. If `STORY_SETTINGS_FILE` is omitted, Compose mounts the repository's `config/online.json`.
 
 Set the provider key/endpoint, URL-safe PostgreSQL password, persistent data/private scenario directories, public allowed hosts, and browser origins in `.env`, then run `docker compose --env-file deploy/ecs/.env -f deploy/ecs/compose.yaml up --build -d` from the repository root. The private catalog is `/app/private/catalog.json`; upload and memory paths are `/app/uploads` and `/app/memory`. Compose supplies `DATABASE_URL`, `STORY_UPLOAD_DIR`, and `STORY_MEMORY_DIR`. Collection of player preferences requires `STORY_PLAYER_MEMORY_ENABLED=1` and player consent; configured Mem0 still needs its profiles/credentials for existing preference read/delete access when collection is disabled.
@@ -143,6 +149,8 @@ Set the provider key/endpoint, URL-safe PostgreSQL password, persistent data/pri
 The default story, memory extraction, and embedding profiles share the default provider. Custom profiles can use separate providers and environment references; add each referenced variable to the API service's Compose `environment` block and `.env`. Keep both memory profiles when replacing online model maps, or explicitly select `player_memory.driver: "none"` and clear `extraction_profile`/`embedding_profile` to `null`. Optional Langfuse settings and content tracing remain opt in.
 
 ## Development and verification
+
+The Harness repository owns runtime, scene projection, event execution and AgentScope adapter tests. Platform tests own SQL, HTTP, content management, billing, lifecycle and protocol integration, using public Harness interfaces and `storyloop_harness.testing`. The full platform pytest suite runs one outside checkout wheel verification covering locked versions, runtime extras, noneditable installation, an offline HTTP/SQL turn and CLI entrypoints.
 
 Install the test integrations and the uv version used by CI, then run the backend regressions with offline model fixtures. The wheel installation test invokes `uv`, builds the pinned harness revision, and creates a temporary environment, so a first run may still need network access to download dependencies.
 
@@ -155,11 +163,16 @@ $env:LANGFUSE_SECRET_KEY = ""
 .\.venv\Scripts\python.exe -m pytest tests -q
 cd web
 npm ci
+npm run contracts:check
 npm test
 npm run build
+cd ..
+.\.venv\Scripts\python.exe tests/player_contract_corpus.py
 ```
 
-For browser regressions, also run `npx playwright install chromium` and `npm run test:e2e`; these use a mock API. CI checks the backend with Python 3.12 on Windows/Linux and the frontend and browser flows with Node.js 24 on Linux. The `offline-test` value is not a live model credential.
+Player wire contracts are owned by `src/storyloop_platform/api/contracts.py`. From `web`, run `npm run contracts:generate` after changing them, then commit the generated JSON Schema, TypeScript types, and standalone validators under `web/src/lib/generated`. `contracts:check` regenerates from the Python source and fails on drift without writing files; set `CONTRACT_PYTHON` to select another Python executable. The explicit cross-language command above collects actual FastAPI responses using a temporary SQL store and offline models, then validates them with the production Node parsers. Ordinary backend pytest does not require Node.
+
+For browser regressions, from `web` run `npx playwright install chromium` and `npm run test:e2e`; these use a mock API. CI checks the backend with Python 3.12 on Windows/Linux and the frontend and browser flows with Node.js 24 on Linux. The `offline-test` value is not a live model credential.
 
 ```text
 src/storyloop_platform/  API, SQL, configuration, model adapters, billing, CLI

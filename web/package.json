@@ -9,7 +9,9 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "format": "prettier --write src",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "contracts:generate": "node scripts/generate-contracts.mjs",
+    "contracts:check": "node scripts/generate-contracts.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
@@ -27,6 +29,8 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.7.0",
+    "ajv": "8.20.0",
+    "json-schema-to-typescript": "15.0.4",
     "prettier": "^3.9.9",
     "tailwindcss": "^4.1.0",
     "typescript": "~5.8.3",

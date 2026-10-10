@@ -7,10 +7,11 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
+from runtime_fakes import offline_runtime_builder
 from storyloop_platform.runtime.campaign import CampaignProgram
 
 
@@ -55,10 +56,9 @@ class PlayModeTests(unittest.TestCase):
             db_path = str(root / "game.sqlite3")
 
             with patch.dict(os.environ, {"STORY_MODEL_API_KEY": "offline-test"}):
-                portal = PlayerPortal(catalog, load_settings(ROOT / "config/local.json"), db_path)
+                portal = build_portal(catalog, load_settings(ROOT / "config/local.json"), db_path,
+                                      runtime_factory_builder=offline_runtime_builder(presenter=ForbiddenNovelPresenter()))
                 token = portal.register("mode-player", "password-123")["token"]
-                portal._action_options = AsyncMock(return_value=())
-                portal._novel_presenter = lambda *_: ForbiddenNovelPresenter()
                 self.assertEqual(portal.games(token)[0]["play_modes"], ["campaign", "freeform"])
 
                 guided = asyncio.run(portal.create_save(token, "scenario", "campaign"))
@@ -73,14 +73,14 @@ class PlayModeTests(unittest.TestCase):
                 self.assertEqual(open_world["mode"], "freeform")
                 self.assertEqual(open_world["presentation_mode"], "interactive")
                 self.assertIsNone(open_world["interaction"])
-                self.assertNotIn("campaign", portal.store.load(open_world["game_id"]).data)
+                self.assertNotIn("campaign", portal.gameplay.store.load(open_world["game_id"]).data)
                 self.assertEqual(asyncio.run(portal.resume_save(token, open_world["game_id"]))["mode"],
                                  "freeform")
                 self.assertEqual({item["mode"] for item in portal.saves(token)},
                                  {"campaign", "freeform"})
                 portal.close()
 
-                reopened = PlayerPortal(catalog, load_settings(ROOT / "config/local.json"), db_path)
+                reopened = build_portal(catalog, load_settings(ROOT / "config/local.json"), db_path)
                 self.assertEqual(asyncio.run(reopened.resume_save(token, open_world["game_id"]))["mode"],
                                  "freeform")
                 reopened.close()

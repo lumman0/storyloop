@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from storyloop_platform.adapters.store import SQLiteGameStore
-from storyloop_harness.core.contracts import Snapshot
+from storyloop_harness.advanced import Snapshot
 from storyloop_platform.portal.presentation import campaign_interaction
 from storyloop_platform.runtime.campaign import CampaignProgram, CampaignSession
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Protocol
 
 from sqlalchemy import Engine, text
 
@@ -16,6 +17,17 @@ MIN_INTERVAL_SECONDS = 12 * 60 * 60
 class MemoryBatch:
     player_id: str
     items: tuple[tuple[str, str, str], ...]
+
+
+class PlayerMemoryJobs(Protocol):
+    def enabled(self, player_id: str) -> bool: ...
+    def set_enabled(self, player_id: str, enabled: bool) -> None: ...
+    def enqueue(self, player_id: str, game_id: str, request_id: str, player_text: str) -> bool: ...
+    def claim(self) -> MemoryBatch | None: ...
+    def complete(self, batch: MemoryBatch) -> None: ...
+    def fail(self, batch: MemoryBatch) -> None: ...
+    def clear(self, player_id: str) -> None: ...
+    def pending_count(self, player_id: str) -> int: ...
 
 
 class SQLPlayerMemoryJobs:
@@ -58,6 +70,9 @@ class SQLPlayerMemoryJobs:
     def claim(self) -> MemoryBatch | None:
         now = int(time.time())
         with self.engine.begin() as db:
+            db.execute(text("""UPDATE player_memory_inputs SET status='failed'
+                WHERE status='processing' AND available_at<=:now AND attempt_count>=3"""),
+                {"now": now})
             candidates = db.execute(text("""SELECT player_id FROM player_memory_settings
                 WHERE enabled=TRUE AND last_generated_at<=:oldest
                 ORDER BY last_generated_at,player_id"""),
@@ -97,12 +112,10 @@ class SQLPlayerMemoryJobs:
         with self.engine.begin() as db:
             for game_id, request_id, _ in batch.items:
                 db.execute(text("""UPDATE player_memory_inputs
-                    SET status='pending',available_at=:retry_at
+                    SET status=CASE WHEN attempt_count>=3 THEN 'failed' ELSE 'pending' END,
+                        available_at=:retry_at
                     WHERE game_id=:game_id AND request_id=:request_id"""),
                     {"retry_at": now + 120, "game_id": game_id, "request_id": request_id})
-                db.execute(text("""DELETE FROM player_memory_inputs
-                    WHERE game_id=:game_id AND request_id=:request_id AND attempt_count>=3"""),
-                    {"game_id": game_id, "request_id": request_id})
 
     def clear(self, player_id: str) -> None:
         with self.engine.begin() as db:

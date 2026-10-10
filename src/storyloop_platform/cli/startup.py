@@ -104,8 +104,8 @@ def launch_portal(*, profile: str, config: str | None, catalog: str | None,
     if profile == "online" and not os.environ.get("STORY_UPLOAD_DIR", "").strip():
         raise ValueError("STORY_UPLOAD_DIR is required in online mode")
     if portal_factory is None:
-        from storyloop_platform.portal.service import PlayerPortal
-        portal_factory = PlayerPortal
+        from storyloop_platform.bootstrap import build_portal
+        portal_factory = build_portal
     portal = portal_factory(selected_catalog, settings, selected_db)
     try:
         if preferences is not None:

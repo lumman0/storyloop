@@ -25,7 +25,11 @@ React / Vite → FastAPI 平台 → StoryLoop Harness
               SQL 存档与账务
 ```
 
-平台负责鉴权、内容生命周期、模型适配、持久化、计费和部署；harness 负责可复用的叙事运行契约。当前依赖范围为 `storyloop-harness>=0.2,<0.3`，`pyproject.toml` 固定源码提交 `cb2be84dad44cbfc6e18d16eebc071c2234f7b22`。`scripts/build_harness.py` 从该提交构建 wheel；下方安装命令显式使用这个产物。
+平台负责鉴权、内容生命周期、模型适配、持久化、计费和部署；harness 负责可复用的叙事运行契约。当前依赖范围为 `storyloop-harness>=0.2,<0.3`，`pyproject.toml` 与 `uv.lock` 固定源码提交 `94b0c749dad7811dc765431f20f77eb50dc6f049`。`scripts/build_harness.py` 从该提交构建 wheel；下方安装命令显式使用这个产物。
+
+`bootstrap.build_portal` 围绕同一个 SQL Engine 组装生产资源并负责关闭。`PlayerPortal` 完成请求鉴权后，把存档生命周期与查询交给 `GameplayService`，把回合执行与恢复交给 `TurnExecutionService`。两个服务共享内容访问、玩家操作锁与 `GameplayRuntime`；测试通过 `runtime_factory_builder` 注入离线运行时或模型实现。
+
+HTTP 与 CLI 使用同一个 `portal.operations` 管理耗时操作；请求断开不会取消已接收的回合。上传与序章生成采用异步命令，文件和记忆线程按实际完成状态跟踪。`await portal.shutdown()` 先停止接收新操作并通知记忆 worker，再等待 30 秒、取消后再等待 5 秒；仍未结束则显式报错并保留资源，由进程管理器决定终止。同步 `portal.close()` 只允许在操作已结束时调用。上述时限不包含服务器自身的请求排空和同步资源释放。
 
 共享场景模型会看到多个角色的上下文，视角投影和行为约束不构成角色之间的硬信息隔离。长局上下文从已提交历史中选择近期与相关经历，原始事件保留；当前世界书使用 JSON 条目检索。普通回合的一次场景生成也不代表开场、行动建议或其他功能都只调用一次模型。
 
@@ -136,6 +140,8 @@ macOS/Linux 用 `python3.12 -m venv .venv` 创建环境，将 Python 路径替�
 
 ## 部署示例
 
+API Docker 构建使用 CI 同版本的 uv 0.11.25，从 `uv.lock` 导出 `agents,portal,online,observability,player-memory` 运行依赖，下载并校验哈希，再禁用依赖解析安装第三方包与两个项目 wheel。最终阶段只复制安装后的环境；Git、源码、wheelhouse 和测试依赖留在构建阶段。运行依赖锁不约束 PEP 517 构建环境中的 `setuptools>=77`，镜像标签和系统包也未固定，因此不承诺逐字节可复现。
+
 `deploy/ecs` 中的 Compose 文件构建并安装 API 包，使用包内线上默认配置。将 `.env.example` 复制为 `.env` 并妥善保密，将 `config/online.json` 复制到 `STORY_SETTINGS_FILE` 指定的主机绝对路径（例如 `/srv/storyloop-settings/online.json`）。Compose 将该文件只读挂载到 `/app/config/online.json`，API 使用 `--profile online --config /app/config/online.json` 选择它。未指定 `STORY_SETTINGS_FILE` 时，Compose 挂载仓库中的 `config/online.json`。
 
 在 `.env` 设置供应商密钥和端点、URL 安全的 PostgreSQL 密码、持久化数据和私人剧本目录、公开允许主机和浏览器来源；然后从仓库根目录执行 `docker compose --env-file deploy/ecs/.env -f deploy/ecs/compose.yaml up --build -d`。私人目录为 `/app/private/catalog.json`，上传和记忆路径分别为 `/app/uploads`、`/app/memory`；Compose 提供 `DATABASE_URL`、`STORY_UPLOAD_DIR` 和 `STORY_MEMORY_DIR`。收集玩家偏好需设置 `STORY_PLAYER_MEMORY_ENABLED=1` 并获得玩家同意；即使关闭收集，已配置的 Mem0 仍需模型配置和凭据，以读取或删除已有偏好。
@@ -143,6 +149,8 @@ macOS/Linux 用 `python3.12 -m venv .venv` 创建环境，将 Python 路径替�
 默认故事、记忆提炼和向量模型共享默认供应商。自定义配置可使用不同供应商和环境变量引用，需把每个引用变量加入 API 服务的 Compose `environment` 和 `.env`。替换线上模型映射时应保留两个记忆模型配置，或显式选择 `player_memory.driver: "none"` 并把 `extraction_profile`、`embedding_profile` 置为 `null`。Langfuse 和内容追踪仍按需开启。
 
 ## 开发与验证
+
+Harness 仓库负责运行时、场景投影、事件执行和 AgentScope 适配器测试；平台测试负责 SQL、HTTP、内容管理、计费、生命周期与协议集成，只使用 Harness 公共接口及 `storyloop_harness.testing`。平台完整 pytest 包含一次仓库外 wheel 验证：检查锁定版本、运行时 extras、非 editable 安装、离线 HTTP/SQL 回合与 CLI。
 
 安装全部测试相关集成及 CI 使用的 uv 版本，然后运行后端离线回归。wheel 安装测试会调用 `uv`、构建固定 harness 提交并创建临时环境，因此首次运行仍可能需要网络下载依赖。
 
@@ -155,11 +163,16 @@ $env:LANGFUSE_SECRET_KEY = ""
 .\.venv\Scripts\python.exe -m pytest tests -q
 cd web
 npm ci
+npm run contracts:check
 npm test
 npm run build
+cd ..
+.\.venv\Scripts\python.exe tests/player_contract_corpus.py
 ```
 
-浏览器回归另运行 `npx playwright install chromium` 与 `npm run test:e2e`，使用模拟 API。CI 在 Windows/Linux 使用 Python 3.12 验证后端，并在 Linux 使用 Node.js 24 验证前端与浏览器。测试中的 `offline-test` 不是可用于真实游玩的密钥。
+玩家接口契约由 `src/storyloop_platform/api/contracts.py` 定义。修改后在 `web` 运行 `npm run contracts:generate`，提交 `web/src/lib/generated` 中生成的 JSON Schema、TypeScript 类型与独立验证器。`contracts:check` 从 Python 源码重新生成并检查差异，不写入文件；可用 `CONTRACT_PYTHON` 指定 Python 可执行文件。上面的独立跨语言命令用临时 SQL 存储和离线模型收集真实 FastAPI 响应，再通过生产 Node 解析器验证；普通后端 pytest 无需 Node。
+
+浏览器回归另在 `web` 运行 `npx playwright install chromium` 与 `npm run test:e2e`，使用模拟 API。CI 在 Windows/Linux 使用 Python 3.12 验证后端，并在 Linux 使用 Node.js 24 验证前端与浏览器。测试中的 `offline-test` 不是可用于真实游玩的密钥。
 
 ```text
 src/storyloop_platform/  API、SQL、配置、模型适配、计费和 CLI

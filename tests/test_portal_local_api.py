@@ -19,7 +19,7 @@ from storyloop_platform.portal.http_api import create_app
 from storyloop_platform.portal import local_config
 from storyloop_platform.portal.local_config import LocalPreferences
 from storyloop_platform.config import load_settings
-from storyloop_platform.portal.service import PlayerPortal
+from storyloop_platform.bootstrap import build_portal
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +50,7 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
             os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": ""},
         ):
-            portal = PlayerPortal(ROOT / "examples" / "catalog.json",
+            portal = build_portal(ROOT / "examples" / "catalog.json",
                                   load_settings(ROOT / "config" / "local.json"), str(Path(temp) / "game.sqlite3"))
             token = portal.register("offline-user", "stream-pass-123")["token"]
 
@@ -79,7 +79,7 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
             os.environ, {"STORY_MODEL_API_KEY": "offline-test", "LANGFUSE_PUBLIC_KEY": "",
                          "LANGFUSE_SECRET_KEY": ""},
         ):
-            portal = PlayerPortal(ROOT / "examples" / "catalog.json",
+            portal = build_portal(ROOT / "examples" / "catalog.json",
                                   load_settings(ROOT / "config" / "local.json"), str(Path(temp) / "game.sqlite3"))
             token = portal.register("stream-user", "stream-pass-123")["token"]
 
@@ -87,8 +87,13 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
                 self.assertEqual((auth, game_id, text, request_id),
                                  (token, "sample", "你好", "request-1"))
                 await progress({"type": "stage", "stage": "thinking"})
-                await progress({"type": "preview", "segments": [{"kind": "dialogue", "text": "你好！"}]})
-                return {"body": "你好！", "segments": [{"kind": "dialogue", "text": "你好！"}]}
+                await progress({"type": "preview", "body": "你好！", "segments": [{"kind": "dialogue", "text": "你好！"}]})
+                return {"game_id": game_id, "catalog_id": "npc-chat", "mode": "freeform",
+                        "presentation_mode": "interactive", "opening": "", "body": "你好！",
+                        "segments": [{"kind": "dialogue", "text": "你好！"}], "interaction": None,
+                        "suggestions": [], "action_options": [], "status_fields": [], "tick": 1,
+                        "state_version": 1, "day": None, "time_of_day": None,
+                        "complete": False, "turn_id": "portal-request-1"}
 
             portal.turn = scripted_turn
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
@@ -115,7 +120,7 @@ class PortalLocalApiSmokeTest(unittest.TestCase):
             preferences = LocalPreferences(Path(temp) / "settings")
             preferences.save_settings(catalog, config, db)
             preferences.save_model_key("STORY_MODEL_API_KEY", "offline-test")
-            portal = PlayerPortal(catalog, load_settings(config), str(db))
+            portal = build_portal(catalog, load_settings(config), str(db))
 
             with TestClient(create_app(portal), base_url="http://127.0.0.1") as client:
                 self.assertEqual(client.get("/docs").status_code, 200)
